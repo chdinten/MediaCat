@@ -1,0 +1,62 @@
+# Caddyfile — MediaCat reverse proxy.
+#
+# In dev  (PUBLIC_SCHEME=http): plain HTTP, no cert management.
+# In prod (PUBLIC_SCHEME=https): automatic ACME TLS via Let's Encrypt.
+#
+# Environment variables are substituted by Caddy at startup.
+
+{
+	# Global options
+	admin off                        # disable the admin API in production
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$PUBLIC_HOSTNAME:mediacat.localhost} {
+	# ----- Security headers -----
+	header {
+		Strict-Transport-Security  "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options     "nosniff"
+		X-Frame-Options            "DENY"
+		Referrer-Policy            "strict-origin-when-cross-origin"
+		Permissions-Policy         "camera=(), microphone=(), geolocation=()"
+		# CSP is set by the app itself (per-response), so we don't override here.
+		-Server
+		-X-Powered-By
+	}
+
+	# ----- Rate limiting (global) -----
+	# Caddy rate-limit module (caddy-docker images often include it).
+	# If not available, comment this block; the app has its own rate limiter.
+	# rate_limit {remote.host} 60r/m
+
+	# ----- Reverse proxy to the app container -----
+	reverse_proxy app:8000 {
+		# Propagate real client IP
+		header_up X-Real-IP        {remote_host}
+		header_up X-Forwarded-For  {remote_host}
+		header_up X-Request-ID     {http.request.uuid}
+
+		# Health check on the upstream
+		health_uri  /healthz
+		health_interval 15s
+		health_timeout  5s
+		health_status  200
+
+		# Buffer limits
+		flush_interval -1
+	}
+
+	# ----- Logs -----
+	log {
+		output stdout
+		format json
+	}
+}
+
+# MinIO console — separate subdomain, optional.
+minio.{$PUBLIC_HOSTNAME:mediacat.localhost} {
+	reverse_proxy minio:9001
+}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Token {{ token.id[:8] }}… — MediaCat{% endblock %}
+
+{% block content %}
+<h1>{{ token.get('title', 'Untitled') }}</h1>
+<p>{{ token.get('artist', '') }}</p>
+
+<section class="token-meta">
+    <dl>
+        <dt>ID</dt><dd>{{ token.id }}</dd>
+        <dt>Format</dt><dd>{{ token.get('media_format', '') }}</dd>
+        <dt>Status</dt><dd>{{ token.get('status', '') }}</dd>
+    </dl>
+</section>
+
+{% if revisions %}
+<section>
+    <h2>Revision history</h2>
+    <ol class="revision-timeline">
+        {% for rev in revisions %}
+        <li>
+            <strong>Rev {{ rev.revision_number }}</strong>
+            ({{ rev.source }}, {{ rev.created_at }})
+            {% if rev.comment %}<p>{{ rev.comment }}</p>{% endif %}
+        </li>
+        {% endfor %}
+    </ol>
+</section>
+{% endif %}
+
+{% if media_objects %}
+<section>
+    <h2>Media</h2>
+    <div class="media-grid">
+        {% for mo in media_objects %}
+        <figure>
+            <img src="/api/media/{{ mo.id }}" alt="{{ mo.region or 'media' }}"
+                 loading="lazy" width="200">
+            <figcaption>{{ mo.region or 'Unknown region' }}</figcaption>
+        </figure>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+{% endblock %}

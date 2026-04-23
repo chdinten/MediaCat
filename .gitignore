@@ -1,0 +1,15 @@
+# Claude Code internal state
+.claude/
+
+# Word temporary lock files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Sensitive / generated artefacts at repo root
+DUE_DILIGENCE_REPORT.pdf

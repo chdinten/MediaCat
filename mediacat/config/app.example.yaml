@@ -1,0 +1,134 @@
+# Application configuration.
+# Copy to config/app.yaml; keep it free of secrets.
+# Schema is validated on startup by mediacat.config.loader (Section 4+).
+
+app:
+  name: mediacat
+  environment: dev              # dev | staging | prod
+  log_level: INFO               # DEBUG | INFO | WARNING | ERROR
+  log_format: json              # json | text
+  request_id_header: X-Request-ID
+
+server:
+  host: 0.0.0.0                 # inside container; only the reverse proxy is exposed
+  port: 8000
+  workers: 2
+  # Trusted proxies for X-Forwarded-* (Caddy inside the same docker network).
+  trusted_proxies:
+    - 172.16.0.0/12
+  # Hard limits on inbound payloads.
+  max_request_bytes: 16_777_216 # 16 MiB
+  max_upload_bytes: 104_857_600 # 100 MiB (images)
+
+security:
+  # Session cookie hardening (Section 9 enforces these via middleware).
+  cookie:
+    secure: true
+    http_only: true
+    same_site: lax
+  # Strict CSP for the review UI.
+  csp: >
+    default-src 'self';
+    img-src 'self' data: blob:;
+    style-src 'self' 'unsafe-inline';
+    script-src 'self';
+    connect-src 'self';
+    frame-ancestors 'none';
+    form-action 'self';
+    base-uri 'self'
+  hsts_max_age_seconds: 63072000
+  referrer_policy: strict-origin-when-cross-origin
+  # Argon2id parameters; tune on the target host.
+  password_hash:
+    algorithm: argon2id
+    time_cost: 3
+    memory_cost_kib: 65536
+    parallelism: 2
+  # Login hardening.
+  login:
+    rate_limit_per_minute: 5
+    lockout_threshold: 10
+    lockout_window_seconds: 900
+    mfa_required_for_roles: [admin, reviewer]
+  # JWT is used only for service-to-service calls; UI sessions are cookie-based.
+  service_jwt:
+    issuer: urn:mediacat:internal
+    audience: urn:mediacat:services
+    ttl_seconds: 600
+
+postgres:
+  host: postgres
+  port: 5432
+  database: mediacat
+  user: mediacat_app
+  # password resolved from secret file: /run/secrets/postgres_app_password
+  sslmode: disable              # internal network; upgrade to verify-full when mTLS is added
+  pool:
+    min_size: 2
+    max_size: 10
+    timeout_seconds: 30
+
+object_store:
+  endpoint: http://minio:9000
+  region: us-east-1
+  access_key: mediacat_admin
+  # secret_key resolved from secret file: /run/secrets/minio_root_password
+  buckets:
+    media_originals: media-originals
+    ocr_artifacts: ocr-artifacts
+    backups: backups
+  use_path_style: true
+
+redis:
+  url: redis://redis:6379/0
+  # password resolved from secret file: /run/secrets/redis_password
+
+ingestion:
+  default_timeout_seconds: 30
+  retry:
+    max_attempts: 5
+    base_delay_seconds: 1.0
+    max_delay_seconds: 60.0
+  circuit_breaker:
+    failure_threshold: 5
+    recovery_seconds: 60
+
+ocr:
+  primary: tesseract
+  tesseract:
+    languages: [eng, deu, fra, ita, jpn, chi_sim, chi_tra, kor, rus]
+    psm: 6
+  fallback_api: null            # e.g. azure-ocr | aws-textract when enabled
+
+translation:
+  target: en-GB
+  primary: local_llm
+  fallback: api_llm
+
+vision:
+  primary: local_vlm            # Ollama / local VLM adapter
+  fallback: api_vlm             # Anthropic / OpenAI adapter
+  tasks: [label, obi, runout]
+  max_candidates: 10
+
+llm:
+  primary: local
+  fallback: api
+  # Per-task models are resolved at runtime; see Section 7.
+  tasks:
+    comparison:       { temperature: 0.0, max_output_tokens: 1024 }
+    anomaly:          { temperature: 0.0, max_output_tokens: 512 }
+    translation:      { temperature: 0.0, max_output_tokens: 2048 }
+    text_generation:  { temperature: 0.3, max_output_tokens: 1024 }
+
+rule_engine:
+  backend: opa                  # opa | business_rules (see ADR-0003)
+  opa:
+    url: http://opa:8181
+    bundle_path: /bundles/mediacat
+  external_api: null            # placeholder for future external engine
+
+observability:
+  metrics_enabled: true
+  tracing_enabled: false
+  sentry_dsn: null

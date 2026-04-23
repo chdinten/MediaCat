@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MediaCat{% endblock %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <span class="stat-value">{{ stats.tokens }}</span>
+        <span class="stat-label">Tokens</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ stats.reviews_pending }}</span>
+        <span class="stat-label">Pending reviews</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ stats.jobs_running }}</span>
+        <span class="stat-label">Running jobs</span>
+    </div>
+</div>
+
+<section>
+    <h2>Pending reviews</h2>
+    <div hx-get="/reviews?status=pending" hx-trigger="load" hx-target="#pending-reviews">
+        <p>Loading…</p>
+    </div>
+    <div id="pending-reviews"></div>
+</section>
+{% endblock %}

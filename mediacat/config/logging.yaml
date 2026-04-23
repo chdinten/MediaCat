@@ -1,0 +1,51 @@
+# Python logging configuration, dictConfig schema.
+# Loaded at app startup; safe for every process (web, worker, CLI).
+
+version: 1
+disable_existing_loggers: false
+
+filters:
+  request_id:
+    (): mediacat.logging_filters.RequestIdFilter
+  redact_secrets:
+    (): mediacat.logging_filters.SecretRedactFilter
+
+formatters:
+  json:
+    (): mediacat.logging_filters.JsonFormatter
+    fmt_keys:
+      timestamp: asctime
+      level: levelname
+      logger: name
+      message: message
+      request_id: request_id
+      module: module
+      func: funcName
+      line: lineno
+  text:
+    format: "%(asctime)s %(levelname)s [%(name)s] %(request_id)s %(message)s"
+
+handlers:
+  stdout:
+    class: logging.StreamHandler
+    stream: ext://sys.stdout
+    formatter: json
+    filters: [request_id, redact_secrets]
+
+root:
+  level: INFO
+  handlers: [stdout]
+
+loggers:
+  uvicorn:
+    level: INFO
+    propagate: true
+  uvicorn.access:
+    level: WARNING   # our own access middleware emits richer JSON
+    propagate: true
+  sqlalchemy.engine:
+    level: WARNING
+    propagate: true
+  httpx:
+    level: WARNING
+    propagate: true

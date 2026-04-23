@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# secrets-init.sh — generate initial secret files for the dev stack.
+#
+# Writes random passwords into ${MEDIACAT_DATA_ROOT}/secrets/.
+# NEVER overwrites existing files — safe to re-run.
+# For production, replace with Vault / SOPS / cloud KMS workflow.
+set -Eeuo pipefail
+
+: "${MEDIACAT_DATA_ROOT:=/srv/mediacat}"
+SECRETS_DIR="${MEDIACAT_DATA_ROOT}/secrets"
+
+say() { printf '[secrets-init] %s\n' "$*"; }
+
+if [[ "$(id -u)" -eq 0 ]]; then
+    echo "Do not run as root. sudo is used internally." >&2; exit 1
+fi
+
+# Ensure directory exists with correct perms
+sudo install -d -m 0700 -o root -g root "$SECRETS_DIR"
+
+gen_secret() {
+    local name="$1"
+    local file="${SECRETS_DIR}/${name}"
+    if sudo test -f "$file"; then
+        say "SKIP  $name (already exists)"
+    else
+        local pw
+        pw="$(openssl rand -base64 32 | tr -d '\n=')"
+        echo -n "$pw" | sudo tee "$file" >/dev/null
+        sudo chmod 0600 "$file"
+        sudo chown root:root "$file"
+        say "WROTE $name ($(echo -n "$pw" | wc -c) chars)"
+    fi
+}
+
+gen_secret postgres_password
+gen_secret postgres_app_password
+gen_secret minio_root_password
+gen_secret redis_password
+
+say ""
+say "Secrets directory:"
+sudo ls -la "$SECRETS_DIR"
+say ""
+say "Done. These are random dev passwords."
+say "For production, replace with secrets from your KMS / Vault."

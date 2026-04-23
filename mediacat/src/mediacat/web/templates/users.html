@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Users — MediaCat{% endblock %}
+
+{% block content %}
+<h1>User management</h1>
+
+<a href="/users/new" class="btn">Create user</a>
+
+<table class="data-table" style="margin-top: 1rem;">
+    <thead>
+        <tr>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Active</th>
+            <th>Last login</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr>
+            <td>{{ u.username }}</td>
+            <td>{{ u.email }}</td>
+            <td><span class="badge badge-{{ u.role }}">{{ u.role }}</span></td>
+            <td>{% if u.is_active %}Yes{% else %}No{% endif %}</td>
+            <td>{{ u.get('last_login_at', '') or 'Never' }}</td>
+            <td>
+                {% if u.is_active %}
+                <form method="post" action="/users/{{ u.id }}/deactivate" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-danger" style="padding:0.3rem 0.6rem; font-size:0.8rem;">Deactivate</button>
+                </form>
+                {% else %}
+                <form method="post" action="/users/{{ u.id }}/activate" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-success" style="padding:0.3rem 0.6rem; font-size:0.8rem;">Activate</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

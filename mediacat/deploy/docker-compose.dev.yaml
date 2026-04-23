@@ -1,0 +1,59 @@
+# docker-compose.dev.yaml — development overrides.
+#
+# Applied automatically by scripts/dev-up.sh when MEDIACAT_ENV=dev.
+# Adds source-mount for live reload and exposes debug ports.
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: runtime
+    volumes:
+      - ../src:/app/src:ro                # live source mount
+      - ../config/app.yaml:/app/config/app.yaml:ro
+      - ../config/connectors.yaml:/app/config/connectors.yaml:ro
+    command:
+      - python
+      - "-m"
+      - uvicorn
+      - mediacat.web.app:create_app
+      - --factory
+      - --host=0.0.0.0
+      - --port=8000
+      - --reload
+      - --reload-dir=/app/src
+      - --log-config=/app/config/logging.yaml
+      - --proxy-headers
+      - --forwarded-allow-ips=*
+    environment:
+      MEDIACAT_ENV: dev
+      PYTHONPATH: /app/src
+    # Relax read-only for reload watcher
+    read_only: false
+
+  worker:
+    volumes:
+      - ../src:/app/src:ro
+      - ../config/app.yaml:/app/config/app.yaml:ro
+      - ../config/connectors.yaml:/app/config/connectors.yaml:ro
+    environment:
+      MEDIACAT_ENV: dev
+      PYTHONPATH: /app/src
+    read_only: false
+
+  # Postgres exposed on host for psql convenience
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # MinIO console exposed
+  minio:
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+  # Redis exposed
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

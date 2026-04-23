@@ -1,0 +1,51 @@
+# Ingestion connector definitions.
+# Copy to config/connectors.yaml. Never commit with real credentials.
+# Credentials are resolved from Docker secrets, not from this file.
+#
+# Full schema is validated in Section 5 (mediacat.ingestion.config).
+
+connectors:
+
+  - name: discogs
+    kind: http_api
+    enabled: true
+    base_url: https://api.discogs.com
+    auth:
+      scheme: token
+      secret_file: /run/secrets/discogs_token
+    rate_limit:
+      requests_per_minute: 55   # Discogs authenticated limit is 60/min; leave headroom.
+    user_agent: "MediaCat/0.1 (+https://example.invalid/mediacat)"
+    endpoints:
+      search_release: /database/search
+      release_by_id: /releases/{id}
+      master_by_id:  /masters/{id}
+    schema:
+      # LLM-assisted drift detection compares live responses against this.
+      snapshot_file: config/schema_snapshots/discogs.json
+
+  - name: musicbrainz
+    kind: http_api
+    enabled: true
+    base_url: https://musicbrainz.org/ws/2
+    auth:
+      scheme: none
+    rate_limit:
+      requests_per_minute: 50   # MB anonymous limit.
+    user_agent: "MediaCat/0.1 (+https://example.invalid/mediacat)"
+    endpoints:
+      release_by_id: /release/{id}
+      release_search: /release
+    schema:
+      snapshot_file: config/schema_snapshots/musicbrainz.json
+
+  # Example of a disabled connector stub.
+  - name: coverartarchive
+    kind: http_api
+    enabled: false
+    base_url: https://coverartarchive.org
+    auth: { scheme: none }
+    rate_limit: { requests_per_minute: 60 }
+    user_agent: "MediaCat/0.1"
+    endpoints:
+      release: /release/{mbid}

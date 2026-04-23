@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Build
+build/
+dist/
+site/
+docs/reference/
+
+# Testing / coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Secrets / local config -- MUST NOT be committed
+.env
+.env.*
+!.env.example
+config/app.yaml
+config/connectors.yaml
+config/schema_snapshots/*.json
+secrets/
+*.pem
+*.key
+*.crt
+!ci-fixture.*
+
+# Editor / OS
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local overrides
+deploy/docker-compose.override.yaml

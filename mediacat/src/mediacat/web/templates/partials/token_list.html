@@ -1,0 +1,26 @@
+{% if tokens %}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Format</th>
+            <th>Year</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for t in tokens %}
+        <tr>
+            <td><a href="/tokens/{{ t.id }}">{{ t.title or 'Untitled' }}</a></td>
+            <td>{{ t.artist or '' }}</td>
+            <td>{{ t.media_format }}</td>
+            <td>{{ t.year or '' }}</td>
+            <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty-state">No tokens found.</p>
+{% endif %}

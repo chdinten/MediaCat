@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Reviews — MediaCat{% endblock %}
+
+{% block content %}
+<h1>Review queue</h1>
+
+<div class="filter-bar">
+    <a href="/reviews?status=pending"
+       class="{% if current_status == 'pending' %}active{% endif %}"
+       hx-get="/reviews?status=pending" hx-target="#review-table" hx-push-url="true">
+        Pending</a>
+    <a href="/reviews?status=in_progress"
+       class="{% if current_status == 'in_progress' %}active{% endif %}"
+       hx-get="/reviews?status=in_progress" hx-target="#review-table" hx-push-url="true">
+        In progress</a>
+    <a href="/reviews?status=approved"
+       class="{% if current_status == 'approved' %}active{% endif %}"
+       hx-get="/reviews?status=approved" hx-target="#review-table" hx-push-url="true">
+        Approved</a>
+    <a href="/reviews?status=rejected"
+       class="{% if current_status == 'rejected' %}active{% endif %}"
+       hx-get="/reviews?status=rejected" hx-target="#review-table" hx-push-url="true">
+        Rejected</a>
+</div>
+
+<div id="review-table">
+    {% include "partials/review_list.html" %}
+</div>
+{% endblock %}

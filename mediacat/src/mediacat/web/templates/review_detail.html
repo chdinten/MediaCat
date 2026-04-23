@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Review {{ review.id[:8] }}… — MediaCat{% endblock %}
+
+{% block content %}
+<h1>Review {{ review.id[:8] }}…</h1>
+<span class="badge badge-{{ review.status }}">{{ review.status }}</span>
+
+{% if token %}
+<section class="review-token">
+    <h2>Token: {{ token.title or 'Untitled' }}</h2>
+    <p>{{ token.artist or '' }} · {{ token.media_format or '' }} · {{ token.year or '' }}</p>
+</section>
+{% endif %}
+
+{% if revisions %}
+<section class="revision-diff">
+    <h2>Revision diff</h2>
+    <div class="diff-view">
+        {% for rev in revisions %}
+        <div class="revision-card">
+            <h3>Rev {{ rev.revision_number }} ({{ rev.source }})</h3>
+            <pre>{{ rev.data | tojson(indent=2) }}</pre>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if review.status == 'pending' %}
+<section class="review-actions">
+    <h2>Actions</h2>
+
+    <form method="post" action="/reviews/{{ review.id }}/approve"
+          hx-post="/reviews/{{ review.id }}/approve"
+          hx-target="#action-result" hx-swap="innerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="approve-comment">Comment (optional)</label>
+        <textarea id="approve-comment" name="comment" rows="2" maxlength="1000"></textarea>
+        <button type="submit" class="btn btn-success">Approve</button>
+    </form>
+
+    <form method="post" action="/reviews/{{ review.id }}/reject"
+          hx-post="/reviews/{{ review.id }}/reject"
+          hx-target="#action-result" hx-swap="innerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="reject-comment">Reason for rejection</label>
+        <textarea id="reject-comment" name="comment" rows="2" maxlength="1000"></textarea>
+        <button type="submit" class="btn btn-danger">Reject</button>
+    </form>
+
+    <div id="action-result"></div>
+</section>
+{% endif %}
+{% endblock %}

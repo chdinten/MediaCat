@@ -1,0 +1,80 @@
+# MkDocs configuration. Invoked via `make docs-build` / `make docs-serve`.
+# Live file is docs/mkdocs.yml so `mkdocs serve -f docs/mkdocs.yml` works
+# from the repo root.
+site_name: MediaCat
+site_description: Cataloging platform for physical music media.
+site_url: https://example.invalid/mediacat/
+docs_dir: .
+site_dir: ../site
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - toc.integrate
+    - content.code.copy
+    - content.tabs.link
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mermaid2
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid_custom
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Overview: index.md
+  - Architecture: architecture.md
+  - Sections:
+      - 'Section 1 — Bootstrap & scaffolding': sections/01-bootstrap.md
+      - 'Section 2 — Docker stack': sections/02-docker-stack.md
+      - 'Section 3 — Database schema': sections/03-database.md
+      - 'Section 4 — Storage + OCR + Translation': sections/04-storage.md
+      - 'Section 5 — Ingestion framework': sections/05-ingestion.md
+      - 'Section 6 — Rule engine': sections/06-rules.md
+      - 'Section 7 — LLM adapters': sections/07-llm.md
+      - 'Section 8 — Vision adapters': sections/08-vision.md
+      - 'Section 9 — Web UI': sections/09-web.md
+      - 'Section 10 — Security hardening': sections/10-security.md
+  - ADRs:
+      - 'ADR-0001 Media scope — vinyl + CD': adr/0001-media-scope.md
+      - 'ADR-0002 Hybrid vision + LLM deployment': adr/0002-hybrid-ai.md
+      - 'ADR-0003 Rule engine — OPA (default)': adr/0003-rule-engine.md
+      - 'ADR-0004 Data/code separation': adr/0004-data-code-separation.md
+      - 'ADR-0005 Web UI — FastAPI + Jinja + HTMX': adr/0005-web-stack.md
+  - Runbooks: runbooks/
+  - API reference: reference/mediacat.html

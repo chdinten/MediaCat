@@ -1,0 +1,26 @@
+{% if reviews %}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Token</th>
+            <th>Reason</th>
+            <th>Priority</th>
+            <th>Created</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in reviews %}
+        <tr>
+            <td>{{ r.token_id[:8] }}…</td>
+            <td><span class="badge badge-{{ r.reason }}">{{ r.reason }}</span></td>
+            <td>{{ r.priority }}</td>
+            <td>{{ r.created_at }}</td>
+            <td><a href="/reviews/{{ r.id }}">Review</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty-state">No reviews matching this filter.</p>
+{% endif %}

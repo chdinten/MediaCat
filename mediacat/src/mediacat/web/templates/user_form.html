@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Create user — MediaCat{% endblock %}
+
+{% block content %}
+<div class="auth-card" style="max-width: 480px;">
+    <h1>Create user</h1>
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/users/new">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required
+               maxlength="150" pattern="[a-zA-Z0-9._-]+"
+               title="Letters, numbers, dots, hyphens, underscores only">
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required maxlength="254">
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required
+               minlength="8" maxlength="128">
+
+        <label for="role">Role</label>
+        <select id="role" name="role">
+            {% for r in roles %}
+            <option value="{{ r }}">{{ r | capitalize }}</option>
+            {% endfor %}
+        </select>
+
+        <button type="submit">Create user</button>
+        <a href="/users" style="margin-left: 1rem;">Cancel</a>
+    </form>
+</div>
+{% endblock %}
