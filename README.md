@@ -113,6 +113,27 @@ ${MEDIACAT_DATA_ROOT}/
 └── open-webui/       Open WebUI data (if Ollama enabled)
 ```
 
+## Stack manager script
+
+`mediacat/scripts/mediacat-ctl.sh` is an interactive terminal menu for managing the
+Docker Compose stack from WSL2 — a convenient alternative to memorising individual
+`docker compose` commands.
+
+Copy it to your home directory, set `PROJ_DIR` on line 11 to your local path, make it
+executable, and run it:
+
+```bash
+cp mediacat/scripts/mediacat-ctl.sh ~/mediacat-ctl.sh
+# edit PROJ_DIR="/mnt/c/path/to/your/mediacat" on line 11
+chmod +x ~/mediacat-ctl.sh
+~/mediacat-ctl.sh
+```
+
+The menu covers 36 operations across five groups: start/stop/restart, image rebuilds,
+per-service restarts, database migrations, log tailing, and destructive cleanup.
+Dangerous options (volume removal, full system prune) require an explicit `y` confirmation.
+Full option reference: `mediacat/scripts/mediacat-ctl.md`.
+
 ## Common make targets
 
 | Target | Description |
