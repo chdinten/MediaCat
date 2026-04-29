@@ -7,6 +7,8 @@
     <!-- theme.js runs synchronously before paint to prevent flash -->
     <script src="/static/theme.js"></script>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/forms.js" defer></script>
     <meta name="csrf-token" content="{{ csrf_token }}">
@@ -14,8 +16,11 @@
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
 
-    <nav class="navbar">
-        <a href="/" class="nav-brand">MediaCat</a>
+    <nav class="navbar" id="navbar">
+        <a href="/" class="nav-brand">
+            <div class="nav-brand-disc" aria-hidden="true"></div>
+            <span class="nav-brand-name">Media<span>Cat</span></span>
+        </a>
 
         {% if user and user.get('user_id') %}
         <div class="nav-links">

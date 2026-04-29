@@ -15,5 +15,19 @@
     document.addEventListener('DOMContentLoaded', function () {
         var btn = document.getElementById('theme-toggle');
         if (btn) btn.addEventListener('click', toggle);
+
+        // Navbar scroll transparency effect
+        var navbar = document.getElementById('navbar');
+        if (navbar) {
+            function updateNavbar() {
+                if (window.scrollY > 32) {
+                    navbar.classList.add('navbar--scrolled');
+                } else {
+                    navbar.classList.remove('navbar--scrolled');
+                }
+            }
+            updateNavbar();
+            window.addEventListener('scroll', updateNavbar, { passive: true });
+        }
     });
 })();
