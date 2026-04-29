@@ -2600,3 +2600,98 @@ h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
 .mf-source--vision { background: var(--accent-dim); color: var(--accent-light); }
 
 dialog, .modal { border-radius: 0; background: var(--bg-elevated); border: 1px solid var(--border); }
+
+/* ── Catalogue page — artist & album cards ───────────────── */
+.page-header h1 { font-family: var(--font-serif); letter-spacing: -0.02em; }
+
+.artist-card { border-radius: 0; }
+.artist-card-header { border-left: 2px solid transparent; transition: border-color var(--transition), background var(--transition); }
+.artist-card:hover .artist-card-header,
+.artist-card--active .artist-card-header { border-left-color: var(--accent); }
+
+.artist-card-header .artist-name { font-family: var(--font-serif); font-style: italic; font-size: 1rem; }
+
+.album-grid-card { border-radius: 0; border-left: 2px solid transparent; border-top: none; border-right: none; border-bottom: none; border-color: transparent; background: var(--surface); }
+.album-grid-card:hover { background: var(--surface-high); border-left-color: var(--accent-light); }
+.album-grid-card--active { background: var(--accent-dim); border-left-color: var(--accent); }
+.album-grid-title { font-family: var(--font-serif); font-size: 0.95rem; font-weight: 600; letter-spacing: -0.01em; }
+.album-grid-meta { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Pressing detail — editorial header ──────────────────── */
+.detail-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.detail-header::before {
+    content: '';
+    display: block;
+    width: 2rem;
+    height: 1px;
+    background: var(--accent);
+    margin-bottom: 0.5rem;
+}
+.detail-header h2.artist-name {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 1.15rem;
+    font-weight: 400;
+    color: var(--text-muted);
+    letter-spacing: 0;
+    order: -1;
+}
+.detail-header h1 {
+    font-family: var(--font-serif);
+    font-optical-sizing: auto;
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--text);
+}
+.detail-meta-row {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.cover-image {
+    border-radius: 0;
+    box-shadow: var(--card-shadow);
+    border: none;
+    position: relative;
+}
+.cover-image::after {
+    content: '';
+    position: absolute;
+    inset-y: 0; left: 0;
+    width: 1px;
+    background: rgba(255,255,255,0.1);
+    pointer-events: none;
+}
+
+/* ── Light mode overrides ────────────────────────────────── */
+[data-theme="light"] .hero-lamp-wash {
+    background: radial-gradient(ellipse at 20% 0%, hsl(38 80% 62% / 0.18), transparent 55%);
+}
+[data-theme="light"] .hero-fade {
+    background: linear-gradient(180deg, transparent 0%, hsl(40 28% 92% / 0.55) 55%, hsl(40 28% 92%) 100%);
+}
+[data-theme="light"] .hero-vignette {
+    background: linear-gradient(90deg, hsl(40 28% 92%) 0%, hsl(40 28% 92% / 0.45) 40%, transparent 70%);
+}
+[data-theme="light"] .hero h1 { color: hsl(24 20% 12%); }
+[data-theme="light"] .hero p   { color: hsl(24 12% 30%); }
+[data-theme="light"] .hero-eyebrow { color: var(--copper); }
+[data-theme="light"] .hero-eyebrow-line { background: hsl(18 55% 42% / 0.6); }
+[data-theme="light"] .vinyl-disc {
+    background: radial-gradient(circle, hsl(30 10% 72%) 0%, hsl(30 8% 62%) 45%, hsl(30 10% 58%) 100%);
+}
+[data-theme="light"] .vinyl-label { background: linear-gradient(135deg, hsl(36 50% 55%), hsl(28 45% 40%)); }
+[data-theme="light"] .vinyl-spindle { background: var(--bg); }
+[data-theme="light"] .btn-ghost { background: rgba(255,255,255,0.7); }
+[data-theme="light"] .cover-image::after { background: rgba(0,0,0,0.06); }
