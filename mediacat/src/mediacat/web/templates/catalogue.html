@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Catalogue — MediaCat{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Catalogue</h1>
+    <div class="page-actions">
+        <a href="/catalogue/new" class="btn btn-primary">+ Add pressing</a>
+        <a href="/catalogue/merge" class="btn btn-ghost">Merge duplicates</a>
+    </div>
+</div>
+
+<div class="search-bar">
+    <form action="/catalogue" method="get" class="search-form">
+        <input type="text" name="q" value="{{ query }}" placeholder="Search artist or title…"
+               class="search-input" autocomplete="off">
+        <select name="fmt" class="filter-select">
+            <option value="">All formats</option>
+            <option value="vinyl" {% if fmt_filter == 'vinyl' %}selected{% endif %}>Vinyl</option>
+            <option value="cd" {% if fmt_filter == 'cd' %}selected{% endif %}>CD</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if query or fmt_filter %}
+        <a href="/catalogue" class="btn btn-ghost">Clear</a>
+        {% endif %}
+    </form>
+
+    <details class="external-search">
+        <summary>Search Discogs / MusicBrainz</summary>
+        <div id="ext-search-wrap" class="ext-search-row">
+            <input type="text" id="ext-q" name="q" placeholder="Artist, title, catalogue no…"
+                   class="search-input" autocomplete="off">
+            <select name="source" class="filter-select">
+                <option value="discogs">Discogs</option>
+                <option value="musicbrainz">MusicBrainz</option>
+            </select>
+            <select name="limit" class="filter-select" title="Number of results">
+                <option value="10">10 results</option>
+                <option value="25">25 results</option>
+                <option value="50">50 results</option>
+            </select>
+            <input type="number" name="year" placeholder="Year" title="Filter by year (Discogs only)"
+                   class="filter-select" min="1900" max="2100" style="width:6.5rem">
+            <input type="text" name="country" placeholder="Country" title="Filter by country (Discogs only)"
+                   class="filter-select" style="width:7.5rem" maxlength="100">
+            <button type="button" class="btn btn-ghost"
+                    hx-get="/catalogue/search"
+                    hx-include="#ext-search-wrap"
+                    hx-target="#ext-results"
+                    hx-indicator="#ext-spinner">Search</button>
+            <span id="ext-spinner" class="htmx-indicator text-muted">Searching…</span>
+        </div>
+        <div id="ext-results" class="ext-results"></div>
+    </details>
+</div>
+
+{% if db_error %}
+<div class="alert alert-danger">
+    <strong>Database not ready.</strong>
+    <p>The catalogue tables do not exist yet. Run the following command from the project root, then reload this page:</p>
+    <pre class="alert-cmd">make db-migrate</pre>
+    <p class="text-muted" style="font-size:0.85em">Or directly: <code>docker compose --env-file .env -f deploy/docker-compose.yaml exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat app python -m alembic -c alembic.ini upgrade head</code></p>
+</div>
+{% elif artists %}
+<div class="artist-grid" id="artist-grid">
+    {% for a in artists %}
+    <div class="artist-card" id="artist-{{ loop.index }}">
+        <div class="artist-card-header"
+             data-artist="{{ a.name }}"
+             hx-get="/catalogue/artists/{{ a.enc }}/albums"
+             hx-target="#album-panel"
+             hx-swap="innerHTML"
+             hx-on:htmx:before-request="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.artist-card').forEach(c=>c.classList.remove('artist-card--active'));this.closest('.artist-card').classList.add('artist-card--active')"
+             style="cursor:pointer">
+            <div class="artist-name">{{ a.name }}</div>
+            <div class="artist-meta">
+                {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
+                {% if a.year_range %}&nbsp;·&nbsp;{{ a.year_range }}{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{# Full-width album panel — loaded via HTMX when an artist card is clicked #}
+<div id="album-panel" class="album-panel"></div>
+
+{# Full-width pressing panel — loaded via HTMX when an album card is clicked #}
+<div id="pressing-panel" class="pressing-panel"></div>
+
+{% if open_artist %}
+<script>
+(function () {
+    var target = {{ open_artist | tojson }};
+    var card = Array.from(document.querySelectorAll('.artist-card-header'))
+        .find(function (el) { return el.dataset.artist === target; });
+    if (!card) return;
+    card.closest('.artist-card').classList.add('artist-card--active');
+    htmx.ajax('GET', '/catalogue/artists/{{ open_artist_enc }}/albums',
+              {target: '#album-panel', swap: 'innerHTML'});
+}());
+</script>
+{% endif %}
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="?q={{ query }}&fmt={{ fmt_filter }}&page={{ page - 1 }}" class="btn btn-ghost">← Prev</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="?q={{ query }}&fmt={{ fmt_filter }}&page={{ page + 1 }}" class="btn btn-ghost">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% elif not db_error %}
+<div class="empty-state">
+    <p class="text-muted">
+        {% if query %}No pressings found for "{{ query }}".{% else %}No pressings catalogued yet.{% endif %}
+    </p>
+    <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+</div>
+{% endif %}
+{% endblock %}

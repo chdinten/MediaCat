@@ -16,10 +16,18 @@ if [[ ! -f config/app.yaml ]]; then
     exit 1
 fi
 
-COMPOSE_FILES=(-f deploy/docker-compose.yaml)
+COMPOSE_FILES=(--env-file .env -f deploy/docker-compose.yaml)
 if [[ "$MEDIACAT_ENV" == "dev" && -f deploy/docker-compose.dev.yaml ]]; then
     COMPOSE_FILES+=(-f deploy/docker-compose.dev.yaml)
 fi
 
+PROFILES=()
+if [[ "${MEDIACAT_OLLAMA:-0}" == "1" ]]; then
+    PROFILES+=(--profile ollama)
+    if [[ "${MEDIACAT_OLLAMA_GPU:-0}" == "1" ]]; then
+        COMPOSE_FILES+=(-f deploy/docker-compose.gpu.yaml)
+    fi
+fi
+
 docker compose "${COMPOSE_FILES[@]}" config -q
-exec docker compose "${COMPOSE_FILES[@]}" up -d --remove-orphans "$@"
+exec docker compose "${COMPOSE_FILES[@]}" "${PROFILES[@]}" up -d --remove-orphans "$@"

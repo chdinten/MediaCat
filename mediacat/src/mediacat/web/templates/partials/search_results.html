@@ -1,0 +1,30 @@
+{% if error %}
+<div class="alert alert-warning">{{ error }}</div>
+{% elif results %}
+<ul class="search-result-list">
+    {% for r in results %}
+    <li class="search-result-item">
+        <div class="result-title">{{ r.title }}</div>
+        <div class="result-meta">
+            {% if r.year %}{{ r.year }}{% endif %}
+            {% if r.label %}&nbsp;·&nbsp;{{ r.label }}{% endif %}
+            {% if r.country %}&nbsp;·&nbsp;{{ r.country }}{% endif %}
+            {% if r.format %}&nbsp;·&nbsp;{{ r.format }}{% endif %}
+            <span class="badge-source">{{ r.source }}</span>
+        </div>
+        <div class="result-actions">
+            {% if r.url %}
+            <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer"
+               class="btn btn-ghost btn-sm">View on {{ r.source }}</a>
+            {% endif %}
+            {% if r.id %}
+            <a href="/catalogue/import/{{ r.source }}/{{ r.id }}"
+               class="btn btn-primary btn-sm">Import into MediaCat</a>
+            {% endif %}
+        </div>
+    </li>
+    {% endfor %}
+</ul>
+{% elif query %}
+<p class="text-muted">No results for "{{ query }}".</p>
+{% endif %}

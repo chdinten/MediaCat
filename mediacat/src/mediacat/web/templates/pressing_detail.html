@@ -1,0 +1,645 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ token.artist or 'Unknown' }} — {{ token.title or 'Untitled' }} — MediaCat{% endblock %}
+
+{% block content %}
+{% if request.query_params.get('uploaded') %}
+<div class="alert alert-success">Image uploaded successfully.</div>
+{% endif %}
+{% if request.query_params.get('refreshed') %}
+<div class="alert alert-success">{{ request.query_params.get('refreshed') }} image(s) fetched from Discogs.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'no_discogs_images' %}
+<div class="alert alert-warning">Discogs has no images for this release.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'review_flagged' %}
+<div class="alert alert-success">Pressing flagged for review. It now appears in the review queue.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'analysed' %}
+<div class="alert alert-success">Vision analysis complete — results saved in the manufacturing section below.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'ocr_applied' %}
+<div class="alert alert-success">Runout text applied to the pressing. Review the manufacturing section below.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'field_corrected' %}
+<div class="alert alert-success">Field corrected and saved to the revision history.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'image_deleted' %}
+<div class="alert alert-success">Image removed.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'cover_set' %}
+<div class="alert alert-success">Primary cover updated.</div>
+{% endif %}
+
+<nav class="breadcrumb">
+    <a href="/catalogue">Catalogue</a>
+    {% if token.artist %}
+    <span class="sep">›</span>
+    <a href="/catalogue?artist={{ token.artist | urlencode }}">{{ token.artist }}</a>
+    {% endif %}
+    {% if token.title %}
+    <span class="sep">›</span>
+    <span>{{ token.title }}</span>
+    {% endif %}
+</nav>
+
+<div class="detail-layout">
+    <aside class="detail-sidebar">
+        {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
+        {% if not cover %}{% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}{% endif %}
+        {% if cover %}
+        <div class="cover-image">
+            <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Front cover" loading="lazy">
+        </div>
+        {% else %}
+        <div class="cover-placeholder">
+            <span class="format-label badge badge-{{ token.media_format.value }}">
+                {{ token.media_format.value.upper() }}
+            </span>
+        </div>
+        {% endif %}
+        <div class="sidebar-actions">
+            <a href="/catalogue/{{ token.id }}/edit" class="btn btn-primary btn-block">Edit</a>
+            {% if token.status.value != 'archived' %}
+            <form method="post" action="/catalogue/{{ token.id }}/archive">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-block"
+                        data-confirm="Archive this pressing?">Archive</button>
+            </form>
+            {% endif %}
+            <a href="/catalogue/merge?winner_id={{ token.id }}" class="btn btn-ghost btn-block">Merge…</a>
+            {% if user.role in ('admin', 'reviewer') %}
+            <form method="post" action="/catalogue/{{ token.id }}/flag-review">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-block"
+                        title="Add to review queue for manual inspection">⚑ Flag for Review</button>
+            </form>
+            {% endif %}
+            {% if token.discogs_release_id and user.role in ('admin', 'reviewer') %}
+            <form method="post" action="/catalogue/{{ token.id }}/refresh-discogs">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-block"
+                        title="Fetch images from Discogs release #{{ token.discogs_release_id }}">↻ Refresh from Discogs</button>
+            </form>
+            {% endif %}
+            {% if user.role == 'admin' %}
+            <form method="post" action="/catalogue/{{ token.id }}/delete"
+                  style="margin-top:0.25rem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-danger btn-block"
+                        data-confirm="Delete this pressing permanently? This cannot be undone.">Delete</button>
+            </form>
+            {% endif %}
+        </div>
+    </aside>
+
+    <div class="detail-main">
+        <div class="detail-header">
+            <h1>{{ token.title or 'Untitled' }}</h1>
+            <h2 class="artist-name">{{ token.artist or 'Unknown Artist' }}</h2>
+            <span class="badge badge-{{ token.status.value }}">{{ token.status.value }}</span>
+        </div>
+
+        <div class="detail-meta-row">
+            {% if token.year %}<span>{{ token.year }}</span>{% endif %}
+            {% if token.country %}<span>{{ token.country.name }}</span>{% endif %}
+            {% if token.label %}<span>{{ token.label.name }}</span>{% endif %}
+            {% if token.manufacturer %}<span>{{ token.manufacturer.name }}</span>{% endif %}
+        </div>
+
+        <dl class="detail-fields">
+            {% if token.catalog_number %}
+            <dt>Catalogue No.</dt><dd>{{ token.catalog_number }}</dd>
+            {% endif %}
+            {% if token.barcode %}
+            <dt>Barcode</dt><dd>{{ token.barcode }}</dd>
+            {% endif %}
+            {% if token.matrix_runout %}
+            <dt>Matrix A</dt><dd class="matrix-text">{{ token.matrix_runout }}</dd>
+            {% endif %}
+            {% if token.matrix_runout_b %}
+            <dt>Matrix B</dt><dd class="matrix-text">{{ token.matrix_runout_b }}</dd>
+            {% endif %}
+            {% if token.discogs_release_id %}
+            <dt>Discogs</dt>
+            <dd><a href="https://www.discogs.com/release/{{ token.discogs_release_id }}"
+                   target="_blank" rel="noopener noreferrer">{{ token.discogs_release_id }}</a></dd>
+            {% endif %}
+            {% if token.musicbrainz_release_id %}
+            <dt>MusicBrainz</dt>
+            <dd><a href="https://musicbrainz.org/release/{{ token.musicbrainz_release_id }}"
+                   target="_blank" rel="noopener noreferrer">{{ token.musicbrainz_release_id[:8] }}…</a></dd>
+            {% endif %}
+            <dt>Token ID</dt>
+            <dd class="token-id-row">
+                <span class="text-muted monospace" id="token-uuid">{{ token.id }}</span>
+                <button type="button" class="btn btn-ghost btn-sm copy-id-btn"
+                        id="copy-token-id-btn"
+                        title="Copy Token ID to clipboard">Copy</button>
+            </dd>
+        </dl>
+    </div>
+</div>
+
+{# ══════════════════════════════════════════════════════
+   MANUFACTURING / STAMPING DETAILS
+   ══════════════════════════════════════════════════════ #}
+{% if token.matrix_runout or token.matrix_runout_b or runout_images %}
+<details class="runout-section">
+    <summary class="runout-summary">
+        <span>Manufacturing &amp; stamping details</span>
+        <span class="runout-summary-meta">
+            {% if token.matrix_runout %}Matrix A · {% endif %}
+            {% if token.matrix_runout_b %}Matrix B · {% endif %}
+            {% if runout_images %}{{ runout_images|length }} image{% if runout_images|length != 1 %}s{% endif %}{% endif %}
+        </span>
+    </summary>
+
+    <div class="runout-body">
+
+    {# ── Macro: confidence badge ── #}
+    {% macro conf_badge(conf) %}
+    {% if conf is not none %}
+    {% set pct = (conf * 100) | round(0) | int %}
+    <span class="mf-conf {% if conf >= 0.7 %}mf-conf--high{% elif conf >= 0.4 %}mf-conf--mid{% else %}mf-conf--low{% endif %}">{{ pct }}%</span>
+    {% else %}
+    <span class="mf-conf mf-conf--none">—</span>
+    {% endif %}
+    {% endmacro %}
+
+    {# ── Macro: render one parsed runout side ── #}
+    {% macro render_parsed(parsed, plain_text, side, can_edit) %}
+    {% if parsed %}
+    <div class="mf-breakdown">
+        <table class="mf-table">
+            <thead class="sr-only">
+                <tr><th>Field</th><th>Value</th><th>Confidence</th>{% if can_edit %}<th>Edit</th>{% endif %}</tr>
+            </thead>
+            <tbody>
+            {% for key, label in parsed_field_labels.items() %}
+            {% set entry = parsed.get(key) or {} %}
+            {% set val   = entry.get('value') %}
+            {% set conf  = entry.get('confidence') %}
+            {% set src   = entry.get('source') %}
+            <tr class="mf-row {% if not val %}mf-row--empty{% endif %}"
+                data-field="{{ key }}" data-side="{{ side }}">
+                <td class="mf-label">{{ label }}</td>
+                <td class="mf-value">
+                    {% if val %}
+                    <code class="mf-val-text">{{ val }}</code>
+                    {% if src == 'human' %}
+                    <span class="mf-source mf-source--human" title="Manually confirmed">✓</span>
+                    {% elif src == 'vision' %}
+                    <span class="mf-source mf-source--vision" title="Vision model">AI</span>
+                    {% endif %}
+                    {% else %}
+                    <span class="mf-empty">not detected</span>
+                    {% endif %}
+                </td>
+                <td class="mf-conf-cell">{{ conf_badge(conf) }}</td>
+                {% if can_edit %}
+                <td class="mf-edit-cell">
+                    <button type="button"
+                            class="btn btn-ghost btn-xs js-mf-edit-btn"
+                            data-field="{{ key }}"
+                            data-side="{{ side }}"
+                            data-label="{{ label }}"
+                            data-current="{{ val or '' }}"
+                            title="Correct this field">✎</button>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% elif plain_text %}
+    <p class="matrix-text runout-plain">{{ plain_text }}</p>
+    <p class="text-dim" style="font-size:0.8rem;margin-top:0.3rem">
+        Analyse a runout image and apply the result to see the structured breakdown.
+    </p>
+    {% endif %}
+    {% endmacro %}
+
+    {# ── Macro: symbol parts display (unchanged) ── #}
+    {% macro render_parts(parts) %}
+    {% if parts %}
+    <div class="runout-parts">
+        {% for part in parts %}
+        {% if part.t == 'text' %}
+        <span class="runout-part runout-part--text">{{ part.v }}</span>
+        {% elif part.t == 'sym' %}
+        {% set sym = symbol_by_slug.get(part.slug) %}
+        <span class="runout-part runout-part--sym"
+              title="{% if sym %}{{ sym.description or sym.name }}{% else %}{{ part.slug }}{% endif %}">
+            <span class="sym-inner">
+                {% if sym %}
+                <span class="sym-approx">{{ sym.unicode_approx or '⊛' }}</span>
+                <span class="sym-detail">
+                    <span class="sym-name">{{ sym.name }}</span>
+                    {% if sym.description %}<span class="sym-desc">{{ sym.description }}</span>{% endif %}
+                    <span class="sym-slug text-dim">{{ sym.slug }}</span>
+                </span>
+                {% else %}
+                <span class="sym-approx sym-approx--unknown">?</span>
+                <span class="sym-detail">
+                    <span class="sym-name text-muted">Unknown symbol</span>
+                    <span class="sym-slug text-dim">{{ part.slug }}</span>
+                </span>
+                {% endif %}
+            </span>
+        </span>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endmacro %}
+
+    {% set can_edit = user.role in ('admin', 'reviewer') %}
+
+    {% if token.matrix_runout %}
+    <div class="runout-side">
+        <div class="runout-side-header">
+            <span class="runout-side-label">Side A</span>
+            <code class="runout-raw">{{ matrix_runout_display or token.matrix_runout }}</code>
+        </div>
+        {{ render_parsed(token.matrix_runout_parsed, token.matrix_runout, 'a', can_edit) }}
+        {{ render_parts(token.matrix_runout_parts) }}
+    </div>
+    {% endif %}
+
+    {% if token.matrix_runout_b %}
+    <div class="runout-side">
+        <div class="runout-side-header">
+            <span class="runout-side-label">Side B</span>
+            <code class="runout-raw">{{ matrix_runout_b_display or token.matrix_runout_b }}</code>
+        </div>
+        {{ render_parsed(token.matrix_runout_b_parsed, token.matrix_runout_b, 'b', can_edit) }}
+        {{ render_parts(token.matrix_runout_b_parts) }}
+    </div>
+    {% endif %}
+
+    {% if runout_images %}
+    <div class="runout-images-section">
+        <h4 class="runout-images-title">Runout &amp; label images</h4>
+        <div class="runout-image-list">
+            {% for img in runout_images | sort(attribute='region.value') %}
+            {% set artifact = ocr_artifacts_by_image.get(img.id | string) %}
+            <div class="runout-image-item">
+                <div class="runout-image-thumb-col">
+                    <div class="image-region-badge">{{ img.region.value.replace('_', ' ').title() }}</div>
+                    <a href="/catalogue/{{ token.id }}/images/{{ img.id }}" target="_blank" class="image-thumb-link">
+                        <img src="/catalogue/{{ token.id }}/images/{{ img.id }}"
+                             alt="{{ img.region.value.replace('_', ' ').title() }}"
+                             class="image-thumb image-thumb--runout" loading="lazy">
+                    </a>
+                    {% if img.width_px and img.height_px %}
+                    <div class="image-meta"><span>{{ img.width_px }}×{{ img.height_px }}</span></div>
+                    {% endif %}
+                    {% if user.role in ('admin', 'reviewer') and vision_available %}
+                    <button type="button" class="btn btn-ghost btn-sm btn-block js-analyse-btn"
+                            style="margin-top:0.5rem"
+                            data-analyse-url="/catalogue/{{ token.id }}/images/{{ img.id }}/analyse"
+                            data-col-id="ocr-{{ img.id }}"
+                            title="Send this image to the vision model for runout transcription">
+                        ⚙ Analyse with AI
+                    </button>
+                    {% endif %}
+                </div>
+                <div class="runout-ocr-col" id="ocr-{{ img.id }}">
+                    {% if artifact %}
+                    <div class="ocr-result">
+                        <div class="ocr-result-header">
+                            <span class="ocr-engine-badge">AI analysis</span>
+                            {% if artifact.confidence %}
+                            <span class="ocr-confidence {% if artifact.confidence >= 0.7 %}ocr-conf--high{% elif artifact.confidence >= 0.4 %}ocr-conf--mid{% else %}ocr-conf--low{% endif %}">
+                                {{ (artifact.confidence * 100) | round(0) | int }}% confidence
+                            </span>
+                            {% endif %}
+                        </div>
+                        {% if artifact.raw_text %}
+                        <div class="ocr-raw-text">
+                            <span class="ocr-field-label">Matrix / text</span>
+                            <code class="runout-raw">{{ artifact.raw_text }}</code>
+                        </div>
+                        {% endif %}
+                        {% if artifact.metadata_ %}
+                        {% set m = artifact.metadata_ %}
+                        <dl class="ocr-fields">
+                            {% if m.get('stamper_code') %}
+                            <dt>Stamper</dt><dd>{{ m.stamper_code }}</dd>
+                            {% endif %}
+                            {% if m.get('lacquer_cut_info') %}
+                            <dt>Lacquer</dt><dd>{{ m.lacquer_cut_info }}</dd>
+                            {% endif %}
+                            {% if m.get('pressing_plant_hint') %}
+                            <dt>Plant hint</dt><dd>{{ m.pressing_plant_hint }}</dd>
+                            {% endif %}
+                            {% if m.get('other_etchings') %}
+                            <dt>Other text</dt><dd>{{ m.other_etchings }}</dd>
+                            {% endif %}
+                            {% if m.get('sid_codes') %}
+                            <dt>SID codes</dt>
+                            <dd>{% for sid in m.sid_codes %}{{ sid.get('code','') }} ({{ sid.get('type','') }}){% if not loop.last %}, {% endif %}{% endfor %}</dd>
+                            {% endif %}
+                        </dl>
+                        {% if artifact.symbol_candidates %}
+                        <div class="ocr-symbols">
+                            <span class="ocr-field-label">Detected symbols</span>
+                            <div class="runout-parts">
+                                {% for sym in artifact.symbol_candidates %}
+                                <span class="runout-part runout-part--sym ocr-sym-candidate"
+                                      title="{{ sym.get('description','') }}">
+                                    <span class="sym-inner">
+                                        <span class="sym-approx">{{ sym.get('unicode_approx','⊛') }}</span>
+                                        <span class="sym-detail">
+                                            {% if sym.get('slug_suggestion') %}
+                                            <span class="sym-name">{{ sym.slug_suggestion }}</span>
+                                            {% endif %}
+                                            {% if sym.get('description') %}
+                                            <span class="sym-desc">{{ sym.description }}</span>
+                                            {% endif %}
+                                            <span class="sym-slug text-dim">{{ (sym.get('confidence', 0) * 100) | round(0) | int }}%</span>
+                                        </span>
+                                    </span>
+                                </span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endif %}
+                        {% if artifact.created_at %}
+                        <div class="ocr-date text-dim">Analysed {{ artifact.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                        {% endif %}
+                        {% if artifact.raw_text and user.role in ('admin', 'reviewer') %}
+                        <form method="post"
+                              action="/catalogue/{{ token.id }}/images/{{ img.id }}/apply-ocr"
+                              style="margin-top:0.6rem">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button type="submit" class="btn btn-primary btn-sm"
+                                    title="Write this text to the pressing's matrix/runout field">
+                                ✓ Apply to pressing
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="ocr-empty">
+                        <span class="text-dim">No analysis yet.</span>
+                        {% if not vision_available %}
+                        <span class="text-dim" style="font-size:0.8rem"> Vision backend not configured.</span>
+                        {% elif user.role not in ('admin', 'reviewer') %}
+                        <span class="text-dim" style="font-size:0.8rem"> Contact an admin to run analysis.</span>
+                        {% else %}
+                        <span class="text-dim" style="font-size:0.8rem"> Use the button to run AI analysis.</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    </div>{# end runout-body #}
+</details>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════
+   IMAGE UPLOAD — drag-and-drop zone
+   ══════════════════════════════════════════════════════ #}
+{% if user.role in ('admin', 'reviewer') %}
+<section class="upload-section">
+    <h3>Add images</h3>
+    <div class="drop-zone" id="drop-zone" data-token-id="{{ token.id }}">
+        <div class="drop-zone-inner">
+            <span class="drop-zone-icon">⊕</span>
+            <span class="drop-zone-label">Drop images here or <label for="img-file" class="drop-zone-browse">browse</label></span>
+            <span class="drop-zone-hint">JPEG, PNG, TIFF, WebP · up to 30 MB each · multiple files OK</span>
+        </div>
+        <form method="post" action="/catalogue/{{ token.id }}/images"
+              enctype="multipart/form-data" id="upload-form" style="display:none">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select id="region-select" name="region">
+                <option value="cover_front">Cover (front)</option>
+                <option value="cover_back">Cover (back)</option>
+                <option value="label_a">Label – Side A</option>
+                <option value="label_b">Label – Side B</option>
+                <option value="runout_a">Runout / WAX – Side A ✦</option>
+                <option value="runout_b">Runout / WAX – Side B ✦</option>
+                <option value="matrix">Matrix / dead wax ✦</option>
+                <option value="obi_front">OBI strip (front)</option>
+                <option value="obi_back">OBI strip (back)</option>
+                <option value="sleeve_inner">Inner sleeve</option>
+                <option value="disc_surface">Disc surface</option>
+                <option value="other">Other</option>
+            </select>
+            <input type="file" id="img-file" name="file"
+                   accept="image/jpeg,image/png,image/tiff,image/webp" multiple>
+        </form>
+    </div>
+    <div class="drop-zone-controls">
+        <label for="region-select-visible" class="form-label">Image type</label>
+        <select id="region-select-visible" class="filter-select">
+            <option value="cover_front">Cover (front)</option>
+            <option value="cover_back">Cover (back)</option>
+            <option value="label_a">Label – Side A</option>
+            <option value="label_b">Label – Side B</option>
+            <option value="runout_a">Runout / WAX – Side A ✦</option>
+            <option value="runout_b">Runout / WAX – Side B ✦</option>
+            <option value="matrix">Matrix / dead wax ✦</option>
+            <option value="obi_front">OBI strip (front)</option>
+            <option value="obi_back">OBI strip (back)</option>
+            <option value="sleeve_inner">Inner sleeve</option>
+            <option value="disc_surface">Disc surface</option>
+            <option value="other">Other</option>
+        </select>
+        <span class="text-muted" style="font-size:0.8rem">✦ Vision pipeline analyses these automatically</span>
+    </div>
+    <div id="upload-status" class="upload-status" style="display:none"></div>
+</section>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════
+   IMAGE GALLERY
+   ══════════════════════════════════════════════════════ #}
+{% if token.media_objects %}
+<section class="images-section">
+    <h3>Images <span class="text-muted" style="font-weight:400;font-size:0.85rem">({{ token.media_objects|length }})</span></h3>
+    <div class="image-grid">
+        {% for img in token.media_objects | sort(attribute='created_at') %}
+        <div class="image-card">
+            <div class="image-region-badge">{{ img.region.value.replace('_', ' ').title() if img.region else 'Other' }}</div>
+            <a href="/catalogue/{{ token.id }}/images/{{ img.id }}" target="_blank" class="image-thumb-link">
+                <img src="/catalogue/{{ token.id }}/images/{{ img.id }}"
+                     alt="{{ img.region.value.replace('_', ' ').title() if img.region else 'Other' }}"
+                     class="image-thumb" loading="lazy">
+            </a>
+            <div class="image-meta">
+                <span>{{ img.mime_type.split('/')[1].upper() }}</span>
+                {% if img.width_px and img.height_px %}
+                <span>{{ img.width_px }}×{{ img.height_px }}</span>
+                {% endif %}
+                <span>{{ (img.size_bytes / 1024) | round(0) | int }} KB</span>
+            </div>
+            {% if img.created_at %}
+            <div class="image-date">{{ img.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            {% endif %}
+            {% if user.role in ('admin', 'reviewer') %}
+            <form method="post" action="/catalogue/{{ token.id }}/images/{{ img.id }}/region"
+                  class="image-region-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <select name="region" class="filter-select filter-select--sm">
+                    {% set cur = img.region.value if img.region else 'other' %}
+                    <option value="cover_front"  {% if cur == 'cover_front'  %}selected{% endif %}>Cover front</option>
+                    <option value="cover_back"   {% if cur == 'cover_back'   %}selected{% endif %}>Cover back</option>
+                    <option value="label_a"      {% if cur == 'label_a'      %}selected{% endif %}>Label A</option>
+                    <option value="label_b"      {% if cur == 'label_b'      %}selected{% endif %}>Label B</option>
+                    <option value="runout_a"     {% if cur == 'runout_a'     %}selected{% endif %}>Runout A ✦</option>
+                    <option value="runout_b"     {% if cur == 'runout_b'     %}selected{% endif %}>Runout B ✦</option>
+                    <option value="matrix"       {% if cur == 'matrix'       %}selected{% endif %}>Matrix ✦</option>
+                    <option value="obi_front"    {% if cur == 'obi_front'    %}selected{% endif %}>OBI front</option>
+                    <option value="obi_back"     {% if cur == 'obi_back'     %}selected{% endif %}>OBI back</option>
+                    <option value="obi_spine"    {% if cur == 'obi_spine'    %}selected{% endif %}>OBI spine</option>
+                    <option value="sleeve_inner" {% if cur == 'sleeve_inner' %}selected{% endif %}>Inner sleeve</option>
+                    <option value="disc_surface" {% if cur == 'disc_surface' %}selected{% endif %}>Disc surface</option>
+                    <option value="other"        {% if cur == 'other'        %}selected{% endif %}>Other</option>
+                </select>
+                <button type="submit" class="btn btn-ghost btn-sm">Save</button>
+            </form>
+            <button type="button" class="btn btn-ghost btn-sm btn-block js-crop-btn"
+                    style="margin-top:0.4rem"
+                    data-token-id="{{ token.id }}"
+                    data-image-id="{{ img.id }}"
+                    title="Crop a region from this image and save as a new image">
+                ✂ Crop region
+            </button>
+            <form method="post"
+                  action="/catalogue/{{ token.id }}/images/{{ img.id }}/set-cover"
+                  style="margin-top:0.25rem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-sm btn-block {% if img.is_primary_cover %}btn-primary{% endif %}"
+                        title="Use this image as the primary cover thumbnail">
+                    {% if img.is_primary_cover %}★ Primary cover{% else %}☆ Set as cover{% endif %}
+                </button>
+            </form>
+            <form method="post"
+                  action="/catalogue/{{ token.id }}/images/{{ img.id }}/delete"
+                  style="margin-top:0.25rem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-danger btn-sm btn-block"
+                        data-confirm="Delete this image? This cannot be undone.">
+                    ✕ Delete
+                </button>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% if revisions %}
+<section class="revision-section">
+    <h3>Revision history</h3>
+    <ol class="revision-timeline">
+        {% for rev in revisions %}
+        <li class="revision-item">
+            <div class="revision-header">
+                <strong>Rev {{ rev.revision_number }}</strong>
+                <span class="badge-source">{{ rev.source.value }}</span>
+                {% if rev.created_at %}
+                <time class="text-muted">{{ rev.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
+                {% endif %}
+            </div>
+            {% if rev.comment %}<p class="revision-comment">{{ rev.comment }}</p>{% endif %}
+        </li>
+        {% endfor %}
+    </ol>
+</section>
+{% endif %}
+
+{# ══ Matrix field correction modal ══════════════════════════════════════════ #}
+<dialog id="mf-correct-modal" class="crop-modal" aria-label="Correct matrix field">
+    <div class="crop-modal-box" style="max-width:480px">
+        <div class="crop-modal-header">
+            <span class="crop-modal-title" id="mf-correct-title">Correct field</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="mf-correct-close-btn">✕ Close</button>
+        </div>
+        <p class="crop-modal-hint" id="mf-correct-hint"></p>
+        <form method="post" id="mf-correct-form" action="/catalogue/{{ token.id }}/correct-matrix-field">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="side"  id="mf-correct-side">
+            <input type="hidden" name="field" id="mf-correct-field">
+            <div class="form-group" style="margin-bottom:0.8rem">
+                <label class="form-label" for="mf-correct-value">Corrected value</label>
+                <input type="text" id="mf-correct-value" name="value"
+                       class="form-input" placeholder="Leave blank to clear the field" autocomplete="off">
+            </div>
+            <fieldset class="form-group mf-reason-fieldset" style="margin-bottom:0.8rem">
+                <legend class="form-label">Reason for correction</legend>
+                <div class="mf-reason-opts">
+                    <label class="mf-reason-opt"><input type="radio" name="reason_code" value="vision_misread" required> Vision model misread the image</label>
+                    <label class="mf-reason-opt"><input type="radio" name="reason_code" value="physical_inspection"> Inspected the physical record</label>
+                    <label class="mf-reason-opt"><input type="radio" name="reason_code" value="cross_reference"> Cross-referenced Discogs / label discography</label>
+                    <label class="mf-reason-opt"><input type="radio" name="reason_code" value="authoritative_source"> Found authoritative source (specify below)</label>
+                    <label class="mf-reason-opt"><input type="radio" name="reason_code" value="other"> Other</label>
+                </div>
+            </fieldset>
+            <div class="form-group" style="margin-bottom:1rem">
+                <label class="form-label" for="mf-correct-reason-text">Additional notes <span class="text-dim">(optional)</span></label>
+                <textarea id="mf-correct-reason-text" name="reason_text"
+                          class="form-input" rows="2" maxlength="500"
+                          placeholder="e.g. Sterling lacquer cut, verified against pressing database"></textarea>
+            </div>
+            <div class="crop-btn-row">
+                <button type="submit" class="btn btn-primary">Save correction</button>
+                <button type="button" class="btn btn-ghost" id="mf-correct-cancel-btn">Cancel</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+{# ══ Crop modal ══════════════════════════════════════════════════════════════ #}
+<dialog id="crop-modal" class="crop-modal" aria-label="Crop region">
+    <div class="crop-modal-box">
+        <div class="crop-modal-header">
+            <span class="crop-modal-title">✂ Crop region</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="crop-close-btn">✕ Close</button>
+        </div>
+        <p class="crop-modal-hint">
+            Drag a rectangle over the area you want to keep. The cropped image will be saved as a new entry.
+        </p>
+        <div class="crop-canvas-wrap" id="crop-canvas-wrap">
+            <img id="crop-img" class="crop-img" alt="Source for cropping" draggable="false">
+            <canvas id="crop-canvas"></canvas>
+        </div>
+        <div id="crop-sel-info" class="crop-sel-info" style="display:none"></div>
+        <div class="crop-modal-actions">
+            <div class="crop-region-row">
+                <label for="crop-region-select" class="form-label">Save as:</label>
+                <select id="crop-region-select" class="filter-select">
+                    <option value="runout_a">Runout / WAX – Side A ✦</option>
+                    <option value="runout_b">Runout / WAX – Side B ✦</option>
+                    <option value="matrix">Matrix / dead wax ✦</option>
+                    <option value="label_a">Label – Side A</option>
+                    <option value="label_b">Label – Side B</option>
+                    <option value="cover_front">Cover (front)</option>
+                    <option value="cover_back">Cover (back)</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="crop-btn-row">
+                <button type="button" class="btn btn-primary" id="crop-save-btn"
+                        disabled>
+                    Save as new image
+                </button>
+                <button type="button" class="btn btn-ghost" id="crop-cancel-btn">Cancel</button>
+            </div>
+        </div>
+        <div id="crop-status" class="upload-status" style="display:none"></div>
+    </div>
+</div>
+
+<script src="/static/pressing.js"></script>
+{% endblock %}

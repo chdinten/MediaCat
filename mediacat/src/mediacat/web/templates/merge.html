@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Merge pressings — MediaCat{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Merge pressings</h1>
+    <a href="/catalogue" class="btn btn-ghost">Cancel</a>
+</div>
+
+<p class="text-muted" style="margin-bottom:1.5rem">
+    The <strong>winner</strong> survives with all its data intact.
+    The <strong>loser</strong> is marked as merged and hidden from browse.
+    Search for each pressing by artist, title, or catalogue number.
+</p>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════
+   SELECTION PANELS
+   ══════════════════════════════════════════════════════ #}
+<div class="merge-layout">
+
+    {# ── Winner panel ── #}
+    <div class="merge-panel">
+        <h3 class="merge-panel-title">
+            Winner <span class="text-muted">(kept)</span>
+            {% if winner and loser %}
+            <a href="/catalogue/merge?winner_id={{ loser.id }}&loser_id={{ winner.id }}"
+               class="btn btn-ghost btn-sm merge-swap-btn" title="Swap winner and loser">⇄ Swap</a>
+            {% endif %}
+        </h3>
+
+        {% if winner %}
+        <input type="hidden" name="winner_id_pre" value="{{ winner.id }}">
+        {% set cover = winner.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}
+        <div class="merge-selected-card">
+            {% if cover %}
+            <img src="/catalogue/{{ winner.id }}/images/{{ cover.id }}" alt="Cover"
+                 class="merge-selected-thumb" loading="lazy">
+            {% else %}
+            <span class="merge-selected-thumb merge-selected-thumb--placeholder badge badge-{{ winner.media_format.value }}">
+                {{ winner.media_format.value.upper() }}
+            </span>
+            {% endif %}
+            <div class="merge-selected-info">
+                <strong>{{ winner.artist or 'Unknown Artist' }}</strong>
+                <span>{{ winner.title or 'Untitled' }}</span>
+                <small class="text-muted">
+                    {{ winner.year or '—' }}
+                    {% if winner.country %} · {{ winner.country.name }}{% endif %}
+                    {% if winner.label %} · {{ winner.label.name }}{% endif %}
+                    {% if winner.catalog_number %} · <span class="monospace">{{ winner.catalog_number }}</span>{% endif %}
+                </small>
+                <small class="text-dim monospace">{{ winner.id }}</small>
+            </div>
+            <div class="merge-selected-actions">
+                <a href="/catalogue/{{ winner.id }}" class="btn btn-ghost btn-sm" target="_blank">View</a>
+                <a href="/catalogue/merge{% if loser %}?loser_id={{ loser.id }}{% endif %}"
+                   class="btn btn-ghost btn-sm">× Change</a>
+            </div>
+        </div>
+        {% else %}
+        <div class="merge-search-panel">
+            <input type="text"
+                   class="merge-search-input form-control"
+                   placeholder="Search by artist, title, or catalogue no."
+                   hx-get="/catalogue/merge/search?side=winner&other_id={{ loser.id if loser else '' }}"
+                   hx-target="#winner-results"
+                   hx-trigger="input delay:300ms"
+                   hx-indicator="#winner-spinner"
+                   name="_q_winner"
+                   autocomplete="off">
+            <span id="winner-spinner" class="htmx-indicator merge-spinner">…</span>
+            <div id="winner-results"></div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="merge-arrow">
+        <span>→</span>
+        <small>merge into</small>
+    </div>
+
+    {# ── Loser panel ── #}
+    <div class="merge-panel">
+        <h3 class="merge-panel-title">Loser <span class="text-muted">(archived)</span></h3>
+
+        {% if loser %}
+        <input type="hidden" name="loser_id_pre" value="{{ loser.id }}">
+        {% set cover = loser.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}
+        <div class="merge-selected-card">
+            {% if cover %}
+            <img src="/catalogue/{{ loser.id }}/images/{{ cover.id }}" alt="Cover"
+                 class="merge-selected-thumb" loading="lazy">
+            {% else %}
+            <span class="merge-selected-thumb merge-selected-thumb--placeholder badge badge-{{ loser.media_format.value }}">
+                {{ loser.media_format.value.upper() }}
+            </span>
+            {% endif %}
+            <div class="merge-selected-info">
+                <strong>{{ loser.artist or 'Unknown Artist' }}</strong>
+                <span>{{ loser.title or 'Untitled' }}</span>
+                <small class="text-muted">
+                    {{ loser.year or '—' }}
+                    {% if loser.country %} · {{ loser.country.name }}{% endif %}
+                    {% if loser.label %} · {{ loser.label.name }}{% endif %}
+                    {% if loser.catalog_number %} · <span class="monospace">{{ loser.catalog_number }}</span>{% endif %}
+                </small>
+                <small class="text-dim monospace">{{ loser.id }}</small>
+            </div>
+            <div class="merge-selected-actions">
+                <a href="/catalogue/{{ loser.id }}" class="btn btn-ghost btn-sm" target="_blank">View</a>
+                <a href="/catalogue/merge{% if winner %}?winner_id={{ winner.id }}{% endif %}"
+                   class="btn btn-ghost btn-sm">× Change</a>
+            </div>
+        </div>
+        {% else %}
+        <div class="merge-search-panel">
+            <input type="text"
+                   class="merge-search-input form-control"
+                   placeholder="Search by artist, title, or catalogue no."
+                   hx-get="/catalogue/merge/search?side=loser&other_id={{ winner.id if winner else '' }}"
+                   hx-target="#loser-results"
+                   hx-trigger="input delay:300ms"
+                   hx-indicator="#loser-spinner"
+                   name="_q_loser"
+                   autocomplete="off">
+            <span id="loser-spinner" class="htmx-indicator merge-spinner">…</span>
+            <div id="loser-results"></div>
+        </div>
+        {% endif %}
+    </div>
+
+</div>{# end merge-layout #}
+
+{# ══════════════════════════════════════════════════════
+   SIDE-BY-SIDE COMPARISON (only when both are selected)
+   ══════════════════════════════════════════════════════ #}
+{% if winner and loser %}
+<section class="merge-comparison">
+    <h3>Side-by-side comparison</h3>
+    <p class="text-muted" style="font-size:0.85rem;margin-bottom:1rem">
+        Rows highlighted in amber differ between the two pressings.
+        Confirm the winner is the more complete or authoritative record before merging.
+    </p>
+    <div class="merge-comparison-table-wrap">
+    <table class="merge-comparison-table">
+        <thead>
+            <tr>
+                <th class="mcol-field">Field</th>
+                <th class="mcol-winner">Winner <span class="badge badge-active" style="vertical-align:middle">kept</span></th>
+                <th class="mcol-loser">Loser <span class="badge badge-archived" style="vertical-align:middle">archived</span></th>
+            </tr>
+        </thead>
+        <tbody>
+
+        {% macro row(label, w_val, l_val) %}
+        <tr {% if (w_val or '') != (l_val or '') %}class="merge-row-diff"{% endif %}>
+            <td class="mfield">{{ label }}</td>
+            <td>{{ w_val or '—' }}</td>
+            <td>{{ l_val or '—' }}</td>
+        </tr>
+        {% endmacro %}
+
+        {{ row('Artist',       winner.artist,           loser.artist) }}
+        {{ row('Title',        winner.title,            loser.title) }}
+        {{ row('Year',         winner.year,             loser.year) }}
+        {{ row('Format',       winner.media_format.value, loser.media_format.value) }}
+        {{ row('Country',      winner.country.name if winner.country else none,  loser.country.name if loser.country else none) }}
+        {{ row('Label',        winner.label.name if winner.label else none,       loser.label.name if loser.label else none) }}
+        {{ row('Manufacturer', winner.manufacturer.name if winner.manufacturer else none, loser.manufacturer.name if loser.manufacturer else none) }}
+        {{ row('Catalogue No.',winner.catalog_number,   loser.catalog_number) }}
+        {{ row('Barcode',      winner.barcode,          loser.barcode) }}
+        {{ row('Matrix A',     winner.matrix_runout,    loser.matrix_runout) }}
+        {{ row('Matrix B',     winner.matrix_runout_b,  loser.matrix_runout_b) }}
+        {{ row('Discogs ID',   winner.discogs_release_id,  loser.discogs_release_id) }}
+        {{ row('MusicBrainz',  winner.musicbrainz_release_id, loser.musicbrainz_release_id) }}
+        {{ row('Status',       winner.status.value,     loser.status.value) }}
+
+        {# Images and revision counts #}
+        {% set w_imgs = winner.media_objects | length %}
+        {% set l_imgs = loser.media_objects  | length %}
+        <tr {% if w_imgs != l_imgs %}class="merge-row-diff"{% endif %}>
+            <td class="mfield">Images</td>
+            <td>{{ w_imgs }}</td>
+            <td>{{ l_imgs }}</td>
+        </tr>
+
+        {% set w_revs = winner.revisions | length %}
+        {% set l_revs = loser.revisions  | length %}
+        <tr {% if w_revs != l_revs %}class="merge-row-diff"{% endif %}>
+            <td class="mfield">Revisions</td>
+            <td>{{ w_revs }}</td>
+            <td>{{ l_revs }}</td>
+        </tr>
+
+        </tbody>
+    </table>
+    </div>
+</section>
+
+{# ══════════════════════════════════════════════════════
+   CONFIRM FORM (only shown when both selected)
+   ══════════════════════════════════════════════════════ #}
+<form method="post" action="/catalogue/merge" class="form-card merge-confirm-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="winner_id" value="{{ winner.id }}">
+    <input type="hidden" name="loser_id"  value="{{ loser.id }}">
+
+    <div class="form-group">
+        <label for="comment" class="form-label">Merge reason <span class="text-muted">(optional)</span></label>
+        <input type="text" id="comment" name="comment" class="form-control"
+               maxlength="300" placeholder="e.g. duplicate import — same pressing, two entries">
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-danger"
+                onclick="return confirm('Merge these two pressings?\n\nWinner (kept): {{ winner.artist }} — {{ winner.title }}\nLoser (archived): {{ loser.artist }} — {{ loser.title }}\n\nThis cannot be undone.')">
+            Merge pressings
+        </button>
+        <a href="/catalogue" class="btn btn-ghost">Cancel</a>
+    </div>
+</form>
+{% endif %}
+
+{% endblock %}

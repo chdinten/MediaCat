@@ -2,17 +2,26 @@
 {% block title %}Tokens — MediaCat{% endblock %}
 
 {% block content %}
-<h1>Token registry</h1>
+<div class="page-header">
+    <h1>Token registry</h1>
+</div>
 
-<form class="search-bar" hx-get="/tokens" hx-target="#token-table" hx-push-url="true">
-    <input type="search" name="q" value="{{ query }}" placeholder="Search title, artist, barcode…">
-    <select name="media">
-        <option value="">All formats</option>
-        <option value="vinyl" {% if media_filter == 'vinyl' %}selected{% endif %}>Vinyl</option>
-        <option value="cd" {% if media_filter == 'cd' %}selected{% endif %}>CD</option>
-    </select>
-    <button type="submit">Search</button>
-</form>
+<div class="search-bar">
+    <form class="search-form" hx-get="/tokens" hx-target="#token-table" hx-push-url="true">
+        <input type="search" name="q" value="{{ query }}"
+               placeholder="Search artist, title, barcode, catalogue no."
+               class="search-input" autocomplete="off">
+        <select name="media" class="filter-select">
+            <option value="">All formats</option>
+            <option value="vinyl" {% if media_filter == 'vinyl' %}selected{% endif %}>Vinyl</option>
+            <option value="cd"    {% if media_filter == 'cd'    %}selected{% endif %}>CD</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if query or media_filter %}
+        <a href="/tokens" class="btn btn-ghost">Clear</a>
+        {% endif %}
+    </form>
+</div>
 
 <div id="token-table">
     {% include "partials/token_list.html" %}

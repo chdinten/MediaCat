@@ -19,7 +19,8 @@ MKDOCS  := $(VENV)/bin/mkdocs
 .PHONY: help bootstrap setup venv deps-sync data-init \
         lint format typecheck security test test-fast \
         docs docs-build docs-serve docs-api \
-        up down restart logs ps config-check \
+        up down restart logs ps config-check db-migrate db-status \
+        ollama-up ollama-gpu-up ollama-down ollama-models \
         clean distclean
 
 help: ## Show this help
@@ -85,6 +86,18 @@ docs-serve: docs-api ## Live-preview docs on http://127.0.0.1:8800
 
 docs: docs-build ## Alias for docs-build
 
+## ---- Database migrations ------------------------------------------------
+
+db-migrate: ## Apply all pending Alembic migrations
+	docker compose --env-file .env -f deploy/docker-compose.yaml \
+	    exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat \
+	    app python -m alembic -c alembic.ini upgrade head
+
+db-status: ## Show current Alembic migration status
+	docker compose --env-file .env -f deploy/docker-compose.yaml \
+	    exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat \
+	    app python -m alembic -c alembic.ini current
+
 ## ---- Docker Compose (Section 2+) ----------------------------------------
 
 up: ## Bring the dev stack up
@@ -96,14 +109,29 @@ down: ## Tear the dev stack down (data preserved)
 restart: down up ## Restart the dev stack
 
 logs: ## Tail logs
-	docker compose -f deploy/docker-compose.yaml logs -f --tail=200
+	docker compose --env-file .env -f deploy/docker-compose.yaml logs -f --tail=200
 
 ps: ## Compose ps
-	docker compose -f deploy/docker-compose.yaml ps
+	docker compose --env-file .env -f deploy/docker-compose.yaml ps
 
 config-check: ## Validate compose config
-	docker compose -f deploy/docker-compose.yaml config -q
+	docker compose --env-file .env -f deploy/docker-compose.yaml config -q
 	@echo "compose config OK"
+
+## ---- Ollama (local LLM / VLM; optional profile) -------------------------
+
+ollama-up: ## Start core stack + Ollama + Open WebUI (CPU)
+	MEDIACAT_OLLAMA=1 ./scripts/dev-up.sh
+
+ollama-gpu-up: ## Start core stack + Ollama + Open WebUI (NVIDIA GPU)
+	MEDIACAT_OLLAMA=1 MEDIACAT_OLLAMA_GPU=1 ./scripts/dev-up.sh
+
+ollama-down: ## Tear down including Ollama services
+	docker compose --env-file .env -f deploy/docker-compose.yaml --profile ollama down
+
+ollama-models: ## (Re-)pull VLM + OCR models into the running Ollama server
+	docker compose --env-file .env -f deploy/docker-compose.yaml --profile ollama \
+	    run --rm ollama-pull
 
 ## ---- Cleanup ------------------------------------------------------------
 

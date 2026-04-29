@@ -2,25 +2,42 @@
 <table class="data-table">
     <thead>
         <tr>
-            <th>Title</th>
             <th>Artist</th>
+            <th>Title</th>
             <th>Format</th>
             <th>Year</th>
+            <th>Country</th>
+            <th>Label</th>
+            <th>Catalogue No.</th>
             <th>Status</th>
         </tr>
     </thead>
     <tbody>
         {% for t in tokens %}
         <tr>
-            <td><a href="/tokens/{{ t.id }}">{{ t.title or 'Untitled' }}</a></td>
             <td>{{ t.artist or '' }}</td>
-            <td>{{ t.media_format }}</td>
+            <td><a href="/catalogue/{{ t.id }}">{{ t.title or 'Untitled' }}</a></td>
+            <td><span class="badge badge-{{ t.media_format.value }}">{{ t.media_format.value }}</span></td>
             <td>{{ t.year or '' }}</td>
-            <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+            <td>{{ t.country.name if t.country else '' }}</td>
+            <td>{{ t.label.name if t.label else '' }}</td>
+            <td class="monospace">{{ t.catalog_number or '' }}</td>
+            <td><span class="badge badge-{{ t.status.value }}">{{ t.status.value }}</span></td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="?q={{ query }}&media={{ media_filter }}&page={{ page - 1 }}" class="btn btn-ghost">← Prev</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="?q={{ query }}&media={{ media_filter }}&page={{ page + 1 }}" class="btn btn-ghost">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
 {% else %}
-<p class="empty-state">No tokens found.</p>
+<p class="empty-state">No tokens found{% if query %} for "{{ query }}"{% endif %}.</p>
 {% endif %}

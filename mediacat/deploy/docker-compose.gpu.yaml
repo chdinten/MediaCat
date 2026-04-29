@@ -1,0 +1,47 @@
+# docker-compose.gpu.yaml — NVIDIA CUDA GPU override for the Ollama service.
+#
+# Use with:
+#   docker compose -f deploy/docker-compose.yaml \
+#                  -f deploy/docker-compose.gpu.yaml \
+#                  --profile ollama up -d
+#
+# Or via:   make ollama-gpu-up
+#
+# Prerequisites on the host:
+#   1. NVIDIA driver installed (≥ 525.xx for Ada/RTX 40-series)
+#   2. nvidia-container-toolkit installed and Docker runtime configured
+#      → run:  MEDIACAT_INSTALL_NVIDIA=1 ./scripts/ubuntu-bootstrap.sh
+#      → or:   MEDIACAT_INSTALL_NVIDIA=1 make bootstrap
+#
+# RTX 4090 notes (24 GB GDDR6X, 384-bit bus, ~1 TB/s bandwidth):
+#   • glm-ocr (~2.2 GB)      — fits entirely in VRAM; full GPU inference.
+#   • qwen2.5vl:32b (~21 GB) — fits entirely in VRAM (Q4_K_M); ~3 GB headroom
+#     for KV cache.  Full GPU inference; no CPU offload needed.
+#   • Flash Attention 2 is supported (Ada/sm_89) and enabled by default here;
+#     it substantially reduces VRAM pressure from the KV cache on long contexts.
+
+services:
+  ollama:
+    # NVIDIA CUDA environment — required for CUDA compute inside the container.
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all           # expose all GPUs to the container
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      # Ollama GPU tuning.
+      # OLLAMA_NUM_GPU: controls how many transformer layers to put on the GPU.
+      # -1 = automatic (Ollama probes free VRAM and fits as many as possible).
+      # On a 4090 with qwen2.5vl:32b this should be all layers.
+      OLLAMA_NUM_GPU: ${OLLAMA_NUM_GPU:--1}
+      # Flash Attention 2: reduces KV-cache VRAM usage and speeds up inference
+      # on Ada (sm_89) and newer.  Critical when running a 32B model near the
+      # VRAM ceiling.
+      OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
+      # Keep models warm between requests (avoid re-loading from disk).
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all          # use all available GPUs; change to "1" to pin one
+              capabilities: [gpu]

@@ -1,0 +1,36 @@
+{% if q and q|length >= 2 %}
+  {% if tokens %}
+  <div class="merge-search-results">
+    {% for token in tokens %}
+    {% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}
+    {% if side == 'loser' %}
+    {% set href = '/catalogue/merge?winner_id=' ~ other_id ~ '&loser_id=' ~ token.id %}
+    {% else %}
+    {% set href = '/catalogue/merge?winner_id=' ~ token.id ~ '&loser_id=' ~ other_id %}
+    {% endif %}
+    <a href="{{ href }}" class="merge-search-item">
+      {% if cover %}
+      <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Cover"
+           class="pressing-list-thumb" loading="lazy">
+      {% else %}
+      <span class="pressing-list-thumb pressing-list-thumb--placeholder badge badge-{{ token.media_format.value }}">
+        {{ token.media_format.value.upper() }}
+      </span>
+      {% endif %}
+      <span class="merge-search-item-info">
+        <span class="merge-search-item-title">{{ token.artist or '—' }} — {{ token.title or 'Untitled' }}</span>
+        <span class="merge-search-item-meta">
+          {{ token.year or '—' }}
+          {% if token.country %}&nbsp;·&nbsp;{{ token.country.name }}{% endif %}
+          {% if token.label %}&nbsp;·&nbsp;{{ token.label.name }}{% endif %}
+          {% if token.catalog_number %}&nbsp;·&nbsp;<span class="monospace">{{ token.catalog_number }}</span>{% endif %}
+        </span>
+      </span>
+      <span class="badge badge-{{ token.status.value }}">{{ token.status.value }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-muted merge-search-empty">No pressings found for "{{ q }}".</p>
+  {% endif %}
+{% endif %}

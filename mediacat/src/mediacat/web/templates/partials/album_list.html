@@ -1,0 +1,32 @@
+{% if albums %}
+<div class="album-panel-header">
+    <div class="album-panel-title-row">
+        <span class="album-panel-artist">{{ artist }}</span>
+        <span class="album-panel-count">{{ albums|length }} album{% if albums|length != 1 %}s{% endif %}</span>
+    </div>
+    <button class="album-panel-close" type="button"
+            onclick="document.getElementById('album-panel').innerHTML='';document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.artist-card').forEach(c=>c.classList.remove('artist-card--active'))">✕</button>
+</div>
+<div class="album-grid">
+    {% for a in albums %}
+    <div class="album-grid-card"
+         hx-get="/catalogue/artists/{{ enc_artist }}/albums/{{ a.enc_title }}/pressings"
+         hx-target="#pressing-panel"
+         hx-swap="innerHTML"
+         hx-on:htmx:before-request="document.querySelectorAll('.album-grid-card').forEach(c=>c.classList.remove('album-grid-card--active'));this.classList.add('album-grid-card--active')">
+        <div class="album-grid-title">{{ a.title or 'Untitled' }}</div>
+        <div class="album-grid-meta">
+            {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
+            {% if a.year %}&nbsp;·&nbsp;{{ a.year }}{% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="album-panel-header">
+    <span class="album-panel-artist">{{ artist }}</span>
+    <button class="album-panel-close" type="button"
+            onclick="document.getElementById('album-panel').innerHTML='';document.querySelectorAll('.artist-card').forEach(c=>c.classList.remove('artist-card--active'))">✕</button>
+</div>
+<p class="text-muted" style="padding:1rem 1.25rem">No albums found for {{ artist }}.</p>
+{% endif %}

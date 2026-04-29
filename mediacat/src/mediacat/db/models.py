@@ -39,6 +39,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    event,
     func,
     text,
 )
@@ -68,16 +69,28 @@ from mediacat.db.enums import (
 # ---------------------------------------------------------------------------
 # PostgreSQL enum type instances (shared across columns)
 # ---------------------------------------------------------------------------
-_media_format_enum = ENUM(MediaFormat, name="media_format", create_type=False)
-_token_status_enum = ENUM(TokenStatus, name="token_status", create_type=False)
-_revision_source_enum = ENUM(RevisionSource, name="revision_source", create_type=False)
-_review_status_enum = ENUM(ReviewStatus, name="review_status", create_type=False)
-_review_reason_enum = ENUM(ReviewReason, name="review_reason", create_type=False)
-_job_status_enum = ENUM(IngestionJobStatus, name="ingestion_job_status", create_type=False)
-_ocr_engine_enum = ENUM(OcrEngine, name="ocr_engine", create_type=False)
-_image_region_enum = ENUM(ImageRegion, name="image_region", create_type=False)
-_user_role_enum = ENUM(UserRole, name="user_role", create_type=False)
-_symbol_category_enum = ENUM(SymbolCategory, name="symbol_category", create_type=False)
+# values_callable ensures SQLAlchemy sends e.value ("merged") not e.name ("MERGED")
+_ev = lambda e: [m.value for m in e]  # noqa: E731
+_media_format_enum = ENUM(MediaFormat, name="media_format", create_type=False, values_callable=_ev)
+_token_status_enum = ENUM(TokenStatus, name="token_status", create_type=False, values_callable=_ev)
+_revision_source_enum = ENUM(
+    RevisionSource, name="revision_source", create_type=False, values_callable=_ev
+)
+_review_status_enum = ENUM(
+    ReviewStatus, name="review_status", create_type=False, values_callable=_ev
+)
+_review_reason_enum = ENUM(
+    ReviewReason, name="review_reason", create_type=False, values_callable=_ev
+)
+_job_status_enum = ENUM(
+    IngestionJobStatus, name="ingestion_job_status", create_type=False, values_callable=_ev
+)
+_ocr_engine_enum = ENUM(OcrEngine, name="ocr_engine", create_type=False, values_callable=_ev)
+_image_region_enum = ENUM(ImageRegion, name="image_region", create_type=False, values_callable=_ev)
+_user_role_enum = ENUM(UserRole, name="user_role", create_type=False, values_callable=_ev)
+_symbol_category_enum = ENUM(
+    SymbolCategory, name="symbol_category", create_type=False, values_callable=_ev
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -233,9 +246,7 @@ class Symbol(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, SoftDeleteMixin, B
     variants: Mapped[list[SymbolVariant]] = relationship(back_populates="symbol")
     token_symbols: Mapped[list[TokenSymbol]] = relationship(back_populates="symbol")
 
-    __table_args__ = (
-        Index("ix_symbols_category_level", "category", "taxonomy_level"),
-    )
+    __table_args__ = (Index("ix_symbols_category_level", "category", "taxonomy_level"),)
 
     def __repr__(self) -> str:
         return f"<Symbol {self.slug!r} {self.category.value}>"
@@ -261,9 +272,7 @@ class SymbolVariant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     symbol: Mapped[Symbol] = relationship(back_populates="variants")
 
-    __table_args__ = (
-        UniqueConstraint("symbol_id", "variant_key", name="uq_symbol_variant_key"),
-    )
+    __table_args__ = (UniqueConstraint("symbol_id", "variant_key", name="uq_symbol_variant_key"),)
 
     def __repr__(self) -> str:
         return f"<SymbolVariant {self.variant_key!r} of symbol={self.symbol_id}>"
@@ -295,6 +304,10 @@ class Token(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, SoftDeleteMixin, Ba
     # Each element is {"t":"text","v":"…"} or {"t":"sym","slug":"…","id":"uuid"}.
     matrix_runout_parts: Mapped[list[dict] | None] = mapped_column(JSONB)
     matrix_runout_b_parts: Mapped[list[dict] | None] = mapped_column(JSONB)
+    # Structured parsed breakdown — each key maps to {"value", "confidence", "source"}.
+    # source: "vision" | "human" | "import" | "rule" | null
+    matrix_runout_parsed: Mapped[dict | None] = mapped_column(JSONB)
+    matrix_runout_b_parsed: Mapped[dict | None] = mapped_column(JSONB)
 
     media_format: Mapped[MediaFormat] = mapped_column(_media_format_enum, nullable=False)
     status: Mapped[TokenStatus] = mapped_column(
@@ -427,6 +440,9 @@ class MediaObject(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, Base):
     width_px: Mapped[int | None] = mapped_column(Integer)
     height_px: Mapped[int | None] = mapped_column(Integer)
     region: Mapped[ImageRegion | None] = mapped_column(_image_region_enum)
+    is_primary_cover: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     source_url: Mapped[str | None] = mapped_column(Text)  # where it was fetched from
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
 
@@ -583,6 +599,27 @@ class AuditLog(Base):
         return f"<AuditLog {self.action} {self.entity_type}:{self.entity_id}>"
 
 
+# DEF-003: ORM-level guard — audit_log rows are immutable.
+# The DB already REVOKEs UPDATE/DELETE from mediacat_app (migration 0001).
+# These listeners provide defence in depth at the application layer so any
+# accidental UPDATE or DELETE is caught immediately in Python, not at the
+# database permission check.
+@event.listens_for(AuditLog, "before_update")
+def _audit_log_no_update(_mapper: object, _connection: object, target: AuditLog) -> None:
+    raise RuntimeError(
+        f"AuditLog rows are immutable — UPDATE attempted on id={target.id!r}. "
+        "Write a new entry instead."
+    )
+
+
+@event.listens_for(AuditLog, "before_delete")
+def _audit_log_no_delete(_mapper: object, _connection: object, target: AuditLog) -> None:
+    raise RuntimeError(
+        f"AuditLog rows are immutable — DELETE attempted on id={target.id!r}. "
+        "Audit rows must never be removed."
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Symbol ↔ Token index
 # ═══════════════════════════════════════════════════════════════════════════
@@ -612,7 +649,10 @@ class TokenSymbol(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "token_id", "symbol_id", "position", "side",
+            "token_id",
+            "symbol_id",
+            "position",
+            "side",
             name="uq_token_symbol_pos",
         ),
         Index("ix_token_symbols_symbol_id", "symbol_id"),

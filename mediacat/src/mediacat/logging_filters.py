@@ -91,15 +91,21 @@ class SecretRedactFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
-            if isinstance(record.msg, str):
-                record.msg = redact(record.msg)
             if record.args:
+                # Redact args only — never touch record.msg when args are present.
+                # Applying redact() to the format string (e.g. "token=%s") can
+                # silently remove a %s placeholder while args count stays the same,
+                # causing TypeError in getMessage() (e.g. %.2f receiving a string).
                 if isinstance(record.args, dict):
                     record.args = {
                         k: redact(v) if isinstance(v, str) else v for k, v in record.args.items()
                     }
                 elif isinstance(record.args, tuple):
                     record.args = tuple(redact(a) if isinstance(a, str) else a for a in record.args)
+            elif isinstance(record.msg, str):
+                # No args means the message is already fully-formed (f-string or
+                # direct concat) — safe to redact in place.
+                record.msg = redact(record.msg)
         except Exception:  # pragma: no cover - defensive: never break logging
             return True
         return True

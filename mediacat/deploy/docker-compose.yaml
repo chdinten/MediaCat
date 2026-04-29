@@ -66,6 +66,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata         # sub-dir avoids lost+found
     secrets:
       - postgres_password
+      - postgres_app_password
     volumes:
       - ${MEDIACAT_DATA_ROOT:-/srv/mediacat}/postgres:/var/lib/postgresql/data
       - ./initdb:/docker-entrypoint-initdb.d:ro
@@ -100,16 +101,17 @@ services:
       - "${MINIO_API_BIND:-127.0.0.1:9000}:9000"
       - "${MINIO_CONSOLE_BIND:-127.0.0.1:9001}:9001"
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9000/minio/health/live || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 15s
 
   # ---- Redis (job queue + rate limiter) ----
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
+    user: "999:999"
     command: >
       sh -c 'redis-server
       --requirepass "$$(cat /run/secrets/redis_password)"
@@ -128,10 +130,11 @@ services:
     ports:
       - "${REDIS_BIND:-127.0.0.1:6379}:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "$(cat /run/secrets/redis_password)", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$(cat /run/secrets/redis_password)\" ping | grep -c PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     cap_drop: [ALL]
     read_only: true
     tmpfs:
@@ -153,10 +156,11 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8181/health"]
+      test: ["CMD", "/opa", "version"]
       interval: 15s
       timeout: 5s
       retries: 3
+      start_period: 10s
     cap_drop: [ALL]
     read_only: true
 
@@ -171,6 +175,7 @@ services:
       MEDIACAT_ENV: ${MEDIACAT_ENV:-dev}
       MEDIACAT_CONFIG_PATH: /app/config/app.yaml
       MEDIACAT_CONNECTORS_PATH: /app/config/connectors.yaml
+      MEDIACAT_DEV_ADMIN_PASSWORD: ${MEDIACAT_DEV_ADMIN_PASSWORD:-}
     secrets:
       - postgres_app_password
       - minio_root_password
@@ -211,6 +216,7 @@ services:
       MEDIACAT_ENV: ${MEDIACAT_ENV:-dev}
       MEDIACAT_CONFIG_PATH: /app/config/app.yaml
       MEDIACAT_CONNECTORS_PATH: /app/config/connectors.yaml
+      MEDIACAT_DEV_ADMIN_PASSWORD: ${MEDIACAT_DEV_ADMIN_PASSWORD:-}
     secrets:
       - postgres_app_password
       - minio_root_password
@@ -262,6 +268,81 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # ---- Ollama (local LLM / VLM inference) ---------------------------------
+  # Activate with:  docker compose --profile ollama up
+  # or via:         make ollama-up  (CPU)  /  make ollama-gpu-up  (NVIDIA GPU)
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    restart: unless-stopped
+    volumes:
+      - ${MEDIACAT_DATA_ROOT:-/srv/mediacat}/ollama:/root/.ollama
+    networks:
+      - frontend       # needs outbound internet to pull models
+      - backend
+    ports:
+      - "${OLLAMA_BIND:-127.0.0.1:11434}:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-24h}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-8192}
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
+    profiles:
+      - ollama
+
+  # ---- Open WebUI (browser chat UI for Ollama) -----------------------------
+  open-webui:
+    image: ${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
+    restart: unless-stopped
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      WEBUI_AUTH: ${WEBUI_AUTH:-true}
+    volumes:
+      - ${MEDIACAT_DATA_ROOT:-/srv/mediacat}/open-webui:/app/backend/data
+    networks:
+      - frontend
+      - backend
+    ports:
+      - "${WEBUI_BIND:-127.0.0.1:3000}:8080"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    profiles:
+      - ollama
+
+  # ---- Ollama model puller (one-shot; runs once after ollama is healthy) ----
+  # Pulls OLLAMA_VLM_MODEL (qwen2.5vl:32b, ~21 GB) and OLLAMA_OCR_MODEL
+  # (glm-ocr, ~2.2 GB) if not already present.  restart: "no" means it runs
+  # once and stops; re-run with:  make ollama-models
+  ollama-pull:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    restart: "no"
+    entrypoint: ["/bin/sh", "/scripts/ollama-pull.sh"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_VLM_MODEL: ${OLLAMA_VLM_MODEL:-qwen2.5vl:32b}
+      OLLAMA_OCR_MODEL: ${OLLAMA_OCR_MODEL:-glm-ocr}
+    volumes:
+      - ./scripts/ollama-pull.sh:/scripts/ollama-pull.sh:ro
+    networks:
+      - frontend       # needs outbound internet to reach registry.ollama.ai
+      - backend
+    depends_on:
+      ollama:
+        condition: service_healthy
+    profiles:
+      - ollama
 
 # ---------- Named volumes (non-user-data only) -----------------------------
 volumes:

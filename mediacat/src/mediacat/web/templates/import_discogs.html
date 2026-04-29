@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Import from {{ source|default('Discogs')|title }} — MediaCat{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Import from {{ 'MusicBrainz' if source == 'musicbrainz' else 'Discogs' }}</h1>
+    <a href="/catalogue" class="btn btn-ghost">Cancel</a>
+</div>
+
+<div class="form-card">
+    <div class="form-section-title">
+        Release preview —
+        {% if source == 'musicbrainz' %}
+            MusicBrainz {{ release_id }}
+        {% else %}
+            Discogs #{{ release_id }}
+        {% endif %}
+    </div>
+    <dl class="detail-fields">
+        {% if fields.artist %}
+        <dt>Artist</dt><dd>{{ fields.artist }}</dd>
+        {% endif %}
+        {% if fields.title %}
+        <dt>Title</dt><dd>{{ fields.title }}</dd>
+        {% endif %}
+        {% if fields.year %}
+        <dt>Year</dt><dd>{{ fields.year }}</dd>
+        {% endif %}
+        {% if fields.media_format %}
+        <dt>Format</dt><dd>{{ fields.media_format.upper() }}</dd>
+        {% endif %}
+        {% if fields.catalog_number %}
+        <dt>Catalogue No.</dt><dd>{{ fields.catalog_number }}</dd>
+        {% endif %}
+        {% if fields.label_name %}
+        <dt>Label</dt><dd>{{ fields.label_name }}</dd>
+        {% endif %}
+        {% if fields.country_name %}
+        <dt>Country</dt><dd>{{ fields.country_name }}</dd>
+        {% endif %}
+        {% if fields.barcode %}
+        <dt>Barcode</dt><dd>{{ fields.barcode }}</dd>
+        {% endif %}
+        {% if fields.matrix_runout %}
+        <dt>Matrix A</dt><dd class="matrix-text">{{ fields.matrix_runout }}</dd>
+        {% endif %}
+        {% if fields.matrix_runout_b %}
+        <dt>Matrix B</dt><dd class="matrix-text">{{ fields.matrix_runout_b }}</dd>
+        {% endif %}
+        {% if fields.notes %}
+        <dt>Notes</dt><dd class="text-muted">{{ fields.notes[:300] }}{% if fields.notes|length > 300 %}…{% endif %}</dd>
+        {% endif %}
+    </dl>
+
+    {% if fields.tracklist %}
+    <div class="form-section-title">Track listing</div>
+    <ol class="tracklist">
+        {% for t in fields.tracklist %}
+        <li>
+            {% if t.position %}<span class="track-pos">{{ t.position }}</span>{% endif %}
+            {{ t.title }}
+        </li>
+        {% endfor %}
+    </ol>
+    {% endif %}
+
+    <div class="alert alert-info">
+        This data will be stored as an initial revision sourced from
+        {{ 'MusicBrainz' if source == 'musicbrainz' else 'Discogs' }}.
+        You can edit any field after import.
+        Cover art and label images can be uploaded on the detail page.
+    </div>
+
+    <form method="post"
+          action="/catalogue/import/{{ 'musicbrainz' if source == 'musicbrainz' else 'discogs' }}/{{ release_id }}"
+          class="form-actions">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-primary">Import pressing</button>
+        <a href="/catalogue/new" class="btn btn-ghost">← Back to search</a>
+    </form>
+</div>
+{% endblock %}

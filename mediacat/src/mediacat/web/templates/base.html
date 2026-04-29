@@ -1,29 +1,44 @@
 <!DOCTYPE html>
-<html lang="en-GB">
+<html lang="en-GB" data-theme="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}MediaCat{% endblock %}</title>
+    <!-- theme.js runs synchronously before paint to prevent flash -->
+    <script src="/static/theme.js"></script>
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/htmx.min.js" defer></script>
+    <script src="/static/forms.js" defer></script>
     <meta name="csrf-token" content="{{ csrf_token }}">
     {% block head %}{% endblock %}
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+
     <nav class="navbar">
         <a href="/" class="nav-brand">MediaCat</a>
+
         {% if user and user.get('user_id') %}
         <div class="nav-links">
-            <a href="/">Dashboard</a>
-            <a href="/reviews">Reviews</a>
-            <a href="/tokens">Tokens</a>
+            <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Dashboard</a>
+            <a href="/catalogue" {% if request.url.path.startswith('/catalogue') %}class="active"{% endif %}>Catalogue</a>
+            <a href="/reviews" {% if request.url.path.startswith('/reviews') %}class="active"{% endif %}>Reviews</a>
+            <a href="/tokens" {% if request.url.path.startswith('/tokens') %}class="active"{% endif %}>Tokens</a>
             {% if user.get('role') == 'admin' %}
-            <a href="/users">Users</a>
+            <a href="/users" {% if request.url.path.startswith('/users') %}class="active"{% endif %}>Users</a>
             {% endif %}
-            <span class="nav-user">{{ user.get('role', '') }}</span>
-            <a href="/logout">Logout</a>
         </div>
         {% endif %}
+
+        <div class="nav-right">
+            <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                <span class="theme-icon-light">🌙</span>
+                <span class="theme-icon-dark">☀️</span>
+            </button>
+            {% if user and user.get('user_id') %}
+            <span class="nav-role">{{ user.get('role', '') }}</span>
+            <a href="/logout" class="nav-logout">Logout</a>
+            {% endif %}
+        </div>
     </nav>
 
     <main class="container">

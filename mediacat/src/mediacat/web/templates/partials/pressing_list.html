@@ -1,0 +1,48 @@
+{% if tokens %}
+<div class="pressing-panel-header">
+    <span class="pressing-panel-title">{{ album_title }}</span>
+    <span class="pressing-panel-meta">by {{ artist }} &nbsp;·&nbsp; {{ tokens|length }} pressing{% if tokens|length != 1 %}s{% endif %}</span>
+    <button class="album-panel-close" type="button" style="margin-left:auto"
+            onclick="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.album-grid-card').forEach(c=>c.classList.remove('album-grid-card--active'))">✕</button>
+</div>
+<div class="pressing-list">
+    {% for token in tokens %}
+    {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
+    {% if not cover %}{% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}{% endif %}
+    <a href="/catalogue/{{ token.id }}" class="pressing-item">
+        {% if cover %}
+        <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Cover"
+             class="pressing-list-thumb" loading="lazy">
+        {% else %}
+        <span class="pressing-list-thumb pressing-list-thumb--placeholder badge badge-{{ token.media_format.value }}">
+            {{ token.media_format.value.upper() }}
+        </span>
+        {% endif %}
+        <span class="pressing-item-info">
+            <span class="pressing-year">{{ token.year or '—' }}</span>
+            {% if token.country %}<span class="pressing-country">{{ token.country.name }}</span>{% endif %}
+            {% if token.label %}<span class="pressing-label">{{ token.label.name }}</span>{% endif %}
+            {% if token.catalog_number %}
+            <span class="pressing-catno monospace">{{ token.catalog_number }}</span>
+            {% endif %}
+            {% if token.matrix_runout or token.matrix_runout_b %}
+            <span class="pressing-matrix">
+                {% if token.matrix_runout %}A: {{ token.matrix_runout }}{% endif %}
+                {% if token.matrix_runout and token.matrix_runout_b %} · {% endif %}
+                {% if token.matrix_runout_b %}B: {{ token.matrix_runout_b }}{% endif %}
+            </span>
+            {% endif %}
+        </span>
+        <span class="badge badge-{{ token.status.value }} pressing-status">{{ token.status.value }}</span>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="pressing-panel-header">
+    <span class="pressing-panel-title">{{ album_title }}</span>
+    <span class="pressing-panel-meta">by {{ artist }}</span>
+    <button class="album-panel-close" type="button" style="margin-left:auto"
+            onclick="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.album-grid-card').forEach(c=>c.classList.remove('album-grid-card--active'))">✕</button>
+</div>
+<p class="text-muted" style="padding:0.75rem 1.25rem">No pressings found.</p>
+{% endif %}

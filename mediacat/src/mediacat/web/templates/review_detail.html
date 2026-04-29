@@ -1,54 +1,198 @@
 {% extends "base.html" %}
-{% block title %}Review {{ review.id[:8] }}… — MediaCat{% endblock %}
+{% block title %}Review — {{ token.title if token else review.id|string|truncate(8, end='…') }} — MediaCat{% endblock %}
 
 {% block content %}
-<h1>Review {{ review.id[:8] }}…</h1>
-<span class="badge badge-{{ review.status }}">{{ review.status }}</span>
+<nav class="breadcrumb">
+    <a href="/reviews">Reviews</a>
+    <span class="sep">›</span>
+    <span>{{ token.title or 'Untitled' if token else str(review.id)[:8] ~ '…' }}</span>
+</nav>
 
-{% if token %}
-<section class="review-token">
-    <h2>Token: {{ token.title or 'Untitled' }}</h2>
-    <p>{{ token.artist or '' }} · {{ token.media_format or '' }} · {{ token.year or '' }}</p>
+<div class="detail-layout">
+    <aside class="detail-sidebar">
+        {% if token %}
+        {% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}
+        {% if cover %}
+        <div class="cover-image">
+            <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Front cover" loading="lazy">
+        </div>
+        {% else %}
+        <div class="cover-placeholder">
+            <span class="format-label badge badge-{{ token.media_format.value }}">
+                {{ token.media_format.value.upper() }}
+            </span>
+        </div>
+        {% endif %}
+        <div class="sidebar-actions">
+            <a href="/catalogue/{{ token.id }}" class="btn btn-ghost btn-block">View pressing →</a>
+        </div>
+        {% endif %}
+    </aside>
+
+    <div class="detail-main">
+        <div class="detail-header">
+            {% if token %}
+            <h1>{{ token.title or 'Untitled' }}</h1>
+            <h2 class="artist-name">{{ token.artist or 'Unknown Artist' }}</h2>
+            {% else %}
+            <h1>Review {{ review.id|string|truncate(12, end='…') }}</h1>
+            {% endif %}
+            <span class="badge badge-{{ review.status.value }}">{{ review.status.value }}</span>
+            <span class="badge badge-{{ review.reason.value }}">{{ review.reason.value.replace('_', ' ') }}</span>
+            {% if review.details and review.details.get('manual') %}
+            <span class="badge" style="background:var(--surface-high);color:var(--text-muted)">manually flagged</span>
+            {% endif %}
+        </div>
+
+        {% if token %}
+        <div class="detail-meta-row">
+            {% if token.year %}<span>{{ token.year }}</span>{% endif %}
+            {% if token.country %}<span>{{ token.country.name }}</span>{% endif %}
+            {% if token.label %}<span>{{ token.label.name }}</span>{% endif %}
+        </div>
+        <dl class="detail-fields">
+            {% if token.catalog_number %}
+            <dt>Catalogue No.</dt><dd>{{ token.catalog_number }}</dd>
+            {% endif %}
+            {% if token.matrix_runout %}
+            <dt>Matrix A</dt><dd class="matrix-text">{{ token.matrix_runout }}</dd>
+            {% endif %}
+            {% if token.matrix_runout_b %}
+            <dt>Matrix B</dt><dd class="matrix-text">{{ token.matrix_runout_b }}</dd>
+            {% endif %}
+        </dl>
+        {% endif %}
+    </div>
+</div>
+
+{# ══════════════════════════════════════════════════════
+   REVIEW CRITERIA CHECKLIST
+   ══════════════════════════════════════════════════════ #}
+<section class="review-criteria-section">
+    <h3>Review checklist</h3>
+    <p class="text-muted" style="font-size:0.88rem;margin-bottom:1rem">
+        Work through each item before approving or rejecting. Notes are optional but encouraged.
+    </p>
+    <div class="review-criteria-grid">
+
+        <div class="criteria-card">
+            <div class="criteria-title">Runout / Matrix numbers</div>
+            <ul class="criteria-list">
+                <li>Matrix A matches label and Discogs entry</li>
+                <li>Matrix B matches label and Discogs entry</li>
+                <li>Hand-etched additions (e.g. "A" / "B" suffix) noted</li>
+                <li>Stamper codes consistent with pressing origin</li>
+            </ul>
+        </div>
+
+        <div class="criteria-card">
+            <div class="criteria-title">Media grading</div>
+            <ul class="criteria-list">
+                <li>Vinyl / disc surface inspected under raking light</li>
+                <li>Grade assigned (Mint / NM / VG+ / VG / G / P)</li>
+                <li>Deep scratches or pressing defects noted</li>
+                <li>Plays without significant noise or skips</li>
+            </ul>
+        </div>
+
+        <div class="criteria-card">
+            <div class="criteria-title">Cover &amp; sleeve</div>
+            <ul class="criteria-list">
+                <li>Front and back cover images uploaded</li>
+                <li>Sleeve grade assigned separately from media</li>
+                <li>Seam splits, ring wear, writing or stickers noted</li>
+                <li>Cut-out or promo markings recorded</li>
+            </ul>
+        </div>
+
+        <div class="criteria-card">
+            <div class="criteria-title">Inner sleeve</div>
+            <ul class="criteria-list">
+                <li>Original inner sleeve present (paper / printed / poly)</li>
+                <li>Condition and type noted (generic / printed / custom)</li>
+                <li>Lyric sheet or insert present if applicable</li>
+            </ul>
+        </div>
+
+        <div class="criteria-card">
+            <div class="criteria-title">Inclusions &amp; inserts</div>
+            <ul class="criteria-list">
+                <li>OBI strip (front / back / spine) — condition and presence noted</li>
+                <li>Hype sticker present on shrink wrap</li>
+                <li>Poster, booklet, or lyric sheet accounted for</li>
+                <li>Certificate of authenticity or numbered card if applicable</li>
+            </ul>
+        </div>
+
+        <div class="criteria-card">
+            <div class="criteria-title">Catalogue data</div>
+            <ul class="criteria-list">
+                <li>Country of origin confirmed against matrix / label</li>
+                <li>Catalogue number matches label and Discogs</li>
+                <li>Label name and pressing plant (manufacturer) verified</li>
+                <li>Discogs / MusicBrainz IDs cross-checked</li>
+            </ul>
+        </div>
+
+    </div>
+</section>
+
+{# ══════════════════════════════════════════════════════
+   ACTIONS
+   ══════════════════════════════════════════════════════ #}
+{% if review.status.value == 'pending' and user.role in ('admin', 'reviewer') %}
+<section class="review-actions-section">
+    <h3>Decision</h3>
+    <div class="review-action-forms">
+        <form method="post" action="/reviews/{{ review.id }}/approve"
+              hx-post="/reviews/{{ review.id }}/approve"
+              hx-target="#action-result" hx-swap="innerHTML" class="review-action-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label for="approve-comment" class="form-label">Comment (optional)</label>
+            <textarea id="approve-comment" name="comment" rows="2" maxlength="200"
+                      class="form-control" placeholder="Everything checks out…"></textarea>
+            <button type="submit" class="btn btn-success">✓ Approve</button>
+        </form>
+
+        <form method="post" action="/reviews/{{ review.id }}/reject"
+              hx-post="/reviews/{{ review.id }}/reject"
+              hx-target="#action-result" hx-swap="innerHTML" class="review-action-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label for="reject-comment" class="form-label">Reason for rejection</label>
+            <textarea id="reject-comment" name="comment" rows="2" maxlength="200"
+                      class="form-control" placeholder="Matrix mismatch — needs correction…"></textarea>
+            <button type="submit" class="btn btn-danger">✗ Reject</button>
+        </form>
+    </div>
+    <div id="action-result" style="margin-top:0.75rem"></div>
+</section>
+{% elif review.status.value != 'pending' %}
+<section class="review-actions-section">
+    <p class="text-muted">This review was <strong>{{ review.status.value }}</strong>
+    {% if review.resolved_at %} on {{ review.resolved_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.</p>
+    {% if review.resolution_comment %}
+    <blockquote class="revision-comment">{{ review.resolution_comment }}</blockquote>
+    {% endif %}
 </section>
 {% endif %}
 
 {% if revisions %}
-<section class="revision-diff">
-    <h2>Revision diff</h2>
-    <div class="diff-view">
+<section class="revision-section">
+    <h3>Revision history</h3>
+    <ol class="revision-timeline">
         {% for rev in revisions %}
-        <div class="revision-card">
-            <h3>Rev {{ rev.revision_number }} ({{ rev.source }})</h3>
-            <pre>{{ rev.data | tojson(indent=2) }}</pre>
-        </div>
+        <li class="revision-item">
+            <div class="revision-header">
+                <strong>Rev {{ rev.revision_number }}</strong>
+                <span class="badge-source">{{ rev.source.value }}</span>
+                {% if rev.created_at %}
+                <time class="text-muted">{{ rev.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
+                {% endif %}
+            </div>
+            {% if rev.comment %}<p class="revision-comment">{{ rev.comment }}</p>{% endif %}
+        </li>
         {% endfor %}
-    </div>
-</section>
-{% endif %}
-
-{% if review.status == 'pending' %}
-<section class="review-actions">
-    <h2>Actions</h2>
-
-    <form method="post" action="/reviews/{{ review.id }}/approve"
-          hx-post="/reviews/{{ review.id }}/approve"
-          hx-target="#action-result" hx-swap="innerHTML">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="approve-comment">Comment (optional)</label>
-        <textarea id="approve-comment" name="comment" rows="2" maxlength="1000"></textarea>
-        <button type="submit" class="btn btn-success">Approve</button>
-    </form>
-
-    <form method="post" action="/reviews/{{ review.id }}/reject"
-          hx-post="/reviews/{{ review.id }}/reject"
-          hx-target="#action-result" hx-swap="innerHTML">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label for="reject-comment">Reason for rejection</label>
-        <textarea id="reject-comment" name="comment" rows="2" maxlength="1000"></textarea>
-        <button type="submit" class="btn btn-danger">Reject</button>
-    </form>
-
-    <div id="action-result"></div>
+    </ol>
 </section>
 {% endif %}
 {% endblock %}

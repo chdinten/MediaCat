@@ -2,28 +2,73 @@
 {% block title %}Dashboard — MediaCat{% endblock %}
 
 {% block content %}
-<h1>Dashboard</h1>
-
-<div class="stats-grid">
-    <div class="stat-card">
-        <span class="stat-value">{{ stats.tokens }}</span>
-        <span class="stat-label">Tokens</span>
-    </div>
-    <div class="stat-card">
-        <span class="stat-value">{{ stats.reviews_pending }}</span>
-        <span class="stat-label">Pending reviews</span>
-    </div>
-    <div class="stat-card">
-        <span class="stat-value">{{ stats.jobs_running }}</span>
-        <span class="stat-label">Running jobs</span>
+<div class="hero">
+    <div class="hero-noise"></div>
+    <div class="hero-content">
+        <h1>Welcome back{% if user.get('username') %}, {{ user.get('username') }}{% endif %}</h1>
+        <p>Your physical music catalogue — vinyl &amp; CD, catalogued with precision.</p>
+        <div class="btn-group">
+            <a href="/catalogue/new" class="btn btn-primary">+ Add pressing</a>
+            <a href="/catalogue" class="btn btn-ghost">Browse catalogue</a>
+        </div>
     </div>
 </div>
 
-<section>
-    <h2>Pending reviews</h2>
-    <div hx-get="/reviews?status=pending" hx-trigger="load" hx-target="#pending-reviews">
-        <p>Loading…</p>
+<div class="stats-grid">
+    <div class="stat-card">
+        <span class="stat-value">{{ stats.total }}</span>
+        <span class="stat-label">Pressings</span>
     </div>
-    <div id="pending-reviews"></div>
+    <div class="stat-card">
+        <span class="stat-value">{{ stats.artists }}</span>
+        <span class="stat-label">Artists</span>
+    </div>
+    <div class="stat-card stat-card--vinyl">
+        <span class="stat-value">{{ stats.vinyl }}</span>
+        <span class="stat-label">Vinyl</span>
+    </div>
+    <div class="stat-card stat-card--cd">
+        <span class="stat-value">{{ stats.cd }}</span>
+        <span class="stat-label">CD</span>
+    </div>
+</div>
+
+{% if recent %}
+<section class="recent-section">
+    <div class="recent-header">
+        <h2>Recently added</h2>
+        <a href="/catalogue" class="btn btn-ghost btn-sm">View all →</a>
+    </div>
+    <div class="recent-carousel">
+        {% for token in recent %}
+        <a href="/catalogue/{{ token.id }}" class="recent-card">
+            {% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}
+            {% if cover %}
+            <div class="recent-cover recent-cover--has-image">
+                <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Cover" class="recent-cover-img" loading="lazy">
+            </div>
+            {% else %}
+            <div class="recent-cover recent-cover--{{ token.media_format.value }}">
+                <span class="recent-format-badge">{{ token.media_format.value.upper() }}</span>
+            </div>
+            {% endif %}
+            <div class="recent-card-body">
+                <div class="recent-title">{{ token.title or 'Untitled' }}</div>
+                <div class="recent-artist">{{ token.artist or 'Unknown Artist' }}</div>
+                <div class="recent-meta">
+                    {% if token.year %}{{ token.year }}{% endif %}
+                    {% if token.year and token.label %}&nbsp;·&nbsp;{% endif %}
+                    {% if token.label %}{{ token.label.name }}{% endif %}
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
 </section>
+{% else %}
+<div class="empty-state" style="margin-top:2rem">
+    <p class="text-muted">No pressings catalogued yet.</p>
+    <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+</div>
+{% endif %}
 {% endblock %}

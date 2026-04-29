@@ -14,7 +14,7 @@
 	}
 }
 
-{$PUBLIC_HOSTNAME:mediacat.localhost} {
+{$PUBLIC_SCHEME:-https}://{$PUBLIC_HOSTNAME:-mediacat.localhost} {
 	# ----- Security headers -----
 	header {
 		Strict-Transport-Security  "max-age=63072000; includeSubDomains; preload"
@@ -57,6 +57,20 @@
 }
 
 # MinIO console — separate subdomain, optional.
-minio.{$PUBLIC_HOSTNAME:mediacat.localhost} {
+{$PUBLIC_SCHEME:-https}://minio.{$PUBLIC_HOSTNAME:-mediacat.localhost} {
 	reverse_proxy minio:9001
+}
+
+# Open WebUI — browser chat UI for Ollama (only active when ollama profile is up).
+{$PUBLIC_SCHEME:-https}://ollama.{$PUBLIC_HOSTNAME:-mediacat.localhost} {
+	reverse_proxy open-webui:8080 {
+		health_uri  /health
+		health_interval 30s
+		health_timeout  10s
+		health_status  200
+	}
+	log {
+		output stdout
+		format json
+	}
 }

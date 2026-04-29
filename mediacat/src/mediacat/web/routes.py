@@ -15,11 +15,16 @@ Authentication flow:
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+
+# Fixed namespace for deterministic dev-admin UUIDs.
+# Same username → same UUID on every restart → FK on token_revisions always resolves.
+_DEV_USER_NAMESPACE = uuid.UUID("b3e2f1a0-cafe-4321-beef-000000000000")
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -79,11 +84,19 @@ def _is_htmx(request: Request) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    """Extract client IP, respecting X-Forwarded-For from Caddy."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Extract client IP, only trusting X-Forwarded-For from known proxy CIDRs."""
+    connecting = request.client.host if request.client else None
+    if connecting:
+        trusted_nets = getattr(request.app.state, "trusted_proxy_networks", [])
+        try:
+            addr = ipaddress.ip_address(connecting)
+            if any(addr in net for net in trusted_nets):
+                forwarded = request.headers.get("x-forwarded-for")
+                if forwarded:
+                    return forwarded.split(",")[0].strip()
+        except ValueError:
+            pass
+    return connecting or "unknown"
 
 
 def _require_role(request: Request, *roles: str) -> None:
@@ -126,7 +139,7 @@ def seed_admin(username: str, password: str, email: str = "admin@localhost") -> 
     Called at startup or via CLI. In production, users live in the DB.
     """
     _users_store[username] = {
-        "id": uuid.uuid4().hex,
+        "id": uuid.uuid5(_DEV_USER_NAMESPACE, username).hex,
         "username": username,
         "email": email,
         "password_hash": hash_password(password),
@@ -175,7 +188,7 @@ async def login_submit(
     ip = _client_ip(request)
 
     # Rate limiting by username and IP
-    if rate_limiter.is_locked(username) or rate_limiter.is_locked(ip):
+    if await rate_limiter.is_locked(username) or await rate_limiter.is_locked(ip):
         return _tmpl().TemplateResponse(
             request=request,
             name="login.html",
@@ -186,8 +199,8 @@ async def login_submit(
     # Lookup user
     user = _users_store.get(username)
     if not user or not user.get("is_active", False):
-        rate_limiter.record_failure(username)
-        rate_limiter.record_failure(ip)
+        await rate_limiter.record_failure(username)
+        await rate_limiter.record_failure(ip)
         return _tmpl().TemplateResponse(
             request=request,
             name="login.html",
@@ -197,8 +210,8 @@ async def login_submit(
 
     # Verify password
     if not verify_password(password, user["password_hash"]):
-        rate_limiter.record_failure(username)
-        rate_limiter.record_failure(ip)
+        await rate_limiter.record_failure(username)
+        await rate_limiter.record_failure(ip)
         user["failed_login_count"] = user.get("failed_login_count", 0) + 1
         logger.warning("Failed login for user=%s from ip=%s", username, ip)
         return _tmpl().TemplateResponse(
@@ -213,8 +226,8 @@ async def login_submit(
         user["password_hash"] = hash_password(password)
 
     # Successful login
-    rate_limiter.clear(username)
-    rate_limiter.clear(ip)
+    await rate_limiter.clear(username)
+    await rate_limiter.clear(ip)
     user["failed_login_count"] = 0
     user["last_login_at"] = datetime.now(UTC).isoformat()
 
@@ -251,12 +264,67 @@ async def logout(request: Request) -> RedirectResponse:
 @dashboard_router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     """Main dashboard."""
-    context = _ctx(
-        request,
-        pending_count=0,
-        recent_jobs=[],
-        stats={"tokens": len(_users_store), "reviews_pending": 0, "jobs_running": 0},
-    )
+    stats = {"total": 0, "vinyl": 0, "cd": 0, "artists": 0}
+    recent: list[Any] = []
+    try:
+        from sqlalchemy import func, select
+
+        from mediacat.db.enums import MediaFormat, TokenStatus
+        from mediacat.db.models import Token
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as db:
+                base_filter = [
+                    Token.deleted_at.is_(None),
+                    Token.status != TokenStatus.MERGED,
+                ]
+                stats["total"] = (
+                    await db.execute(select(func.count(Token.id)).where(*base_filter))
+                ).scalar_one()
+                stats["vinyl"] = (
+                    await db.execute(
+                        select(func.count(Token.id)).where(
+                            *base_filter, Token.media_format == MediaFormat.VINYL
+                        )
+                    )
+                ).scalar_one()
+                stats["cd"] = (
+                    await db.execute(
+                        select(func.count(Token.id)).where(
+                            *base_filter, Token.media_format == MediaFormat.CD
+                        )
+                    )
+                ).scalar_one()
+                stats["artists"] = (
+                    await db.execute(
+                        select(func.count(func.distinct(Token.artist))).where(
+                            *base_filter, Token.artist.isnot(None)
+                        )
+                    )
+                ).scalar_one()
+                from sqlalchemy.orm import selectinload
+
+                recent = list(
+                    (
+                        await db.execute(
+                            select(Token)
+                            .options(
+                                selectinload(Token.label),
+                                selectinload(Token.media_objects),
+                            )
+                            .where(*base_filter)
+                            .order_by(Token.created_at.desc())
+                            .limit(8)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+    except Exception as exc:
+        logger.warning("Dashboard DB query failed: %s", exc)
+
+    context = _ctx(request, stats=stats, recent=recent)
     return _tmpl().TemplateResponse(request=request, name="dashboard.html", context=context)
 
 
@@ -272,9 +340,45 @@ async def review_list(
     page: int = Query(1, ge=1),
 ) -> HTMLResponse:
     """List review items, filterable by status."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from mediacat.db.enums import ReviewStatus
+    from mediacat.db.models import ReviewItem, Token
+
+    reviews: list[Any] = []
+    valid_statuses = {s.value for s in ReviewStatus}
+    if status_filter not in valid_statuses:
+        status_filter = "pending"
+    try:
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as db:
+                reviews = list(
+                    (
+                        await db.execute(
+                            select(ReviewItem)
+                            .options(
+                                selectinload(ReviewItem.token).options(
+                                    selectinload(Token.media_objects),
+                                    selectinload(Token.country),
+                                    selectinload(Token.label),
+                                )
+                            )
+                            .where(ReviewItem.status == ReviewStatus(status_filter))
+                            .order_by(ReviewItem.created_at.desc())
+                            .limit(50)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+    except Exception as exc:
+        logger.warning("Review list DB query failed: %s", exc)
+
     context = _ctx(
         request,
-        reviews=[],
+        reviews=reviews,
         current_status=status_filter,
         page=page,
         total_pages=1,
@@ -285,12 +389,48 @@ async def review_list(
 
 @review_router.get("/reviews/{review_id}", response_class=HTMLResponse)
 async def review_detail(request: Request, review_id: str) -> HTMLResponse:
-    """Show a single review item with diff view and action buttons."""
+    """Show a single review item with criteria checklist and action buttons."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from mediacat.db.models import ReviewItem, Token
+
+    review = None
+    token = None
+    revisions: list[Any] = []
+    try:
+        rid = uuid.UUID(review_id)
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as db:
+                review = (
+                    await db.execute(
+                        select(ReviewItem)
+                        .options(
+                            selectinload(ReviewItem.token).options(
+                                selectinload(Token.media_objects),
+                                selectinload(Token.revisions),
+                                selectinload(Token.country),
+                                selectinload(Token.label),
+                            )
+                        )
+                        .where(ReviewItem.id == rid)
+                    )
+                ).scalar_one_or_none()
+                if review:
+                    token = review.token
+                    revisions = list(reversed(token.revisions)) if token else []
+    except Exception as exc:
+        logger.warning("Review detail DB query failed: %s", exc)
+
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found")
+
     context = _ctx(
         request,
-        review={"id": review_id, "status": "pending"},
-        token=None,
-        revisions=[],
+        review=review,
+        token=token,
+        revisions=revisions,
     )
     return _tmpl().TemplateResponse(request=request, name="review_detail.html", context=context)
 
@@ -305,8 +445,29 @@ async def review_approve(
     _require_role(request, "admin", "reviewer")
     user_id = request.state.user_id
     safe_comment = comment.replace("\n", " ").replace("\r", " ")[:200]
-    logger.info("Review %s approved by user=%s comment=%s", review_id, user_id, safe_comment)
 
+    from sqlalchemy import select
+
+    from mediacat.db.enums import ReviewStatus
+    from mediacat.db.models import ReviewItem
+
+    try:
+        rid = uuid.UUID(review_id)
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as db:
+                item = (
+                    await db.execute(select(ReviewItem).where(ReviewItem.id == rid))
+                ).scalar_one_or_none()
+                if item:
+                    item.status = ReviewStatus.APPROVED
+                    item.resolution_comment = safe_comment
+                    item.resolved_at = datetime.now(UTC)
+                    await db.commit()
+    except Exception as exc:
+        logger.warning("Review approve DB update failed: %s", exc)
+
+    logger.info("Review %s approved by user=%s", review_id, user_id)
     if _is_htmx(request):
         return HTMLResponse('<div class="alert alert-success">Review approved.</div>')
     return RedirectResponse(url="/reviews", status_code=303)
@@ -322,8 +483,29 @@ async def review_reject(
     _require_role(request, "admin", "reviewer")
     user_id = request.state.user_id
     safe_comment = comment.replace("\n", " ").replace("\r", " ")[:200]
-    logger.info("Review %s rejected by user=%s comment=%s", review_id, user_id, safe_comment)
 
+    from sqlalchemy import select
+
+    from mediacat.db.enums import ReviewStatus
+    from mediacat.db.models import ReviewItem
+
+    try:
+        rid = uuid.UUID(review_id)
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as db:
+                item = (
+                    await db.execute(select(ReviewItem).where(ReviewItem.id == rid))
+                ).scalar_one_or_none()
+                if item:
+                    item.status = ReviewStatus.REJECTED
+                    item.resolution_comment = safe_comment
+                    item.resolved_at = datetime.now(UTC)
+                    await db.commit()
+    except Exception as exc:
+        logger.warning("Review reject DB update failed: %s", exc)
+
+    logger.info("Review %s rejected by user=%s", review_id, user_id)
     if _is_htmx(request):
         return HTMLResponse('<div class="alert alert-warning">Review rejected.</div>')
     return RedirectResponse(url="/reviews", status_code=303)
@@ -342,13 +524,69 @@ async def token_list(
     page: int = Query(1, ge=1),
 ) -> HTMLResponse:
     """Browse the token registry with search and filters."""
+    from sqlalchemy import func, or_, select
+    from sqlalchemy.orm import selectinload
+
+    from mediacat.db.enums import MediaFormat, TokenStatus
+    from mediacat.db.models import Token
+
+    page_size = 50
+    offset = (page - 1) * page_size
+    tokens: list[Any] = []
+    total_pages = 1
+
+    try:
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as db:
+                base = (
+                    select(Token)
+                    .options(selectinload(Token.label), selectinload(Token.country))
+                    .where(Token.deleted_at.is_(None))
+                    .where(Token.status != TokenStatus.MERGED)
+                )
+                if q:
+                    try:
+                        token_uuid = uuid.UUID(q.strip())
+                        base = base.where(Token.id == token_uuid)
+                    except ValueError:
+                        base = base.where(
+                            or_(
+                                Token.title.ilike(f"%{q}%"),
+                                Token.artist.ilike(f"%{q}%"),
+                                Token.barcode.ilike(f"%{q}%"),
+                                Token.catalog_number.ilike(f"%{q}%"),
+                            )
+                        )
+                if media in ("vinyl", "cd"):
+                    base = base.where(Token.media_format == MediaFormat(media))
+
+                total: int = (
+                    await db.execute(select(func.count()).select_from(base.subquery()))
+                ).scalar_one()
+                total_pages = max(1, (total + page_size - 1) // page_size)
+
+                tokens = list(
+                    (
+                        await db.execute(
+                            base.order_by(Token.artist.asc(), Token.title.asc())
+                            .offset(offset)
+                            .limit(page_size)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+    except Exception as exc:
+        logger.warning("Token list DB query failed: %s", exc)
+
     context = _ctx(
         request,
-        tokens=[],
+        tokens=tokens,
         query=q,
         media_filter=media,
         page=page,
-        total_pages=1,
+        total_pages=total_pages,
     )
     template = "partials/token_list.html" if _is_htmx(request) else "tokens.html"
     return _tmpl().TemplateResponse(request=request, name=template, context=context)

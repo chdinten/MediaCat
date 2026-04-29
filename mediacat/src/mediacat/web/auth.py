@@ -15,6 +15,7 @@ import hmac
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -139,14 +140,17 @@ class CsrfProtection:
 
 
 class LoginRateLimiter:
-    """In-memory rate limiter for login attempts.
+    """In-memory sliding-window rate limiter for login attempts.
+
+    Used as a fallback when Redis is unavailable.  State is lost on
+    process restart and is not shared across workers.
 
     Parameters
     ----------
     max_attempts
         Maximum failed attempts before lockout.
     window_seconds
-        Lockout window duration.
+        Lockout window duration in seconds.
     """
 
     def __init__(
@@ -158,23 +162,73 @@ class LoginRateLimiter:
         self._window = timedelta(seconds=window_seconds)
         self._attempts: dict[str, list[datetime]] = {}
 
-    def record_failure(self, key: str) -> None:
+    async def record_failure(self, key: str) -> None:
         """Record a failed login attempt."""
         now = datetime.now(UTC)
         attempts = self._attempts.setdefault(key, [])
         attempts.append(now)
-        # Prune old entries
         cutoff = now - self._window
         self._attempts[key] = [a for a in attempts if a > cutoff]
 
-    def is_locked(self, key: str) -> bool:
-        """Check if the key (username or IP) is locked out."""
+    async def is_locked(self, key: str) -> bool:
+        """Return True if the key (username or IP) is currently locked out."""
         now = datetime.now(UTC)
-        attempts = self._attempts.get(key, [])
         cutoff = now - self._window
-        recent = [a for a in attempts if a > cutoff]
+        recent = [a for a in self._attempts.get(key, []) if a > cutoff]
         return len(recent) >= self._max
 
-    def clear(self, key: str) -> None:
-        """Clear attempts for a key (on successful login)."""
+    async def clear(self, key: str) -> None:
+        """Clear attempts for a key (call on successful login)."""
         self._attempts.pop(key, None)
+
+
+class RedisLoginRateLimiter:
+    """Redis-backed sliding-window rate limiter for login attempts.
+
+    Uses one sorted set per key, scored by Unix timestamp.  Each member
+    is unique (timestamp + random hex) so concurrent failures within the
+    same millisecond are all recorded.
+
+    Parameters
+    ----------
+    redis
+        An ``redis.asyncio.Redis`` instance.
+    max_attempts
+        Maximum failed attempts before lockout.
+    window_seconds
+        Lockout window duration in seconds.
+    """
+
+    _KEY_PREFIX = "mediacat:rl:login:"
+
+    def __init__(
+        self,
+        redis: Any,
+        max_attempts: int = 10,
+        window_seconds: int = 900,
+    ) -> None:
+        self._redis = redis
+        self._max = max_attempts
+        self._window = window_seconds
+
+    async def record_failure(self, key: str) -> None:
+        """Record a failed login attempt."""
+        now = datetime.now(UTC).timestamp()
+        rkey = self._KEY_PREFIX + key
+        member = f"{now:.6f}:{secrets.token_hex(4)}"
+        async with self._redis.pipeline(transaction=False) as pipe:
+            pipe.zadd(rkey, {member: now})
+            pipe.zremrangebyscore(rkey, 0, now - self._window)
+            pipe.expire(rkey, self._window + 60)
+            await pipe.execute()
+
+    async def is_locked(self, key: str) -> bool:
+        """Return True if the key (username or IP) is currently locked out."""
+        now = datetime.now(UTC).timestamp()
+        cutoff = now - self._window
+        count = await self._redis.zcount(self._KEY_PREFIX + key, cutoff, "+inf")
+        return int(count) >= self._max
+
+    async def clear(self, key: str) -> None:
+        """Clear attempts for a key (call on successful login)."""
+        await self._redis.delete(self._KEY_PREFIX + key)

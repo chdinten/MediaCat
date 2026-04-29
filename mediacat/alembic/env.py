@@ -21,8 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # Import the declarative base (carries the MetaData) and all models so
 # that autogenerate can see every table.
-from mediacat.db.base import Base  # noqa: E402
-from mediacat.db.models import (  # noqa: E402, F401  — side-effect imports
+from mediacat.db.base import Base
+from mediacat.db.models import (  # noqa: F401  — side-effect imports
     AuditLog,
     Country,
     IngestionJob,
@@ -70,7 +70,8 @@ def _get_dsn() -> str:
     if not pw and Path(pw_file).is_file():
         pw = Path(pw_file).read_text().strip()
 
-    return f"postgresql+asyncpg://{user}:{pw}@{host}:{port}/{dbname}"
+    ssl = os.environ.get("PGSSLMODE", "disable")
+    return f"postgresql+asyncpg://{user}:{pw}@{host}:{port}/{dbname}?ssl={ssl}"
 
 
 def run_migrations_offline() -> None:
@@ -89,14 +90,31 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection):  # type: ignore[no-untyped-def]
     """Execute migrations inside a synchronous callback."""
-    context.configure(
-        connection=connection,
-        target_metadata=target_metadata,
-        compare_type=True,
-        compare_server_default=True,
-    )
-    with context.begin_transaction():
-        context.run_migrations()
+    # SQLAlchemy 2.x registers Enum._on_table_create as a before_create table
+    # listener even when create_type=False, causing DuplicateObjectError when
+    # migration scripts create types explicitly via DO blocks first.  Silence
+    # the method for the duration of this run; the DO blocks own type creation.
+    # The replacement must be named _on_table_create: SQLAlchemy dispatches via
+    # getattr(instance, fn.__name__), so a lambda (name='<lambda>') would fail.
+    import sqlalchemy.sql.sqltypes as _sqltypes
+
+    _orig_on_table_create = _sqltypes.Enum._on_table_create
+
+    def _on_table_create(self, target, bind, **kw):
+        pass
+
+    _sqltypes.Enum._on_table_create = _on_table_create  # type: ignore[assignment]
+    try:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+    finally:
+        _sqltypes.Enum._on_table_create = _orig_on_table_create  # type: ignore[assignment]
 
 
 async def run_async_migrations() -> None:

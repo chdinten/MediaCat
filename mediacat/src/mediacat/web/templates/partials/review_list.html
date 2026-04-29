@@ -1,26 +1,36 @@
 {% if reviews %}
-<table class="data-table">
-    <thead>
-        <tr>
-            <th>Token</th>
-            <th>Reason</th>
-            <th>Priority</th>
-            <th>Created</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for r in reviews %}
-        <tr>
-            <td>{{ r.token_id[:8] }}…</td>
-            <td><span class="badge badge-{{ r.reason }}">{{ r.reason }}</span></td>
-            <td>{{ r.priority }}</td>
-            <td>{{ r.created_at }}</td>
-            <td><a href="/reviews/{{ r.id }}">Review</a></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="review-list">
+    {% for r in reviews %}
+    {% set tok = r.token %}
+    {% set cover = (tok.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first) if tok else none %}
+    <a href="/reviews/{{ r.id }}" class="review-list-item">
+        {% if cover and tok %}
+        <img src="/catalogue/{{ tok.id }}/images/{{ cover.id }}" alt="Cover"
+             class="pressing-list-thumb" loading="lazy">
+        {% else %}
+        <span class="pressing-list-thumb pressing-list-thumb--placeholder">
+            {{ tok.media_format.value.upper() if tok else '?' }}
+        </span>
+        {% endif %}
+        <span class="review-item-info">
+            <span class="review-item-title">{{ tok.title or 'Untitled' if tok else '—' }}</span>
+            <span class="review-item-artist">{{ tok.artist or '' if tok else '' }}</span>
+            <span class="review-item-meta">
+                {% if tok and tok.year %}{{ tok.year }}{% endif %}
+                {% if tok and tok.country %}&nbsp;·&nbsp;{{ tok.country.name }}{% endif %}
+                {% if tok and tok.label %}&nbsp;·&nbsp;{{ tok.label.name }}{% endif %}
+            </span>
+        </span>
+        <span class="review-item-aside">
+            <span class="badge badge-{{ r.reason }}">{{ r.reason.value.replace('_', ' ') }}</span>
+            <span class="badge badge-{{ r.status.value }}">{{ r.status.value }}</span>
+            {% if r.created_at %}
+            <span class="text-muted" style="font-size:0.78rem">{{ r.created_at.strftime('%Y-%m-%d') }}</span>
+            {% endif %}
+        </span>
+    </a>
+    {% endfor %}
+</div>
 {% else %}
 <p class="empty-state">No reviews matching this filter.</p>
 {% endif %}

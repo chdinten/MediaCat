@@ -35,6 +35,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     "argon2-cffi>=23.1",
     "itsdangerous>=2.2",
+    "redis[hiredis]>=5.0",
+    "pyzbar>=0.1.9",
 ]
 
 [project.optional-dependencies]
@@ -98,7 +100,9 @@ ignore = [
 "alembic/env.py" = ["E402"]
 "src/mediacat/rules/local.py" = ["ARG002"]  # media_format is interface-mandated
 "src/mediacat/vision/adapter.py" = ["ARG002", "PLC0415"]  # interface params + deferred imports
-"src/mediacat/web/routes.py" = ["ARG001"]  # FastAPI handler params used for DI/form binding
+"src/mediacat/web/routes.py" = ["ARG001", "E402", "PLC0415"]  # FastAPI handler params + deferred imports
+"src/mediacat/web/catalogue.py" = ["ARG001", "E402", "PLC0415", "B008", "PLR0912", "PLR0915", "RUF001", "RUF003", "A001", "SIM105", "B904", "G201"]  # FastAPI DI params + deferred imports; intentional EN dash; complexity in route handlers
+"src/mediacat/web/app.py" = ["PLR0912", "PLR0915", "PLC0415"]  # lifespan complexity + deferred imports
 "src/mediacat/web/middleware.py" = ["PLC0415", "SIM110"]  # inline import + loop clarity
 "src/mediacat/config.py" = ["PLC0415", "S104"]  # deferred imports + 0.0.0.0 bind is intentional
 "src/mediacat/db/audit.py" = ["PLC0415"]  # deferred uuid import

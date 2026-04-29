@@ -131,7 +131,12 @@ async def translate_text(
 ) -> str:
     """Translate text to British English."""
     lang_hint = f" The source language is {source_language}." if source_language else ""
-    user_prompt = f"Translate the following text to British English.{lang_hint}\n\n{text}"
+    user_prompt, flags = build_prompt(
+        f"Translate the following text to British English.{lang_hint}\n\n{{source_text}}",
+        data_fields={"source_text": text},
+    )
+    if flags:
+        logger.warning("Injection flags in translation input: %s", flags)
     resp = await llm.complete(_TRANSLATE_SYSTEM, user_prompt, task="translation")
     return resp.text.strip()
 

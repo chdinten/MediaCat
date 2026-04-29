@@ -14,7 +14,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
-        build-essential libpq-dev && \
+        build-essential libpq-dev \
+        libzbar-dev && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -22,6 +23,11 @@ WORKDIR /build
 # Install dependencies first (layer caching)
 COPY pyproject.toml README.md ./
 RUN pip install --prefix=/install --no-warn-script-location .
+
+# pyzbar is kept separate: it needs libzbar-dev (above) at build time
+# and libzbar0 at runtime. Isolating it here keeps the layer cache intact
+# for the main dependency layer when only pyzbar changes.
+RUN pip install --prefix=/install --no-warn-script-location "pyzbar>=0.1.9"
 
 # Copy source and install the package itself
 COPY src/ src/
@@ -49,6 +55,7 @@ RUN apt-get update -qq && \
         tesseract-ocr-eng tesseract-ocr-deu tesseract-ocr-fra \
         tesseract-ocr-ita tesseract-ocr-jpn tesseract-ocr-kor \
         tesseract-ocr-chi-sim tesseract-ocr-chi-tra tesseract-ocr-rus \
+        libzbar0 \
         curl ca-certificates tini && \
     rm -rf /var/lib/apt/lists/*
 
@@ -62,6 +69,10 @@ COPY --from=builder /install /usr/local
 
 # Copy config defaults (never secrets)
 COPY config/logging.yaml /app/config/logging.yaml
+
+# Alembic migrations (needed by db-migrate / db-status commands)
+COPY alembic.ini /app/alembic.ini
+COPY alembic /app/alembic
 
 # Writable dirs the app needs at runtime (tmp, any cache)
 RUN mkdir -p /app/tmp && chown mediacat:mediacat /app/tmp

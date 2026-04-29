@@ -46,8 +46,16 @@ def upgrade() -> None:
     """Create all enum types and tables."""
 
     # ---- Enum types ----------------------------------------------------------
+    # PostgreSQL has no CREATE TYPE IF NOT EXISTS. Use a DO block that swallows
+    # duplicate_object so this step is idempotent on re-runs.
     for name, values in ENUMS:
-        sa.Enum(*values, name=name).create(op.get_bind(), checkfirst=True)  # type: ignore[arg-type]
+        values_sql = ", ".join(f"'{v}'" for v in values)
+        op.execute(sa.text(
+            f"DO $$ BEGIN "
+            f"CREATE TYPE {name} AS ENUM ({values_sql}); "
+            f"EXCEPTION WHEN duplicate_object THEN NULL; "
+            f"END $$"
+        ))
 
     # ---- Extensions (also in initdb but safe to repeat) ----------------------
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
@@ -62,8 +70,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(254), nullable=False),
         sa.Column("display_name", sa.String(200), nullable=True),
         sa.Column("password_hash", sa.Text(), nullable=False),
-        sa.Column("role", sa.Enum("admin", "reviewer", "viewer", "service", name="user_role",
-                                  create_type=False), nullable=False),
+        sa.Column("role", sa.Enum(name="user_role", create_type=False), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("mfa_secret", sa.Text(), nullable=True),
         sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True),
@@ -166,8 +173,7 @@ def upgrade() -> None:
         "ingestion_jobs",
         sa.Column("id", sa.Uuid(), server_default=sa.text("uuid_generate_v4()"), nullable=False),
         sa.Column("connector_name", sa.String(100), nullable=False),
-        sa.Column("status", sa.Enum("queued", "running", "completed", "failed", "cancelled",
-                                    name="ingestion_job_status", create_type=False), nullable=False),
+        sa.Column("status", sa.Enum(name="ingestion_job_status", create_type=False), nullable=False),
         sa.Column("payload", JSONB(), nullable=True),
         sa.Column("result", JSONB(), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
@@ -189,10 +195,8 @@ def upgrade() -> None:
         sa.Column("barcode", sa.String(50), nullable=True),
         sa.Column("catalog_number", sa.String(100), nullable=True),
         sa.Column("matrix_runout", sa.String(500), nullable=True),
-        sa.Column("media_format", sa.Enum("vinyl", "cd", name="media_format",
-                                          create_type=False), nullable=False),
-        sa.Column("status", sa.Enum("draft", "active", "merged", "archived",
-                                    name="token_status", create_type=False), nullable=False),
+        sa.Column("media_format", sa.Enum(name="media_format", create_type=False), nullable=False),
+        sa.Column("status", sa.Enum(name="token_status", create_type=False), nullable=False),
         sa.Column("title", sa.String(500), nullable=True),
         sa.Column("artist", sa.String(500), nullable=True),
         sa.Column("year", sa.Integer(), nullable=True),
@@ -242,8 +246,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), server_default=sa.text("uuid_generate_v4()"), nullable=False),
         sa.Column("token_id", sa.Uuid(), nullable=False),
         sa.Column("revision_number", sa.Integer(), nullable=False),
-        sa.Column("source", sa.Enum("ingestion", "vision", "ocr", "human", "llm", "import",
-                                    name="revision_source", create_type=False), nullable=False),
+        sa.Column("source", sa.Enum(name="revision_source", create_type=False), nullable=False),
         sa.Column("data", JSONB(), nullable=False),
         sa.Column("diff", JSONB(), nullable=True),
         sa.Column("comment", sa.Text(), nullable=True),
@@ -286,11 +289,7 @@ def upgrade() -> None:
         sa.Column("size_bytes", sa.Integer(), nullable=False),
         sa.Column("width_px", sa.Integer(), nullable=True),
         sa.Column("height_px", sa.Integer(), nullable=True),
-        sa.Column("region", sa.Enum(
-            "label_a", "label_b", "obi_front", "obi_back", "obi_spine",
-            "runout_a", "runout_b", "matrix", "cover_front", "cover_back",
-            "sleeve_inner", "disc_surface", "other",
-            name="image_region", create_type=False), nullable=True),
+        sa.Column("region", sa.Enum(name="image_region", create_type=False), nullable=True),
         sa.Column("source_url", sa.Text(), nullable=True),
         sa.Column("metadata", JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
@@ -316,13 +315,8 @@ def upgrade() -> None:
         "ocr_artifacts",
         sa.Column("id", sa.Uuid(), server_default=sa.text("uuid_generate_v4()"), nullable=False),
         sa.Column("media_object_id", sa.Uuid(), nullable=False),
-        sa.Column("engine", sa.Enum("tesseract", "azure", "aws_textract", "manual",
-                                    name="ocr_engine", create_type=False), nullable=False),
-        sa.Column("region", sa.Enum(
-            "label_a", "label_b", "obi_front", "obi_back", "obi_spine",
-            "runout_a", "runout_b", "matrix", "cover_front", "cover_back",
-            "sleeve_inner", "disc_surface", "other",
-            name="image_region", create_type=False), nullable=True),
+        sa.Column("engine", sa.Enum(name="ocr_engine", create_type=False), nullable=False),
+        sa.Column("region", sa.Enum(name="image_region", create_type=False), nullable=True),
         sa.Column("raw_text", sa.Text(), nullable=False),
         sa.Column("detected_language", sa.String(10), nullable=True),
         sa.Column("translated_text", sa.Text(), nullable=True),
@@ -345,11 +339,8 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), server_default=sa.text("uuid_generate_v4()"), nullable=False),
         sa.Column("token_id", sa.Uuid(), nullable=False),
         sa.Column("revision_id", sa.Uuid(), nullable=True),
-        sa.Column("status", sa.Enum("pending", "in_progress", "approved", "rejected", "deferred",
-                                    name="review_status", create_type=False), nullable=False),
-        sa.Column("reason", sa.Enum("low_confidence", "conflict", "novel_entity", "anomaly",
-                                    "manual", name="review_reason", create_type=False),
-                  nullable=False),
+        sa.Column("status", sa.Enum(name="review_status", create_type=False), nullable=False),
+        sa.Column("reason", sa.Enum(name="review_reason", create_type=False), nullable=False),
         sa.Column("priority", sa.Integer(), nullable=False, server_default=sa.text("0")),
         sa.Column("details", JSONB(), nullable=True),
         sa.Column("assigned_to", sa.Uuid(), nullable=True),

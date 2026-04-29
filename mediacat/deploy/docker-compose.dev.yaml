@@ -13,6 +13,8 @@ services:
       - ../src:/app/src:ro                # live source mount
       - ../config/app.yaml:/app/config/app.yaml:ro
       - ../config/connectors.yaml:/app/config/connectors.yaml:ro
+      - ../alembic:/app/alembic:ro        # live migration mount
+      - ../alembic.ini:/app/alembic.ini:ro
     command:
       - python
       - "-m"

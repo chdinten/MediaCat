@@ -54,6 +54,7 @@ log_ok "Detected Ubuntu $codename"
 # ---------- Configuration -----------------------------------------------------
 MEDIACAT_DATA_ROOT="${MEDIACAT_DATA_ROOT:-/srv/mediacat}"
 MEDIACAT_INSTALL_CADDY="${MEDIACAT_INSTALL_CADDY:-0}"
+MEDIACAT_INSTALL_NVIDIA="${MEDIACAT_INSTALL_NVIDIA:-0}"   # set to 1 for GPU hosts
 MEDIACAT_PYTHON="${MEDIACAT_PYTHON:-python3.12}"
 
 # ---------- Base packages -----------------------------------------------------
@@ -102,6 +103,31 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
     log_warn "WSL detected. Ensure /etc/wsl.conf has [boot] systemd=true (wsl2-prepare.ps1 handles this)."
 fi
 
+# ---------- NVIDIA Container Toolkit (optional; GPU hosts only) ---------------
+# Enables Docker to access NVIDIA GPUs for Ollama.
+# Reference: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+if [[ "$MEDIACAT_INSTALL_NVIDIA" == "1" ]]; then
+    log_step "Installing nvidia-container-toolkit..."
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        log_warn "nvidia-smi not found. Install the NVIDIA driver first (≥525.xx for RTX 40-series/Ada), then re-run with MEDIACAT_INSTALL_NVIDIA=1."
+    else
+        if ! dpkg -s nvidia-container-toolkit >/dev/null 2>&1; then
+            curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+                | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+            curl -fsSL "https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list" \
+                | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+                | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
+            sudo apt-get update -y
+            sudo apt-get install -y --no-install-recommends nvidia-container-toolkit
+            sudo nvidia-ctk runtime configure --runtime=docker
+            sudo systemctl restart docker 2>/dev/null || log_warn "Could not restart Docker (WSL2?). Restart manually."
+            log_ok "nvidia-container-toolkit installed."
+        else
+            log_ok "nvidia-container-toolkit already installed."
+        fi
+    fi
+fi
+
 # ---------- Caddy (optional) --------------------------------------------------
 if [[ "$MEDIACAT_INSTALL_CADDY" == "1" ]]; then
     log_step "Installing Caddy on host (optional)..."
@@ -116,26 +142,23 @@ fi
 
 # ---------- Developer Python tools via pipx ----------------------------------
 log_step "Installing developer tools via pipx..."
-for pkg in pre-commit ruff mypy bandit pip-audit pdoc mkdocs-material; do
+for pkg in pre-commit ruff mypy bandit pip-audit pdoc mkdocs; do
     if pipx list --short 2>/dev/null | awk '{print $1}' | grep -qx "$pkg"; then
         pipx upgrade "$pkg" >/dev/null || true
     else
         pipx install --force "$pkg" >/dev/null
     fi
 done
+# mkdocs-material is a theme library (no CLI); inject it into the mkdocs env.
+if pipx list --short 2>/dev/null | grep -q "^mkdocs "; then
+    pipx inject mkdocs mkdocs-material >/dev/null
+fi
 
 # ---------- Persistent data tree ---------------------------------------------
 log_step "Creating persistent data tree at $MEDIACAT_DATA_ROOT ..."
-sudo install -d -m 0755 "$MEDIACAT_DATA_ROOT"
-for d in postgres minio redis backups logs; do
-    sudo install -d -m 0750 "$MEDIACAT_DATA_ROOT/$d"
-done
-# Secrets dir is root:root 0700.
-sudo install -d -m 0700 -o root -g root "$MEDIACAT_DATA_ROOT/secrets"
-
-# Give the invoking user read/traverse on the root only (not secrets).
-sudo chown "root:${USER}" "$MEDIACAT_DATA_ROOT"
-sudo chmod 0750 "$MEDIACAT_DATA_ROOT"
+# Delegates to data-init.sh which sets per-service uid ownership correctly.
+# Running it here ensures bootstrap is fully self-contained.
+bash "$(dirname "$0")/data-init.sh"
 
 # ---------- Verify ------------------------------------------------------------
 log_step "Versions:"

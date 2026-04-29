@@ -1,0 +1,399 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'create' %}Add pressing{% else %}Edit pressing{% endif %} — MediaCat{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{% if mode == 'create' %}Add pressing{% else %}Edit: {{ token.title or 'Untitled' }}{% endif %}</h1>
+    {% if mode == 'edit' %}
+    <a href="/catalogue/{{ token.id }}" class="btn btn-ghost">Cancel</a>
+    {% else %}
+    <a href="/catalogue" class="btn btn-ghost">Cancel</a>
+    {% endif %}
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════════════════════════
+   FIND RELEASE PANEL — create mode only
+   ═══════════════════════════════════════════════════════════════════════ #}
+{% if mode == 'create' %}
+<div class="find-panel">
+    <div class="find-panel-header">
+        <span class="find-panel-title">Find on Discogs or MusicBrainz</span>
+        <span class="text-muted" style="font-size:0.82rem">
+            Search to pre-fill the form below, or fill it manually.
+        </span>
+    </div>
+
+    {# ── Smart search box ── #}
+    <form class="find-row" method="get" action="/catalogue/new">
+        <input type="text" name="q"
+               value="{{ search_query or search_discogs_id or search_mb_id }}"
+               placeholder="Artist, title, catalogue no., Discogs ID, MusicBrainz UUID, or barcode…"
+               class="search-input find-input" autocomplete="off">
+        <select name="source" class="filter-select"
+                title="Source used for text and barcode searches — IDs and UUIDs are auto-detected">
+            <option value="discogs" {% if search_source != 'musicbrainz' %}selected{% endif %}>Discogs</option>
+            <option value="musicbrainz" {% if search_source == 'musicbrainz' %}selected{% endif %}>MusicBrainz</option>
+        </select>
+        <select name="limit" class="filter-select" title="Number of results">
+            <option value="10" {% if search_limit == 10 or not search_limit %}selected{% endif %}>10 results</option>
+            <option value="25" {% if search_limit == 25 %}selected{% endif %}>25 results</option>
+            <option value="50" {% if search_limit == 50 %}selected{% endif %}>50 results</option>
+        </select>
+        <input type="number" name="year" value="{{ search_year or '' }}"
+               placeholder="Year" title="Filter by year (Discogs only)"
+               class="filter-select" min="1900" max="2100" style="width:6.5rem">
+        <input type="text" name="country" value="{{ search_country or '' }}"
+               placeholder="Country" title="Filter by country (Discogs only)"
+               class="filter-select" style="width:7.5rem" maxlength="100">
+        <button type="submit" class="btn btn-ghost">Search</button>
+    </form>
+    <p class="find-hint">
+        Tip: paste a Discogs release ID (number), MusicBrainz UUID, or EAN/UPC barcode — the app detects the type automatically.
+    </p>
+
+    {# ── Barcode scan from cover image ── #}
+    <div class="find-scan-section">
+        <span class="find-or">or scan a barcode from a cover photo</span>
+        <form method="post" action="/catalogue/scan-cover"
+              enctype="multipart/form-data" class="find-scan-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="file" name="file"
+                   accept="image/jpeg,image/png,image/tiff,image/webp,image/bmp"
+                   class="find-scan-input" required>
+            <button type="submit" class="btn btn-ghost btn-sm">Scan &amp; search</button>
+        </form>
+    </div>
+
+    {# ── Error ── #}
+    {% if search_error %}
+    <div class="alert alert-warning" style="margin-top:0.75rem">{{ search_error }}</div>
+    {% endif %}
+
+    {# ── Duplicate warning (single prefill) ── #}
+    {% if duplicate %}
+    <div class="alert alert-warning find-duplicate">
+        <strong>Already in your catalogue.</strong>
+        <a href="/catalogue/{{ duplicate.id }}">
+            {{ duplicate.artist or 'Unknown' }} — {{ duplicate.title or 'Untitled' }}
+            {% if duplicate.year %}({{ duplicate.year }}){% endif %}
+        </a>
+        — you can still save a second pressing below if this is a different edition.
+    </div>
+    {% endif %}
+
+    {# ── Pre-fill confirmation ── #}
+    {% if prefill and not search_results %}
+    <div class="find-prefill-notice">
+        Form pre-filled from
+        {% if prefill.get('discogs_release_id') %}
+            Discogs release <strong>#{{ prefill.discogs_release_id }}</strong>
+        {% elif prefill.get('musicbrainz_release_id') %}
+            MusicBrainz <strong>{{ prefill.musicbrainz_release_id[:8] }}…</strong>
+        {% endif %}
+        — review and adjust before saving.
+    </div>
+    {% endif %}
+
+    {# ── Search results comparison table ── #}
+    {% if search_results %}
+    <div class="find-results">
+        <div class="find-results-header">
+            {{ search_results|length }} result{% if search_results|length != 1 %}s{% endif %}
+            from {{ 'MusicBrainz' if search_source == 'musicbrainz' else 'Discogs' }}
+            {% if search_query %}for "<strong>{{ search_query }}</strong>"{% endif %}
+            — choose the correct pressing:
+        </div>
+        <div class="find-results-table-wrap">
+            <table class="find-results-table">
+                <thead>
+                    <tr>
+                        <th>Artist / Title</th>
+                        <th>Year</th>
+                        <th>Country</th>
+                        <th>Label</th>
+                        <th>Cat #</th>
+                        <th>Format</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in search_results %}
+                    <tr class="find-result-row {% if r.in_catalogue %}find-row-exists{% endif %}">
+                        <td>
+                            <div class="result-artist-title">
+                                {% if r.artist %}<span class="result-artist-name">{{ r.artist }}</span>
+                                <span class="result-sep">–</span>{% endif %}
+                                <span>{{ r.title }}</span>
+                                {% if r.in_catalogue %}
+                                <span class="badge-exists" title="Already in your catalogue">In catalogue</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="find-cell-num">{{ r.year or '—' }}</td>
+                        <td>{{ r.country or '—' }}</td>
+                        <td>{{ r.label or '—' }}</td>
+                        <td class="monospace find-cell-catno">{{ r.catno or '—' }}</td>
+                        <td>{{ r.format or '—' }}</td>
+                        <td class="find-cell-action">
+                            <a href="/catalogue/new?{{ 'discogs_id' if r.source == 'discogs' else 'mb_id' }}={{ r.id }}"
+                               class="btn btn-primary btn-sm">Use this</a>
+                            {% if r.url %}
+                            <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer"
+                               class="btn btn-ghost btn-sm">↗</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════════════════════════
+   PRESSING FORM
+   ═══════════════════════════════════════════════════════════════════════ #}
+<form method="post"
+      action="{% if mode == 'create' %}/catalogue/new{% else %}/catalogue/{{ token.id }}/edit{% endif %}"
+      class="form-card {% if mode == 'create' and prefill %}form-card-prefilled{% endif %}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    {# Helper: for create mode fall back to prefill dict; for edit use token attribute #}
+    {% if mode == 'create' %}
+      {% set a = prefill %}
+    {% else %}
+      {% set a = {} %}
+    {% endif %}
+
+    <div class="form-section-title">Release</div>
+    <div class="form-grid">
+        <div class="form-group form-group-wide">
+            <label for="artist">Artist</label>
+            <input type="text" id="artist" name="artist"
+                   value="{{ token.artist if token and token.artist else a.get('artist', '') }}"
+                   maxlength="500" placeholder="e.g. Pink Floyd">
+        </div>
+        <div class="form-group form-group-wide">
+            <label for="title">Title</label>
+            <input type="text" id="title" name="title"
+                   value="{{ token.title if token and token.title else a.get('title', '') }}"
+                   maxlength="500" placeholder="e.g. The Dark Side of the Moon">
+        </div>
+        <div class="form-group">
+            <label for="year">Year</label>
+            <input type="number" id="year" name="year"
+                   value="{{ token.year if token and token.year else a.get('year', '') }}"
+                   min="1900" max="2100" placeholder="e.g. 1973">
+        </div>
+        <div class="form-group">
+            <label for="media_format">Format</label>
+            <select id="media_format" name="media_format">
+                {% for f in formats %}
+                <option value="{{ f }}"
+                    {% if token and token.media_format.value == f %}selected
+                    {% elif not token and a.get('media_format', 'vinyl') == f %}selected
+                    {% elif not token and not a and f == 'vinyl' %}selected{% endif %}>
+                    {{ f.upper() }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="form-section-title">Pressing info</div>
+    <div class="form-grid">
+        <div class="form-group">
+            <label for="catalog_number">Catalogue No.</label>
+            <input type="text" id="catalog_number" name="catalog_number"
+                   value="{{ token.catalog_number if token and token.catalog_number else a.get('catalog_number', '') }}"
+                   maxlength="100" placeholder="e.g. SHVL 804">
+        </div>
+        <div class="form-group">
+            <label for="barcode">Barcode</label>
+            <input type="text" id="barcode" name="barcode"
+                   value="{{ token.barcode if token and token.barcode else a.get('barcode', '') }}"
+                   maxlength="50">
+        </div>
+        <div class="form-group">
+            <label for="label_name">Label</label>
+            <input type="text" id="label_name" name="label_name"
+                   value="{{ label_name or a.get('label_name', '') }}"
+                   maxlength="500" placeholder="e.g. Harvest">
+        </div>
+        <div class="form-group">
+            <label for="manufacturer_name">Manufacturer / Plant</label>
+            <input type="text" id="manufacturer_name" name="manufacturer_name"
+                   value="{{ manufacturer_name }}"
+                   maxlength="500" placeholder="e.g. EMI Hayes">
+        </div>
+        <div class="form-group">
+            <label for="country_id">Country</label>
+            <select id="country_id" name="country_id">
+                <option value="">— Unknown —</option>
+                {% for c in countries %}
+                <option value="{{ c.id }}"
+                    {% if token and token.country_id == c.id %}selected
+                    {% elif not token and a.get('country_name', '') and c.name == a.get('country_name') %}selected{% endif %}>
+                    {{ c.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="form-section-title">Matrix / runout</div>
+    <div class="form-grid form-grid-1col">
+        <div class="form-group">
+            <label for="matrix_runout">Matrix A (Side A runout)</label>
+            <input type="text" id="matrix_runout" name="matrix_runout"
+                   value="{{ token.matrix_runout if token and token.matrix_runout else a.get('matrix_runout', '') }}"
+                   maxlength="500" class="monospace"
+                   placeholder="e.g. SHVL 804 A-2 PORKY">
+        </div>
+        <div class="form-group">
+            <label for="matrix_runout_b">Matrix B (Side B runout)</label>
+            <input type="text" id="matrix_runout_b" name="matrix_runout_b"
+                   value="{{ token.matrix_runout_b if token and token.matrix_runout_b else a.get('matrix_runout_b', '') }}"
+                   maxlength="500" class="monospace"
+                   placeholder="e.g. SHVL 804 B-2 PORKY">
+        </div>
+    </div>
+
+    <div class="form-section-title">External IDs</div>
+    <div class="form-grid">
+        <div class="form-group">
+            <label for="discogs_release_id">Discogs Release ID</label>
+            <input type="number" id="discogs_release_id" name="discogs_release_id"
+                   value="{{ token.discogs_release_id if token and token.discogs_release_id else a.get('discogs_release_id', '') }}"
+                   placeholder="e.g. 1294729">
+        </div>
+        <div class="form-group">
+            <label for="musicbrainz_release_id">MusicBrainz Release ID</label>
+            <input type="text" id="musicbrainz_release_id" name="musicbrainz_release_id"
+                   value="{{ token.musicbrainz_release_id if token and token.musicbrainz_release_id else a.get('musicbrainz_release_id', '') }}"
+                   maxlength="36" placeholder="UUID">
+        </div>
+    </div>
+
+    <div class="form-section-title">Edit note</div>
+    <div class="form-group">
+        <label for="comment">Comment <span class="text-muted">(optional)</span></label>
+        <input type="text" id="comment" name="comment"
+               maxlength="500" placeholder="Brief note about this change">
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+            {% if mode == 'create' %}Add pressing{% else %}Save changes{% endif %}
+        </button>
+    </div>
+</form>
+
+{# ═══════════════════════════════════════════════════════════════════════
+   IMAGES — edit mode only
+   ═══════════════════════════════════════════════════════════════════════ #}
+{% if mode == 'edit' and token %}
+
+{% if token.media_objects %}
+<section class="images-section">
+    <h3>Images <span class="text-muted" style="font-weight:400;font-size:0.85rem">({{ token.media_objects|length }})</span></h3>
+    <div class="image-grid">
+        {% for img in token.media_objects | sort(attribute='created_at') %}
+        <div class="image-card">
+            <div class="image-region-badge">{{ img.region.value.replace('_', ' ').title() if img.region else 'Other' }}</div>
+            <a href="/catalogue/{{ token.id }}/images/{{ img.id }}" target="_blank" class="image-thumb-link">
+                <img src="/catalogue/{{ token.id }}/images/{{ img.id }}"
+                     alt="{{ img.region.value.replace('_', ' ').title() if img.region else 'Other' }}"
+                     class="image-thumb" loading="lazy">
+            </a>
+            <div class="image-meta">
+                <span>{{ img.mime_type.split('/')[1].upper() }}</span>
+                {% if img.width_px and img.height_px %}<span>{{ img.width_px }}×{{ img.height_px }}</span>{% endif %}
+                <span>{{ (img.size_bytes / 1024) | round(0) | int }} KB</span>
+            </div>
+            <form method="post" action="/catalogue/{{ token.id }}/images/{{ img.id }}/set-cover"
+                  style="margin-top:0.35rem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-sm btn-block {% if img.is_primary_cover %}btn-primary{% endif %}"
+                        title="Use this image as the primary cover thumbnail">
+                    {% if img.is_primary_cover %}★ Primary cover{% else %}☆ Set as cover{% endif %}
+                </button>
+            </form>
+            <form method="post" action="/catalogue/{{ token.id }}/images/{{ img.id }}/delete"
+                  style="margin-top:0.25rem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-danger btn-sm btn-block"
+                        data-confirm="Delete this image? This cannot be undone.">
+                    ✕ Delete
+                </button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+<section class="upload-section">
+    <h3>Add images</h3>
+    <div class="drop-zone" id="drop-zone" data-token-id="{{ token.id }}">
+        <div class="drop-zone-inner">
+            <span class="drop-zone-icon">⊕</span>
+            <span class="drop-zone-label">Drop images here or <label for="img-file" class="drop-zone-browse">browse</label></span>
+            <span class="drop-zone-hint">JPEG, PNG, TIFF, WebP · up to 30 MB each · multiple files OK</span>
+        </div>
+        <form method="post" action="/catalogue/{{ token.id }}/images"
+              enctype="multipart/form-data" id="upload-form" style="display:none">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select id="region-select" name="region">
+                <option value="cover_front">Cover (front)</option>
+                <option value="cover_back">Cover (back)</option>
+                <option value="label_a">Label – Side A</option>
+                <option value="label_b">Label – Side B</option>
+                <option value="runout_a">Runout / WAX – Side A ✦</option>
+                <option value="runout_b">Runout / WAX – Side B ✦</option>
+                <option value="matrix">Matrix / dead wax ✦</option>
+                <option value="obi_front">OBI strip (front)</option>
+                <option value="obi_back">OBI strip (back)</option>
+                <option value="sleeve_inner">Inner sleeve</option>
+                <option value="disc_surface">Disc surface</option>
+                <option value="other">Other</option>
+            </select>
+            <input type="file" id="img-file" name="file"
+                   accept="image/jpeg,image/png,image/tiff,image/webp" multiple>
+        </form>
+    </div>
+    <div class="drop-zone-controls">
+        <label for="region-select-visible" class="form-label">Image type</label>
+        <select id="region-select-visible" class="filter-select">
+            <option value="cover_front">Cover (front)</option>
+            <option value="cover_back">Cover (back)</option>
+            <option value="label_a">Label – Side A</option>
+            <option value="label_b">Label – Side B</option>
+            <option value="runout_a">Runout / WAX – Side A ✦</option>
+            <option value="runout_b">Runout / WAX – Side B ✦</option>
+            <option value="matrix">Matrix / dead wax ✦</option>
+            <option value="obi_front">OBI strip (front)</option>
+            <option value="obi_back">OBI strip (back)</option>
+            <option value="sleeve_inner">Inner sleeve</option>
+            <option value="disc_surface">Disc surface</option>
+            <option value="other">Other</option>
+        </select>
+        <span class="text-muted" style="font-size:0.8rem">✦ Vision pipeline analyses these automatically</span>
+    </div>
+    <div id="upload-status" class="upload-status" style="display:none"></div>
+</section>
+
+{% elif mode == 'create' %}
+<p class="text-muted" style="margin-top:1rem;font-size:0.88rem">
+    Images can be added after saving the pressing.
+</p>
+{% endif %}
+
+<script src="/static/pressing.js"></script>
+{% endblock %}

@@ -438,36 +438,30 @@ def upgrade() -> None:
     op.add_column("ocr_artifacts", sa.Column("symbol_candidates", JSONB(), nullable=True))
 
     # ── Seed Level 1–2 symbols ──────────────────────────────────────────────
-    # created_at / updated_at omitted — server_default (now()) fills them.
-    symbols_table = sa.table(
-        "symbols",
-        sa.column("id", sa.Uuid()),
-        sa.column("slug", sa.String()),
-        sa.column("name", sa.String()),
-        sa.column("category", sa.String()),
-        sa.column("description", sa.Text()),
-        sa.column("unicode_approx", sa.String()),
-        sa.column("taxonomy_level", sa.Integer()),
-        sa.column("region_scope", sa.String()),
-        sa.column("is_confirmed", sa.Boolean()),
-    )
-    op.bulk_insert(
-        symbols_table,
-        [
-            {
-                "id": uuid.uuid4(),
-                "slug": s["slug"],
-                "name": s["name"],
-                "category": s["category"],
-                "description": s["description"],
-                "unicode_approx": s["unicode_approx"],
-                "taxonomy_level": s["taxonomy_level"],
-                "region_scope": s["region_scope"],
-                "is_confirmed": True,
-            }
-            for s in _SEED_SYMBOLS
-        ],
-    )
+    # Use raw SQL with an explicit ::symbol_category cast.  op.bulk_insert with
+    # sa.String() causes asyncpg to annotate the parameter as $N::varchar, which
+    # PostgreSQL rejects for a user-defined enum column without an implicit cast.
+    for s in _SEED_SYMBOLS:
+        op.execute(
+            sa.text(
+                "INSERT INTO symbols "
+                "(id, slug, name, category, description, "
+                "unicode_approx, taxonomy_level, region_scope, is_confirmed) "
+                "VALUES (CAST(:sym_id AS uuid), :slug, :name, "
+                "CAST(:category AS symbol_category), "
+                ":description, :unicode_approx, :taxonomy_level, :region_scope, :is_confirmed)"
+            ).bindparams(
+                sym_id=str(uuid.uuid4()),
+                slug=s["slug"],
+                name=s["name"],
+                category=s["category"],
+                description=s.get("description"),
+                unicode_approx=s.get("unicode_approx"),
+                taxonomy_level=s["taxonomy_level"],
+                region_scope=s.get("region_scope"),
+                is_confirmed=True,
+            )
+        )
 
 
 def downgrade() -> None:

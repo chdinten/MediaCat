@@ -82,6 +82,16 @@ def _resolve_secrets(cfg: dict[str, Any]) -> None:
         sec["session_secret"] = _secrets.token_hex(32)
         logger.warning("No session secret found — generated ephemeral key (dev only)")
 
+    # CSRF secret — separate from session secret for domain separation.
+    # Falls back to a derived value if no dedicated secret is configured.
+    csrf_file = sec.get("csrf_secret_file", "/run/secrets/csrf_secret")
+    sec["csrf_secret"] = sec.get("csrf_secret") or _read_secret(csrf_file)
+    if not sec["csrf_secret"]:
+        sec["csrf_secret"] = sec["session_secret"] + ":csrf"
+        logger.info(
+            "No csrf_secret configured — derived from session_secret (add csrf_secret for full separation)"
+        )
+
 
 def get_db_dsn(cfg: dict[str, Any] | None = None) -> str:
     """Build the async Postgres DSN from config."""
@@ -101,7 +111,11 @@ def _defaults() -> dict[str, Any]:
 
     return {
         "app": {"name": "mediacat", "environment": "dev", "log_level": "INFO"},
-        "server": {"host": "0.0.0.0", "port": 8000},
+        "server": {
+            "host": "0.0.0.0",
+            "port": 8000,
+            "trusted_proxies": ["127.0.0.1/32", "::1/128", "172.16.0.0/12", "10.0.0.0/8"],
+        },
         "security": {"session_secret": _secrets.token_hex(32)},
         "postgres": {
             "host": "localhost",
