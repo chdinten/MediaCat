@@ -42,10 +42,12 @@
     <div class="recent-carousel">
         {% for token in recent %}
         <a href="/catalogue/{{ token.id }}" class="recent-card">
-            {% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}
+            {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
+            {% if not cover %}{% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}{% endif %}
             {% if cover %}
             <div class="recent-cover recent-cover--has-image">
                 <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Cover" class="recent-cover-img" loading="lazy">
+                <div class="lp-ghost" aria-hidden="true"></div>
             </div>
             {% else %}
             <div class="recent-cover recent-cover--{{ token.media_format.value }}">

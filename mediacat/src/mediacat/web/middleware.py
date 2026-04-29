@@ -119,9 +119,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         self._csp = csp or (
             "default-src 'self'; "
             "img-src 'self' data: blob:; "
-            "style-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self'; "
-            "connect-src 'self'; "
+            "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; "
             "frame-ancestors 'none'; "
             "form-action 'self'; "
             "base-uri 'self'"
