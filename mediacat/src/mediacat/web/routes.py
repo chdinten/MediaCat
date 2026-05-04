@@ -196,8 +196,38 @@ async def login_submit(
             status_code=429,
         )
 
-    # Lookup user
-    user = _users_store.get(username)
+    # Lookup user — check in-memory bootstrap store first, then DB
+    user: dict[str, Any] | None = _users_store.get(username)
+    if user is None:
+        try:
+            from sqlalchemy import select as _sel
+            from mediacat.db.models import User as _UModel
+
+            sf = getattr(request.app.state, "db_session_factory", None)
+            if sf:
+                async with sf() as _db:
+                    _row = (await _db.execute(
+                        _sel(_UModel).where(
+                            _UModel.username == username,
+                            _UModel.deleted_at.is_(None),
+                        )
+                    )).scalar_one_or_none()
+                    if _row:
+                        user = {
+                            "id": str(_row.id),
+                            "username": _row.username,
+                            "email": _row.email,
+                            "password_hash": _row.password_hash,
+                            "role": str(_row.role),
+                            "is_active": _row.is_active,
+                            "session_timeout_seconds": getattr(_row, "session_timeout_seconds", 86400),
+                            "failed_login_count": _row.failed_login_count or 0,
+                            "locked_until": _row.locked_until,
+                            "_db_id": str(_row.id),
+                        }
+        except Exception as _exc:
+            logger.warning("DB user lookup failed during login: %s", _exc)
+
     if not user or not user.get("is_active", False):
         await rate_limiter.record_failure(username)
         await rate_limiter.record_failure(ip)
@@ -222,16 +252,36 @@ async def login_submit(
         )
 
     # Check if password needs rehash (params changed)
-    if needs_rehash(user["password_hash"]):
-        user["password_hash"] = hash_password(password)
+    new_hash = hash_password(password) if needs_rehash(user["password_hash"]) else None
 
     # Successful login
     await rate_limiter.clear(username)
     await rate_limiter.clear(ip)
     user["failed_login_count"] = 0
     user["last_login_at"] = datetime.now(UTC).isoformat()
+    if new_hash:
+        user["password_hash"] = new_hash
 
-    # Create session cookie
+    # Persist last_login_at (and optional rehash) to DB
+    try:
+        from sqlalchemy import select as _sel, update as _upd
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                _vals: dict[str, Any] = {"last_login_at": datetime.now(UTC), "failed_login_count": 0}
+                if new_hash:
+                    _vals["password_hash"] = new_hash
+                await _db.execute(
+                    _upd(_UModel).where(_UModel.username == username).values(**_vals)
+                )
+                await _db.commit()
+    except Exception as _exc:
+        logger.debug("DB last_login_at update skipped: %s", _exc)
+
+    # Create session cookie — respect per-user session timeout
+    session_timeout = user.get("session_timeout_seconds", 86400)
     session_token = session_mgr.create_session(user["id"], user["role"])
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
@@ -240,7 +290,7 @@ async def login_submit(
         httponly=True,
         secure=session_mgr.cookie_secure,
         samesite="lax",
-        max_age=86400,
+        max_age=session_timeout,
     )
 
     logger.info("Successful login: user=%s role=%s ip=%s", username, user["role"], ip)
@@ -264,8 +314,11 @@ async def logout(request: Request) -> RedirectResponse:
 @dashboard_router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     """Main dashboard."""
-    stats = {"total": 0, "vinyl": 0, "cd": 0, "artists": 0}
+    stats: dict[str, Any] = {"total": 0, "vinyl": 0, "cd": 0, "artists": 0, "oldest_year": None}
     recent: list[Any] = []
+    top_rated: list[Any] = []
+    genre_carousels: list[Any] = []
+    genre_stats: list[Any] = []
     try:
         from sqlalchemy import func, select
 
@@ -321,10 +374,81 @@ async def dashboard(request: Request) -> HTMLResponse:
                     .scalars()
                     .all()
                 )
+                top_rated = list(
+                    (
+                        await db.execute(
+                            select(Token)
+                            .options(
+                                selectinload(Token.label),
+                                selectinload(Token.media_objects),
+                            )
+                            .where(*base_filter, Token.personal_rating.isnot(None))
+                            .order_by(Token.personal_rating.desc())
+                            .limit(8)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+                # Genre carousels: one query, group by primary genre in Python.
+                # Ordered by rating then year so each genre carousel is sorted best-first.
+                tagged = list(
+                    (
+                        await db.execute(
+                            select(Token)
+                            .options(
+                                selectinload(Token.label),
+                                selectinload(Token.media_objects),
+                            )
+                            .where(*base_filter, Token.genres.isnot(None))
+                            .order_by(
+                                Token.personal_rating.desc().nulls_last(),
+                                Token.year.desc().nulls_last(),
+                                Token.title.asc(),
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                from collections import defaultdict
+
+                _by_genre: dict[str, list[Any]] = defaultdict(list)
+                for t in tagged:
+                    if t.genres:
+                        _by_genre[t.genres[0]].append(t)
+                # Sort genres by album count descending; cap at 12 carousels
+                _sorted_genres = sorted(_by_genre.items(), key=lambda kv: -len(kv[1]))
+                genre_carousels = [
+                    {"genre": g, "tokens": ts[:8]}
+                    for g, ts in _sorted_genres
+                    if ts
+                ][:12]
+                genre_stats = [
+                    {"genre": g, "count": len(ts)}
+                    for g, ts in _sorted_genres
+                    if ts
+                ][:5]
+                stats["oldest_year"] = (
+                    await db.execute(
+                        select(func.min(Token.year)).where(
+                            *base_filter, Token.year.isnot(None)
+                        )
+                    )
+                ).scalar_one()
+
     except Exception as exc:
         logger.warning("Dashboard DB query failed: %s", exc)
 
-    context = _ctx(request, stats=stats, recent=recent)
+    context = _ctx(
+        request,
+        stats=stats,
+        recent=recent,
+        top_rated=top_rated,
+        genre_carousels=genre_carousels,
+        genre_stats=genre_stats,
+    )
     return _tmpl().TemplateResponse(request=request, name="dashboard.html", context=context)
 
 
@@ -609,11 +733,43 @@ async def token_detail(request: Request, token_id: str) -> HTMLResponse:
 # ---------------------------------------------------------------------------
 
 
+def _user_row_to_dict(u: Any) -> dict[str, Any]:
+    """Convert a DB User ORM row to the dict shape expected by templates."""
+    return {
+        "id": str(u.id),
+        "username": u.username,
+        "email": u.email,
+        "role": str(u.role),
+        "is_active": u.is_active,
+        "session_timeout_seconds": getattr(u, "session_timeout_seconds", 86400),
+        "last_login_at": (
+            u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else None
+        ),
+        "failed_login_count": u.failed_login_count or 0,
+    }
+
+
 @user_router.get("", response_class=HTMLResponse)
 async def user_list(request: Request) -> HTMLResponse:
     """List all users (admin only)."""
     _require_role(request, "admin")
-    users = [{**u, "password_hash": "***"} for u in _users_store.values()]
+    try:
+        from sqlalchemy import select as _sel
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if not sf:
+            raise RuntimeError("no db")
+        async with sf() as _db:
+            rows = (await _db.execute(
+                _sel(_UModel)
+                .where(_UModel.deleted_at.is_(None))
+                .order_by(_UModel.username)
+            )).scalars().all()
+            users: list[dict[str, Any]] = [_user_row_to_dict(r) for r in rows]
+    except Exception as _exc:
+        logger.warning("user_list DB query failed, using memory store: %s", _exc)
+        users = [{**u, "password_hash": "***"} for u in _users_store.values()]
     context = _ctx(request, users=users)
     return _tmpl().TemplateResponse(request=request, name="users.html", context=context)
 
@@ -622,7 +778,7 @@ async def user_list(request: Request) -> HTMLResponse:
 async def user_create_form(request: Request) -> HTMLResponse:
     """Render the create-user form (admin only)."""
     _require_role(request, "admin")
-    context = _ctx(request, error=None, roles=["admin", "reviewer", "viewer"])
+    context = _ctx(request, error=None, roles=["admin", "contributor", "reviewer", "viewer"])
     return _tmpl().TemplateResponse(request=request, name="user_form.html", context=context)
 
 
@@ -637,11 +793,28 @@ async def user_create_submit(
     """Create a new user (admin only)."""
     _require_role(request, "admin")
 
-    if username in _users_store:
+    # Check uniqueness in both in-memory store and DB
+    _taken = username in _users_store
+    if not _taken:
+        try:
+            from sqlalchemy import select as _sel
+            from mediacat.db.models import User as _UModel
+
+            sf = getattr(request.app.state, "db_session_factory", None)
+            if sf:
+                async with sf() as _db:
+                    _existing = (await _db.execute(
+                        _sel(_UModel.id).where(_UModel.username == username)
+                    )).scalar_one_or_none()
+                    _taken = _existing is not None
+        except Exception:
+            pass
+
+    if _taken:
         context = _ctx(
             request,
             error=f"Username '{username}' already exists.",
-            roles=["admin", "reviewer", "viewer"],
+            roles=["admin", "contributor", "reviewer", "viewer"],
         )
         return _tmpl().TemplateResponse(
             request=request,
@@ -654,7 +827,7 @@ async def user_create_submit(
         context = _ctx(
             request,
             error="Password must be at least 8 characters.",
-            roles=["admin", "reviewer", "viewer"],
+            roles=["admin", "contributor", "reviewer", "viewer"],
         )
         return _tmpl().TemplateResponse(
             request=request,
@@ -663,31 +836,272 @@ async def user_create_submit(
             status_code=400,
         )
 
+    safe_role = role if role in ("admin", "contributor", "reviewer", "viewer") else "viewer"
+    uid = uuid.uuid4()
+    pw_hash = hash_password(password)
+
+    # Persist to DB
+    try:
+        from sqlalchemy.dialects.postgresql import insert as _pg_ins
+        from mediacat.db.models import User as _UModel
+        from mediacat.db.enums import UserRole as _UR
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                await _db.execute(
+                    _pg_ins(_UModel)
+                    .values(
+                        id=uid,
+                        username=username,
+                        email=email,
+                        password_hash=pw_hash,
+                        role=_UR(safe_role),
+                        is_active=True,
+                        session_timeout_seconds=86400,
+                    )
+                    .on_conflict_do_nothing()
+                )
+                await _db.commit()
+    except Exception as _exc:
+        logger.warning("DB user insert failed: %s", _exc)
+
+    # Mirror in memory so the same process can see the user immediately
     _users_store[username] = {
-        "id": uuid.uuid4().hex,
+        "id": uid.hex,
         "username": username,
         "email": email,
-        "password_hash": hash_password(password),
-        "role": role if role in ("admin", "reviewer", "viewer") else "viewer",
+        "password_hash": pw_hash,
+        "role": safe_role,
         "is_active": True,
         "failed_login_count": 0,
         "locked_until": None,
+        "session_timeout_seconds": 86400,
     }
-    logger.info("User created: %s role=%s by=%s", username, role, request.state.user_id)
+    logger.info("User created: %s role=%s by=%s", username, safe_role, request.state.user_id)
+    return RedirectResponse(url="/users", status_code=303)
+
+
+@user_router.get("/{user_id}/edit", response_class=HTMLResponse)
+async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
+    """Render the edit-user form (admin only)."""
+    _require_role(request, "admin")
+    target: dict[str, Any] | None = None
+    try:
+        from sqlalchemy import select as _sel
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                _row = (await _db.execute(
+                    _sel(_UModel).where(
+                        _UModel.id == uuid.UUID(user_id),
+                        _UModel.deleted_at.is_(None),
+                    )
+                )).scalar_one_or_none()
+                if _row:
+                    target = _user_row_to_dict(_row)
+    except Exception as _exc:
+        logger.warning("user_edit_form DB lookup failed: %s", _exc)
+
+    if target is None:
+        target = next((u for u in _users_store.values() if u["id"] == user_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    context = _ctx(
+        request,
+        target=target,
+        roles=["admin", "contributor", "reviewer", "viewer"],
+        timeout_options=[
+            (900, "15 minutes"),
+            (1800, "30 minutes"),
+            (3600, "1 hour"),
+            (14400, "4 hours"),
+            (28800, "8 hours"),
+            (86400, "24 hours"),
+            (604800, "7 days"),
+        ],
+        error=None,
+    )
+    return _tmpl().TemplateResponse(request=request, name="user_edit.html", context=context)
+
+
+async def _active_admin_count(request: Request) -> int:
+    """Return the number of active admin accounts (DB-backed with in-memory fallback)."""
+    try:
+        from sqlalchemy import func, select as _sel
+        from mediacat.db.models import User as _UModel
+        from mediacat.db.enums import UserRole as _UR
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                result = await _db.execute(
+                    _sel(func.count()).select_from(_UModel).where(
+                        _UModel.role == _UR.ADMIN,
+                        _UModel.is_active.is_(True),
+                        _UModel.deleted_at.is_(None),
+                    )
+                )
+                return result.scalar_one() or 0
+    except Exception as _exc:
+        logger.warning("_active_admin_count DB query failed: %s", _exc)
+    return sum(
+        1 for u in _users_store.values()
+        if u.get("role") == "admin" and u.get("is_active", False)
+    )
+
+
+@user_router.post("/{user_id}/edit", response_model=None)
+async def user_edit_submit(
+    request: Request,
+    user_id: str,
+    role: str = Form("viewer"),
+    session_timeout_seconds: int = Form(86400),
+    is_active: str = Form("on"),
+) -> RedirectResponse | HTMLResponse:
+    """Update user role and session timeout (admin only)."""
+    _require_role(request, "admin")
+
+    # Load the target user from DB first, fall back to in-memory
+    target: dict[str, Any] | None = None
+    try:
+        from sqlalchemy import select as _sel
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                _row = (await _db.execute(
+                    _sel(_UModel).where(
+                        _UModel.id == uuid.UUID(user_id),
+                        _UModel.deleted_at.is_(None),
+                    )
+                )).scalar_one_or_none()
+                if _row:
+                    target = _user_row_to_dict(_row)
+    except Exception as _exc:
+        logger.warning("user_edit DB lookup failed: %s", _exc)
+
+    if target is None:
+        target = next((u for u in _users_store.values() if u["id"] == user_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_active = is_active == "on"
+    new_role = role if role in ("admin", "contributor", "reviewer", "viewer") else "viewer"
+    new_timeout = max(300, min(session_timeout_seconds, 604800))
+
+    # Protect the last admin: can't demote or deactivate the final active admin
+    if target.get("role") == "admin":
+        losing_admin = (not new_active) or (new_role != "admin")
+        if losing_admin and await _active_admin_count(request) <= 1:
+            context = _ctx(
+                request,
+                target=target,
+                roles=["admin", "contributor", "reviewer", "viewer"],
+                timeout_options=[
+                    (900, "15 minutes"), (1800, "30 minutes"), (3600, "1 hour"),
+                    (14400, "4 hours"), (28800, "8 hours"), (86400, "24 hours"), (604800, "7 days"),
+                ],
+                error="Cannot demote or deactivate the last active admin account.",
+            )
+            return _tmpl().TemplateResponse(
+                request=request, name="user_edit.html", context=context, status_code=409
+            )
+
+    # Persist changes to DB
+    try:
+        from sqlalchemy import update as _upd
+        from mediacat.db.models import User as _UModel
+        from mediacat.db.enums import UserRole as _UR
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                await _db.execute(
+                    _upd(_UModel)
+                    .where(_UModel.id == uuid.UUID(user_id))
+                    .values(
+                        role=_UR(new_role),
+                        is_active=new_active,
+                        session_timeout_seconds=new_timeout,
+                    )
+                )
+                await _db.commit()
+    except Exception as _exc:
+        logger.warning("user_edit DB update failed: %s", _exc)
+
+    # Mirror to in-memory store if the user is there
+    mem_target = next((u for u in _users_store.values() if u["id"] == user_id), None)
+    if mem_target:
+        mem_target["role"] = new_role
+        mem_target["session_timeout_seconds"] = new_timeout
+        mem_target["is_active"] = new_active
+
+    logger.info("User updated: %s by=%s", target["username"], request.state.user_id)
     return RedirectResponse(url="/users", status_code=303)
 
 
 @user_router.post("/{user_id}/deactivate")
 async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
-    """Deactivate a user (admin only)."""
+    """Deactivate a user (admin only). Blocked if this would leave zero active admins."""
     _require_role(request, "admin")
 
-    for user in _users_store.values():
-        if user["id"] == user_id:
-            user["is_active"] = False
-            logger.info("User deactivated: %s by=%s", user["username"], request.state.user_id)
+    # Load target to check role
+    target_role: str = ""
+    target_username: str = ""
+    try:
+        from sqlalchemy import select as _sel
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                _row = (await _db.execute(
+                    _sel(_UModel).where(
+                        _UModel.id == uuid.UUID(user_id),
+                        _UModel.deleted_at.is_(None),
+                    )
+                )).scalar_one_or_none()
+                if _row:
+                    target_role = str(_row.role)
+                    target_username = _row.username
+    except Exception as _exc:
+        logger.warning("user_deactivate DB lookup failed: %s", _exc)
+
+    if not target_username:
+        for u in _users_store.values():
+            if u["id"] == user_id:
+                target_role = u.get("role", "")
+                target_username = u.get("username", "")
+                break
+
+    if target_role == "admin" and await _active_admin_count(request) <= 1:
+        logger.warning("Blocked deactivation of last admin %s by=%s", target_username, request.state.user_id)
+        return RedirectResponse(url="/users?error=last_admin", status_code=303)
+
+    try:
+        from sqlalchemy import update as _upd
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                await _db.execute(
+                    _upd(_UModel).where(_UModel.id == uuid.UUID(user_id)).values(is_active=False)
+                )
+                await _db.commit()
+    except Exception as _exc:
+        logger.warning("user_deactivate DB update failed: %s", _exc)
+
+    for u in _users_store.values():
+        if u["id"] == user_id:
+            u["is_active"] = False
             break
 
+    logger.info("User deactivated: %s by=%s", target_username, request.state.user_id)
     return RedirectResponse(url="/users", status_code=303)
 
 
@@ -696,10 +1110,130 @@ async def user_activate(request: Request, user_id: str) -> RedirectResponse:
     """Reactivate a user (admin only)."""
     _require_role(request, "admin")
 
-    for user in _users_store.values():
-        if user["id"] == user_id:
-            user["is_active"] = True
-            logger.info("User activated: %s by=%s", user["username"], request.state.user_id)
+    try:
+        from sqlalchemy import update as _upd
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                await _db.execute(
+                    _upd(_UModel).where(_UModel.id == uuid.UUID(user_id)).values(is_active=True)
+                )
+                await _db.commit()
+    except Exception as _exc:
+        logger.warning("user_activate DB update failed: %s", _exc)
+
+    for u in _users_store.values():
+        if u["id"] == user_id:
+            u["is_active"] = True
+            logger.info("User activated: %s by=%s", u["username"], request.state.user_id)
             break
 
     return RedirectResponse(url="/users", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Public self-registration
+# ---------------------------------------------------------------------------
+
+
+register_router = APIRouter(tags=["auth"])
+
+
+@register_router.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request) -> HTMLResponse:
+    """Public registration form — creates a viewer account."""
+    return _tmpl().TemplateResponse(
+        request=request,
+        name="register.html",
+        context=_ctx(request, error=None),
+    )
+
+
+@register_router.post("/register", response_model=None)
+async def register_submit(
+    request: Request,
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+) -> RedirectResponse | HTMLResponse:
+    """Create a new viewer account (public, no auth required)."""
+
+    def _err(msg: str) -> HTMLResponse:
+        return _tmpl().TemplateResponse(
+            request=request,
+            name="register.html",
+            context=_ctx(request, error=msg),
+            status_code=400,
+        )
+
+    if len(username) < 3 or not username.replace("_", "").replace("-", "").replace(".", "").isalnum():
+        return _err("Username must be at least 3 characters (letters, numbers, ._- only).")
+
+    # Check uniqueness in both DB and in-memory store
+    _username_taken = username in _users_store
+    if not _username_taken:
+        try:
+            from sqlalchemy import select as _sel
+            from mediacat.db.models import User as _UModel
+
+            sf = getattr(request.app.state, "db_session_factory", None)
+            if sf:
+                async with sf() as _db:
+                    _existing = (await _db.execute(
+                        _sel(_UModel.id).where(_UModel.username == username)
+                    )).scalar_one_or_none()
+                    _username_taken = _existing is not None
+        except Exception:
+            pass
+    if _username_taken:
+        return _err(f"Username '{username}' is already taken.")
+    if len(password) < 8:
+        return _err("Password must be at least 8 characters.")
+    if password != confirm_password:
+        return _err("Passwords do not match.")
+
+    uid = uuid.uuid4()
+    pw_hash = hash_password(password)
+
+    # Persist to DB
+    try:
+        from sqlalchemy.dialects.postgresql import insert as _pg_ins
+        from mediacat.db.models import User as _UModel
+        from mediacat.db.enums import UserRole as _UR
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                await _db.execute(
+                    _pg_ins(_UModel)
+                    .values(
+                        id=uid,
+                        username=username,
+                        email=email,
+                        password_hash=pw_hash,
+                        role=_UR.VIEWER,
+                        is_active=True,
+                        session_timeout_seconds=86400,
+                    )
+                    .on_conflict_do_nothing()
+                )
+                await _db.commit()
+    except Exception as _exc:
+        logger.warning("register DB insert failed: %s", _exc)
+
+    _users_store[username] = {
+        "id": uid.hex,
+        "username": username,
+        "email": email,
+        "password_hash": pw_hash,
+        "role": "viewer",
+        "is_active": True,
+        "failed_login_count": 0,
+        "locked_until": None,
+        "session_timeout_seconds": 86400,
+    }
+    logger.info("Self-registration: user=%s email=%s", username, email)
+    return RedirectResponse(url="/login?registered=1", status_code=303)

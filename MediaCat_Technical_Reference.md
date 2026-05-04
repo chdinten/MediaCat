@@ -232,10 +232,11 @@ app.include_router(catalogue_router)
 
 ### 2.3 UI Theme
 
-The UI uses a **dark-first CSS custom properties** system. Dark mode is the default; light mode is applied by setting `[data-theme="light"]` on the `<html>` element.
+The UI uses the **Late Night Hi-Fi — Espresso Lounge** dark-first CSS custom properties system. Dark mode is the default; light mode is applied by setting `[data-theme="light"]` on the `<html>` element.
 
 - **`static/theme.js`** — Runs synchronously before first paint (no `defer`) to prevent flash of wrong theme. Reads `localStorage['mc-theme']` and applies the `data-theme` attribute immediately.
-- **`static/style.css`** — Single stylesheet; all colours are CSS variables. `[data-theme="light"]` block overrides the dark defaults.
+- **`static/style.css`** — Single stylesheet; all colours are CSS custom properties. `[data-theme="light"]` block overrides the dark defaults.
+- **`static/hero-turntable1.jpg`** — Full-bleed dashboard hero photograph; composited with lamp-wash, fade, and vignette CSS layers.
 - Theme persists across sessions via `localStorage`.
 
 ### 2.4 Template Context
@@ -909,7 +910,21 @@ All mutating endpoints require a valid session cookie and an `X-CSRF-Token` head
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/` | Dashboard — stats, pending reviews |
+| `GET` | `/` | Dashboard — hero image, collection stats strip, recently-added, top-rated, and genre carousels |
+
+Template context returned by `GET /`:
+
+| Key | Type | Description |
+|---|---|---|
+| `stats.total` | `int` | Total active pressing count |
+| `stats.vinyl` | `int` | Vinyl pressing count |
+| `stats.cd` | `int` | CD pressing count |
+| `stats.artists` | `int` | Distinct artist count |
+| `stats.oldest_year` | `int \| None` | Earliest release year (`MIN(year)`) — `None` if no year data |
+| `genre_stats` | `list[dict]` | Top-5 genres by volume: `[{"genre": str, "count": int}]` |
+| `recent` | `list[Token]` | 8 most recently created tokens (label + media_objects eager-loaded) |
+| `top_rated` | `list[Token]` | 8 highest personal-rating tokens |
+| `genre_carousels` | `list[dict]` | Up to 12 genre rows: `[{"genre": str, "tokens": list[Token]}]` |
 
 ### 14.3 Catalogue (Auth Required)
 

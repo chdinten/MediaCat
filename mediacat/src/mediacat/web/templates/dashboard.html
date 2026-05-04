@@ -4,7 +4,7 @@
 {% block content %}
 <section class="hero">
     <div class="hero-bg">
-        <img src="/static/hero-turntable.jpg" alt="Vinyl record spinning under a warm tungsten lamp" class="hero-bg-img">
+        <img src="/static/hero-turntable1.jpg" alt="Vinyl record spinning under a warm tungsten lamp" class="hero-bg-img">
         <div class="hero-lamp-wash"></div>
         <div class="hero-fade"></div>
         <div class="hero-vignette"></div>
@@ -22,26 +22,39 @@
             <a href="/catalogue" class="btn btn-ghost">Browse catalogue</a>
         </div>
     </div>
+    <div class="hero-stats-row">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.total }}</span>
+                <span class="stat-label">Pressings</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.artists }}</span>
+                <span class="stat-label">Artists</span>
+            </div>
+            <div class="stat-card stat-card--vinyl">
+                <span class="stat-value">{{ stats.vinyl }}</span>
+                <span class="stat-label">Vinyl</span>
+            </div>
+            <div class="stat-card stat-card--cd">
+                <span class="stat-value">{{ stats.cd }}</span>
+                <span class="stat-label">CD</span>
+            </div>
+            {% if stats.oldest_year %}
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.oldest_year }}</span>
+                <span class="stat-label">Oldest</span>
+            </div>
+            {% endif %}
+            {% for gs in genre_stats %}
+            <div class="stat-card stat-card--genre">
+                <span class="stat-value">{{ gs.count }}</span>
+                <span class="stat-label">{{ gs.genre }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
 </section>
-
-<div class="stats-grid">
-    <div class="stat-card">
-        <span class="stat-value">{{ stats.total }}</span>
-        <span class="stat-label">Pressings</span>
-    </div>
-    <div class="stat-card">
-        <span class="stat-value">{{ stats.artists }}</span>
-        <span class="stat-label">Artists</span>
-    </div>
-    <div class="stat-card stat-card--vinyl">
-        <span class="stat-value">{{ stats.vinyl }}</span>
-        <span class="stat-label">Vinyl</span>
-    </div>
-    <div class="stat-card stat-card--cd">
-        <span class="stat-value">{{ stats.cd }}</span>
-        <span class="stat-label">CD</span>
-    </div>
-</div>
 
 {% if recent %}
 <section class="recent-section">
@@ -94,4 +107,99 @@
     <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
 </div>
 {% endif %}
+
+{% if top_rated %}
+<section class="recent-section">
+    <div class="recent-header">
+        <h2>Top rated</h2>
+        <a href="/catalogue?sort=rating" class="btn btn-ghost btn-sm">View all →</a>
+    </div>
+    <div class="recent-carousel">
+        {% for token in top_rated %}
+        {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
+        {% if not cover %}{% set cover = token.media_objects | list | first %}{% endif %}
+        <a href="/catalogue/{{ token.id }}" class="recent-card">
+            <div class="recent-cover">
+                <div class="vinyl-disc" aria-hidden="true">
+                    <div class="vinyl-groove vinyl-groove--1"></div>
+                    <div class="vinyl-groove vinyl-groove--2"></div>
+                    <div class="vinyl-groove vinyl-groove--3"></div>
+                    <div class="vinyl-label"><div class="vinyl-spindle"></div></div>
+                </div>
+                <div class="recent-sleeve">
+                    {% if cover %}
+                    <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Cover" class="recent-sleeve-img" loading="lazy">
+                    {% else %}
+                    <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--surface)">
+                        <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.2em;color:var(--text-muted)">{{ token.media_format.value.upper() }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="recent-sleeve-wash"></div>
+                    <span class="recent-format-chip">{{ token.media_format.value }}</span>
+                </div>
+            </div>
+            <div class="recent-card-body">
+                <div class="recent-title">{{ token.title or 'Untitled' }}</div>
+                <div class="recent-artist">{{ token.artist or 'Unknown Artist' }}</div>
+                <div class="recent-meta">
+                    {% set stars = (token.personal_rating / 2) %}
+                    ★ {{ "%.1f"|format(stars) }}/5
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% for gc in genre_carousels %}
+<section class="recent-section genre-section">
+    <div class="recent-header">
+        <h2 class="genre-section-title">
+            <span class="genre-section-dot"></span>{{ gc.genre }}
+        </h2>
+        <a href="/catalogue?genre={{ gc.genre | urlencode }}" class="btn btn-ghost btn-sm">View all →</a>
+    </div>
+    <div class="recent-carousel">
+        {% for token in gc.tokens %}
+        {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
+        {% if not cover %}{% set cover = token.media_objects | list | first %}{% endif %}
+        <a href="/catalogue/{{ token.id }}" class="recent-card">
+            <div class="recent-cover">
+                <div class="vinyl-disc" aria-hidden="true">
+                    <div class="vinyl-groove vinyl-groove--1"></div>
+                    <div class="vinyl-groove vinyl-groove--2"></div>
+                    <div class="vinyl-groove vinyl-groove--3"></div>
+                    <div class="vinyl-label"><div class="vinyl-spindle"></div></div>
+                </div>
+                <div class="recent-sleeve">
+                    {% if cover %}
+                    <img src="/catalogue/{{ token.id }}/images/{{ cover.id }}" alt="Cover"
+                         class="recent-sleeve-img" loading="lazy">
+                    {% else %}
+                    <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:var(--surface)">
+                        <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.2em;color:var(--text-muted)">{{ token.media_format.value.upper() }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="recent-sleeve-wash"></div>
+                    <span class="recent-format-chip">{{ token.media_format.value }}</span>
+                </div>
+            </div>
+            <div class="recent-card-body">
+                <div class="recent-title">{{ token.title or 'Untitled' }}</div>
+                <div class="recent-artist">{{ token.artist or 'Unknown Artist' }}</div>
+                <div class="recent-meta">
+                    {% if token.year %}{{ token.year }}{% endif %}
+                    {% if token.year and token.label %} · {% endif %}
+                    {% if token.label %}{{ token.label.name }}{% endif %}
+                    {% if token.personal_rating %}
+                    {% if token.year or token.label %} · {% endif %}★ {{ "%.1f"|format(token.personal_rating / 2) }}
+                    {% endif %}
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endfor %}
 {% endblock %}
