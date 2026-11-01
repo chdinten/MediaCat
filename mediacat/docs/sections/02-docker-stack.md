@@ -13,7 +13,8 @@
   health checks, JSON logging.
 - `deploy/initdb/01-roles.sql` — least-privilege DB roles
   (migrator / app / readonly), default privileges, required extensions.
-- `deploy/scripts/backup.sh` — pg_dump cron, 30-day retention.
+- `deploy/scripts/backup.sh` — daily pg_dump at 02:00 UTC (BusyBox `crond` in the
+  backup sidecar), 30-day retention. See [Backup and restore](../runbooks/backup-restore.md).
 - `deploy/opa/bundles/mediacat/` — skeleton Rego policy + test.
 - `scripts/secrets-init.sh` — generates random dev secrets.
 

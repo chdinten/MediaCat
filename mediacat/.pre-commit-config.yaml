@@ -12,17 +12,19 @@ repos:
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-yaml
-        args: [--allow-multiple-documents]
+        # --unsafe: syntax check only; mkdocs.yml uses !!python/name tags (mermaid fences)
+        args: [--allow-multiple-documents, --unsafe]
       - id: check-toml
       - id: check-json
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: mixed-line-ending
         args: [--fix=lf]
+        exclude: \.bat$  # cmd.exe needs CRLF (see /.gitattributes)
       - id: detect-private-key
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.15.11  # keep in step with the venv's ruff (make lint)
     hooks:
       - id: ruff
         args: [--fix]

@@ -36,7 +36,7 @@ containers as bind volumes:
 ├── postgres/      0750 root:$USER   PGDATA
 ├── minio/         0750 root:$USER   object store data
 ├── redis/         0750 root:$USER   AOF + RDB
-├── backups/       0750 root:$USER   pg_dump + mc mirror output
+├── backups/       0750 root:$USER   daily pg_dump output
 ├── logs/          0750 root:$USER   optional host-mounted logs
 └── secrets/       0700 root:root    Docker secrets source
 ```

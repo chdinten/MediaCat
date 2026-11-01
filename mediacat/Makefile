@@ -114,6 +114,9 @@ logs: ## Tail logs
 ps: ## Compose ps
 	docker compose --env-file .env -f deploy/docker-compose.yaml ps
 
+ctl-web: venv ## Web control panel for mediacat-ctl.sh on http://127.0.0.1:8810
+	$(VENV)/bin/python -m tools.ctl_portal
+
 config-check: ## Validate compose config
 	docker compose --env-file .env -f deploy/docker-compose.yaml config -q
 	@echo "compose config OK"

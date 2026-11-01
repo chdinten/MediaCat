@@ -1,8 +1,24 @@
-{% extends "base.html" %}
+{% extends layout_base %}
 {% block title %}Dashboard — MediaCat{% endblock %}
 
+{% block body_class %}dash-page{% endblock %}
+
+{% block head %}
+<script src="/static/dashboard.js" defer></script>
+{% endblock %}
+
 {% block content %}
-<section class="hero">
+<!-- Fixed turntable background (z-index:1) — stays in place while page content scrolls over it -->
+<div id="dash-bg" aria-hidden="true">
+    <img src="/static/hero-turntable1.jpg" alt="" class="dash-bg-img-fixed">
+</div>
+<!-- Fade overlay (z-index:2) — JS fades in after ~1 screen of scroll -->
+<div id="dash-fade-overlay" aria-hidden="true"
+     style="position:fixed;inset:0;z-index:2;background:var(--bg);opacity:0;pointer-events:none;"></div>
+
+<!-- Content wrapper (z-index:3) sits above bg and fade overlay -->
+<div class="dash-content-wrap">
+<section class="hero hero--dashboard">
     <div class="hero-bg">
         <img src="/static/hero-turntable1.jpg" alt="Vinyl record spinning under a warm tungsten lamp" class="hero-bg-img">
         <div class="hero-lamp-wash"></div>
@@ -24,30 +40,30 @@
     </div>
     <div class="hero-stats-row">
         <div class="stats-grid">
-            <div class="stat-card">
+            <div class="stat-card stat-card--primary">
                 <span class="stat-value">{{ stats.total }}</span>
                 <span class="stat-label">Pressings</span>
             </div>
-            <div class="stat-card">
+            <div class="stat-card stat-card--primary">
                 <span class="stat-value">{{ stats.artists }}</span>
                 <span class="stat-label">Artists</span>
             </div>
-            <div class="stat-card stat-card--vinyl">
+            <div class="stat-card stat-card--secondary stat-card--vinyl">
                 <span class="stat-value">{{ stats.vinyl }}</span>
                 <span class="stat-label">Vinyl</span>
             </div>
-            <div class="stat-card stat-card--cd">
+            <div class="stat-card stat-card--secondary stat-card--cd">
                 <span class="stat-value">{{ stats.cd }}</span>
                 <span class="stat-label">CD</span>
             </div>
             {% if stats.oldest_year %}
-            <div class="stat-card">
+            <div class="stat-card stat-card--secondary">
                 <span class="stat-value">{{ stats.oldest_year }}</span>
                 <span class="stat-label">Oldest</span>
             </div>
             {% endif %}
             {% for gs in genre_stats %}
-            <div class="stat-card stat-card--genre">
+            <div class="stat-card stat-card--secondary stat-card--genre">
                 <span class="stat-value">{{ gs.count }}</span>
                 <span class="stat-label">{{ gs.genre }}</span>
             </div>
@@ -60,7 +76,10 @@
 <section class="recent-section">
     <div class="recent-header">
         <h2>Recently added</h2>
-        <a href="/catalogue" class="btn btn-ghost btn-sm">View all →</a>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+            <a href="/" class="btn btn-ghost btn-sm" title="Refresh carousels">↻</a>
+            <a href="/catalogue" class="btn btn-ghost btn-sm">View all →</a>
+        </div>
     </div>
     <div class="recent-carousel">
         {% for token in recent %}
@@ -96,6 +115,7 @@
                     {% if token.year and token.label %} · {% endif %}
                     {% if token.label %}{{ token.label.name }}{% endif %}
                 </div>
+                <div class="recent-token-id">{{ token.id }}</div>
             </div>
         </a>
         {% endfor %}
@@ -202,4 +222,5 @@
     </div>
 </section>
 {% endfor %}
+</div>{# /dash-content-wrap #}
 {% endblock %}

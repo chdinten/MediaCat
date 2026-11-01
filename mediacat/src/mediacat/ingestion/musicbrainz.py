@@ -28,9 +28,91 @@ class MusicBrainzConnector(BaseConnector):
         raw = await self._request(
             "GET",
             f"/release/{external_id}",
-            params={"inc": "labels+artists+recordings+release-groups", "fmt": "json"},
+            params={
+                "inc": "labels+artists+recordings+release-groups+genres+tags",
+                "fmt": "json",
+            },
         )
         return self._normalise(raw)
+
+    async def fetch_artist_releases(self, mbid: str) -> list[dict[str, Any]]:
+        """Return release groups for an artist sorted by year."""
+        raw = await self._request(
+            "GET",
+            f"/artist/{mbid}",
+            params={"inc": "release-groups", "fmt": "json", "limit": 100},
+        )
+        groups = raw.get("release-groups", [])
+        result: list[dict[str, Any]] = []
+        for rg in groups:
+            rg_type = (rg.get("primary-type") or "").lower()
+            if rg_type not in ("album", "ep", "single", ""):
+                continue
+            year = _extract_year(rg.get("first-release-date"))
+            result.append(
+                {
+                    "title": rg.get("title", ""),
+                    "year": year,
+                    "type": rg.get("primary-type", ""),
+                    "mbid": rg.get("id", ""),
+                }
+            )
+        result.sort(key=lambda r: r.get("year") or 9999)
+        return result
+
+    async def search_artist(self, name: str) -> list[dict[str, Any]]:
+        """Search for artists by name; returns top matches with MBID."""
+        raw = await self._request(
+            "GET",
+            "/artist",
+            params={"query": f'artist:"{name}"', "fmt": "json", "limit": 5},
+        )
+        return [
+            {
+                "mbid": a.get("id", ""),
+                "name": a.get("name", ""),
+                "disambiguation": a.get("disambiguation", ""),
+                "type": a.get("type", ""),
+                "score": a.get("score", 0),
+            }
+            for a in raw.get("artists", [])
+        ]
+
+    async def resolve_artist(self, name: str) -> dict[str, Any] | None:
+        """Return the best-matching raw MB artist dict for *name*, or None.
+
+        Returns the raw MusicBrainz artist object (MBID is at key ``"id"``).
+        Uses exact-name match, group-type preference, and score to rank results.
+        """
+        raw = await self._request(
+            "GET",
+            "/artist",
+            params={"query": f'artist:"{name}"', "fmt": "json", "limit": 5},
+        )
+        artists = raw.get("artists", [])
+        if not artists:
+            return None
+
+        def rank(a: dict[str, Any]) -> tuple[int, int, int]:
+            exact = int(a.get("name", "").lower() == name.lower())
+            is_group = int(a.get("type") == "Group")
+            score = int(a.get("score", 0))
+            return exact, is_group, score
+
+        return sorted(artists, key=rank, reverse=True)[0]
+
+    async def get_artist(
+        self,
+        mbid: str,
+        *,
+        inc: str = "aliases+url-rels+genres+tags",
+    ) -> dict[str, Any]:
+        """Fetch a full artist record by MBID, including URL relations."""
+        return await self._request(
+            "GET",
+            f"/artist/{mbid}",
+            params={"fmt": "json", "inc": inc},
+        )
 
     async def search_releases(self, query: str, **kwargs: Any) -> list[FetchResult]:
         """Search for releases via the MusicBrainz search API."""
@@ -79,6 +161,15 @@ class MusicBrainzConnector(BaseConnector):
         rg = raw.get("release-group", {})
         year = _extract_year(raw.get("date") or rg.get("first-release-date"))
 
+        # Genres from tags (MusicBrainz uses the "genres" and "tags" arrays)
+        genres_raw = raw.get("genres", []) or raw.get("tags", [])
+        genres = [
+            g.get("name", "").title()
+            for g in sorted(genres_raw, key=lambda x: x.get("count", 0), reverse=True)
+            if g.get("name")
+        ]
+
+        mbid = raw.get("id", "")
         normalised: dict[str, Any] = {
             "title": raw.get("title", ""),
             "artist": artist,
@@ -88,11 +179,11 @@ class MusicBrainzConnector(BaseConnector):
             "barcode": barcode,
             "catalog_number": catalog_number,
             "label_name": label_name,
-            "genres": [],
+            "genres": genres,
             "tracklist": _extract_tracklist(media_list),
+            "musicbrainz_release_url": f"https://musicbrainz.org/release/{mbid}" if mbid else None,
         }
 
-        mbid = raw.get("id", "")
         return FetchResult(
             source="musicbrainz",
             external_id=mbid,
@@ -143,15 +234,26 @@ def _extract_year(date_str: str | None) -> int | None:
 
 
 def _extract_tracklist(media_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Flatten MusicBrainz media.tracks into a tracklist."""
+    """Flatten MusicBrainz media list into [{disc, position, title, artists, duration_ms}]."""
     tracks: list[dict[str, Any]] = []
-    for medium in media_list:
+    for disc_idx, medium in enumerate(media_list, start=1):
+        disc = medium.get("position") or disc_idx
         for track in medium.get("tracks", medium.get("track-list", [])):
+            recording = track.get("recording", {})
+            # Artist credits may be on the track or on the recording
+            credit = track.get("artist-credit") or recording.get("artist-credit", [])
+            track_artists = [
+                (c.get("name") or c.get("artist", {}).get("name", "")).strip()
+                for c in credit
+                if isinstance(c, dict) and (c.get("name") or c.get("artist", {}).get("name"))
+            ]
             tracks.append(
                 {
+                    "disc": disc,
                     "position": track.get("position") or track.get("number"),
-                    "title": track.get("title", ""),
-                    "duration_ms": track.get("length"),
+                    "title": track.get("title") or recording.get("title", ""),
+                    "artists": track_artists,
+                    "duration_ms": track.get("length") or recording.get("length"),
                 }
             )
     return tracks

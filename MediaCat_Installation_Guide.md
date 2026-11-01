@@ -258,7 +258,19 @@ Import-Certificate -FilePath "$env:USERPROFILE\caddy-root.crt" `
     -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
-After this, all Windows browsers trust `https://mediacat.localhost` permanently (no more certificate warnings). The cert only needs to be imported once.
+After this, all Windows browsers trust `https://mediacat.localhost:8443` (and the `docs.`, `minio.` and `ollama.` sub-domains) permanently, with no more certificate warnings. The cert only needs to be imported once.
+
+### Opening MediaCat
+
+| What | Address |
+|---|---|
+| **MediaCat app** | `https://mediacat.localhost:8443/` |
+| Documentation (when the docs server runs) | `https://docs.mediacat.localhost:8443/` |
+| MinIO console | `https://minio.mediacat.localhost:8443/` |
+| Open WebUI (Ollama profile) | `https://ollama.mediacat.localhost:8443/` |
+| Stack control panel (`make ctl-web`) | `http://127.0.0.1:8810/` |
+
+> **Why `:8443`?** Caddy publishes HTTPS on `HTTPS_BIND` (default `127.0.0.1:8443`), not on the standard port 443. An address without the port goes to whatever else listens on 443. On this machine that is **Kasm Workspaces**, which shows its own login page. The port is set in `.env`; if 443 is free and you prefer short addresses, set `HTTPS_BIND=127.0.0.1:443` and restart Caddy.
 
 > **Hosts file not needed** — With `networkingMode=mirrored` in WSL2, `127.0.0.1` in WSL maps directly to `127.0.0.1` in Windows. No `hosts` file entry is required.
 
@@ -298,7 +310,13 @@ curl -s http://127.0.0.1:8181/health
 make lint
 make typecheck
 make test
+
+# 8. Caddy serves the app on 8443
+curl -sk -o /dev/null -w "%{http_code}\n" https://mediacat.localhost:8443/login
+# Expected: 200
 ```
+
+Finally, open `https://mediacat.localhost:8443/` in a Windows browser: the MediaCat login page appears.
 
 
 
@@ -339,7 +357,7 @@ make ollama-models
 # Should list qwen2.5vl:32b and glm-ocr with GPU memory usage
 ```
 
-Open WebUI is available at `https://ollama.mediacat.localhost`.
+Open WebUI is available at `https://ollama.mediacat.localhost:8443`.
 
 > **Healthcheck note:** The `ollama/ollama` image does not include `curl`. The healthcheck uses `ollama list >/dev/null 2>&1` instead.
 
@@ -423,7 +441,11 @@ Compose v2 looks for `.env` in the directory of the compose file (`deploy/`), no
 1. Verify Caddy is running: `make ps` — look for `caddy (healthy)`.
 2. Check the bind address: `grep HTTP_BIND .env` should show `127.0.0.1:8080` (not `0.0.0.0:8080`).
 3. Verify WSL2 mirrored networking is enabled: check `%USERPROFILE%\.wslconfig` for `networkingMode=mirrored`.
-4. Test TCP connectivity from PowerShell: `Test-NetConnection 127.0.0.1 -Port 8080`.
+4. Test TCP connectivity from PowerShell: `Test-NetConnection 127.0.0.1 -Port 8443` (HTTPS) or `-Port 8080` (HTTP).
+5. Make sure the address includes the port: `https://mediacat.localhost:8443/`.
+
+### Browser shows another product's login page (e.g. Kasm Workspaces)
+The address is missing `:8443`. Without a port the browser uses 443, where a different program answers (on this machine, Kasm Workspaces' `kasm_proxy` container). Check what owns the port with `docker ps --format '{{.Names}} {{.Ports}}' | grep ':443->'`. Use `https://mediacat.localhost:8443/`, or move MediaCat to 443 with `HTTPS_BIND=127.0.0.1:443` if nothing else needs it.
 
 ### Browser switches to HTTPS even when using `http://`
 Browsers (especially Chromium-based) have HSTS preloading for `.localhost`. Either:
@@ -460,7 +482,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 ```
 
 ### Open WebUI not accessible
-Open WebUI proxies through Caddy at `https://ollama.mediacat.localhost`. Ensure:
+Open WebUI proxies through Caddy at `https://ollama.mediacat.localhost:8443`. Ensure:
 1. The Ollama profile is running (`make ollama-gpu-up` or `make ollama-up`).
 2. The Caddy local CA certificate is imported into Windows (Phase 8).
 3. `MEDIACAT_OLLAMA=1` is set in `.env`.

@@ -28,6 +28,7 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/healthz",
         "/readyz",
         "/login",
+        "/register",
         "/static",
         "/api/docs",
         "/api/openapi.json",
@@ -118,7 +119,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._csp = csp or (
             "default-src 'self'; "
-            "img-src 'self' data: blob:; "
+            "img-src 'self' data: blob: https://upload.wikimedia.org https://images.discogs.com https://i.discogs.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self'; "

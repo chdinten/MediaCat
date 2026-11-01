@@ -22,7 +22,7 @@
 #### Network
 | Surface | Mitigation | Status |
 |---------|-----------|--------|
-| Exposed ports | Only Caddy (80/443) is publicly bound; all other services are on `internal: true` backend network | ✅ Implemented (Section 2) |
+| Exposed ports | Only Caddy is published on the host, on `HTTP_BIND` / `HTTPS_BIND` (default `127.0.0.1:8080` / `127.0.0.1:8443`); all other services are on the `internal: true` backend network | ✅ Implemented (Section 2) |
 | TLS termination | Caddy with automatic ACME; HSTS 2-year preload | ✅ Implemented |
 | Port scanning / brute force | Caddy rate limiting; app-level login rate limiter | ✅ Implemented |
 

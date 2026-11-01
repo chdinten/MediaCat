@@ -1,0 +1,71 @@
+{# 3panel search response:
+   - sentinel triggers layout switch to three-column
+   - OOB swap replaces left panel with artist list
+   - main content (into #sp-center) auto-loads first artist detail
+#}
+
+{# sentinel — panel_resize.js switches layout to three #}
+<div data-sp-layout="three" style="display:none"></div>
+
+{# OOB: replace left panel with artist list #}
+<aside id="sp-left" hx-swap-oob="innerHTML">
+<div class="sp-artist-list-header">
+    <div class="sp-artist-search-form" style="display:flex;align-items:center;gap:0.4rem">
+        <span style="color:var(--text-dim);font-size:0.9rem">&#x1F50D;</span>
+        <span style="font-size:0.8rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ q }}</span>
+    </div>
+</div>
+
+{% if artists %}
+<div class="sp-artist-list" id="sp-artist-list">
+    {% for a in artists %}
+    <div class="sp-artist-item {% if loop.first %}sp-artist-item--active{% endif %}"
+         id="sp-saitem-{{ loop.index }}"
+         hx-get="/artists/detail?artist={{ a.enc }}"
+         hx-target="#sp-center"
+         hx-swap="innerHTML"
+         hx-on::before-request="document.querySelectorAll('.sp-artist-item').forEach(function(c){c.classList.remove('sp-artist-item--active')});this.classList.add('sp-artist-item--active')">
+        <div class="sp-artist-item-img">
+            {% if a.portrait_url %}
+            <img src="{{ a.portrait_url }}" alt="" loading="lazy">
+            {% elif a.cover_url %}
+            <img src="{{ a.cover_url }}" alt="" loading="lazy">
+            {% else %}
+            <span class="sp-artist-item-initial">{{ (a.name or '?')[0] | upper }}</span>
+            {% endif %}
+        </div>
+        <div class="sp-artist-item-body">
+            <div class="sp-artist-item-name">{{ a.name }}</div>
+            <div class="sp-artist-item-meta">
+                {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
+                {% if a.year_range %} · {{ a.year_range }}{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="sp-artist-list-empty text-muted">
+    No artists match &ldquo;{{ q }}&rdquo;.
+</p>
+{% endif %}
+</aside>
+
+{# Center: auto-load first artist, or empty state #}
+{% if artists %}
+<div id="sp-search-artist-init"
+     hx-get="/artists/detail?artist={{ artists[0].enc }}"
+     hx-trigger="load"
+     hx-swap="outerHTML"
+     hx-target="#sp-search-artist-init">
+    <div class="sp-empty">
+        <span class="sp-empty-icon">&#x1F3B5;</span>
+        <span class="sp-empty-text">Loading {{ artists[0].name }}&hellip;</span>
+    </div>
+</div>
+{% else %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">&#x1F50D;</span>
+    <span class="sp-empty-text">No results for &ldquo;{{ q }}&rdquo;.</span>
+</div>
+{% endif %}

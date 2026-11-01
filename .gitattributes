@@ -1,0 +1,2 @@
+# Windows batch files must keep CRLF line endings or cmd.exe mis-parses labels/goto
+*.bat text eol=crlf

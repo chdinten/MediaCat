@@ -1,0 +1,69 @@
+{% extends layout_base %}
+{% block title %}Sync from Discogs — {{ token.title }} — MediaCat{% endblock %}
+
+{% block content %}
+<div style="max-width:600px;margin:2rem auto">
+    <h1 style="margin-bottom:0.25rem">Sync from Discogs</h1>
+    <p class="text-muted" style="margin-bottom:1.5rem">
+        <a href="/catalogue/{{ token.id }}">← {{ token.artist }} – {{ token.title }}</a>
+    </p>
+
+    <div class="alert" style="background:var(--surface);border:1px solid var(--border);border-left:4px solid #f59e0b;padding:1rem 1.25rem;border-radius:4px;margin-bottom:1.5rem">
+        <strong style="color:#f59e0b">⚠ Review before syncing</strong>
+        <p style="margin:0.5rem 0 0">The following data will be fetched from Discogs and saved to this pressing. Existing values may be overwritten.</p>
+    </div>
+
+    <table class="data-table" style="margin-bottom:1.5rem">
+        <thead>
+            <tr><th>Data</th><th>Current state</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Genres / styles</td>
+                <td>{% if token.genres %}{{ token.genres | join(', ') }}{% else %}<span class="text-muted">None</span>{% endif %}</td>
+                <td>{% if token.genres %}<span style="color:#f59e0b">Overwrite</span>{% else %}<span style="color:#34d399">Add</span>{% endif %}</td>
+            </tr>
+            <tr>
+                <td>Community rating</td>
+                <td>{% if token.discogs_community_rating %}★ {{ "%.1f"|format(token.discogs_community_rating) }} ({{ token.discogs_community_votes }} votes){% else %}<span class="text-muted">None</span>{% endif %}</td>
+                <td>{% if token.discogs_community_rating %}<span style="color:#f59e0b">Update</span>{% else %}<span style="color:#34d399">Add</span>{% endif %}</td>
+            </tr>
+            <tr>
+                <td>Track listing</td>
+                <td>{% if token.tracklist %}{{ token.tracklist | length }} tracks{% else %}<span class="text-muted">None</span>{% endif %}</td>
+                <td>{% if token.tracklist %}<span style="color:#f59e0b">Overwrite</span>{% else %}<span style="color:#34d399">Add</span>{% endif %}</td>
+            </tr>
+            <tr>
+                <td>Images</td>
+                <td>{{ token.media_objects | length }} stored</td>
+                <td><span style="color:#34d399">Add new (no delete)</span></td>
+            </tr>
+            <tr>
+                <td>Runout variants &amp; collection fields</td>
+                <td>{% if token.extra and token.extra.get('discogs_collection') %}Loaded{% else %}<span class="text-muted">Not loaded</span>{% endif %}</td>
+                <td><span style="color:#34d399">Refresh (unsaved local edits kept)</span></td>
+            </tr>
+            <tr>
+                <td>Market price data</td>
+                <td>{% if price_count > 0 %}{{ price_count }} snapshot(s) stored{% else %}<span class="text-muted">None</span>{% endif %}</td>
+                <td><span style="color:#34d399">Append snapshot</span></td>
+            </tr>
+        </tbody>
+    </table>
+
+    {% if not token.discogs_release_id %}
+    <div class="alert alert-danger" style="margin-bottom:1rem">
+        No Discogs release ID linked to this pressing. Sync is not possible.
+    </div>
+    <a href="/catalogue/{{ token.id }}" class="btn">Back</a>
+    {% else %}
+    <form method="post" action="/catalogue/{{ token.id }}/sync-discogs">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div style="display:flex;gap:1rem">
+            <button type="submit" class="btn btn-primary">Sync now</button>
+            <a href="/catalogue/{{ token.id }}" class="btn btn-ghost">Cancel</a>
+        </div>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

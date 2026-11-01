@@ -61,6 +61,15 @@
 	reverse_proxy minio:9001
 }
 
+# Docs server — MkDocs live preview (active when docs server is running via mediacat-ctl.sh).
+{$PUBLIC_SCHEME:-https}://docs.{$PUBLIC_HOSTNAME:-mediacat.localhost} {
+	reverse_proxy http://host.docker.internal:8800
+	log {
+		output stdout
+		format json
+	}
+}
+
 # Open WebUI — browser chat UI for Ollama (only active when ollama profile is up).
 {$PUBLIC_SCHEME:-https}://ollama.{$PUBLIC_HOSTNAME:-mediacat.localhost} {
 	reverse_proxy open-webui:8080 {

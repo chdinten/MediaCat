@@ -1,0 +1,682 @@
+{% extends "base.html" %}
+{% block title %}Admin — MediaCat{% endblock %}
+{% block head %}<script src="/static/admin.js" defer></script>{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+<h1>Administration</h1>
+
+{# Tab bar #}
+<nav class="admin-tabs">
+    <a href="/admin?tab=users"         class="admin-tab {% if tab == 'users'        %}admin-tab--active{% endif %}">Users</a>
+    <a href="/admin?tab=import"        class="admin-tab {% if tab == 'import'       %}admin-tab--active{% endif %}">Collection Import</a>
+    <a href="/admin?tab=backup"        class="admin-tab {% if tab == 'backup'       %}admin-tab--active{% endif %}">Backup &amp; Restore</a>
+    <a href="/admin?tab=housekeeping"  class="admin-tab {% if tab == 'housekeeping' %}admin-tab--active{% endif %}">Housekeeping</a>
+    <a href="/admin?tab=docs"          class="admin-tab {% if tab == 'docs'         %}admin-tab--active{% endif %}">Documentation</a>
+    <a href="/admin?tab=debug"         class="admin-tab {% if tab == 'debug'        %}admin-tab--active{% endif %}">Debug</a>
+    <a href="/admin?tab=layout"        class="admin-tab {% if tab == 'layout'       %}admin-tab--active{% endif %}">Layout</a>
+    <a href="/admin?tab=api-tokens"   class="admin-tab {% if tab == 'api-tokens'   %}admin-tab--active{% endif %}">API Tokens</a>
+</nav>
+
+{# ══════════════════════════════════════════════════════
+   USERS TAB
+   ══════════════════════════════════════════════════════ #}
+{% if tab == 'users' %}
+
+{% if request.query_params.get('msg') == 'user_created' %}
+<div class="alert alert-success">User created successfully.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'last_admin' %}
+<div class="alert alert-danger">Cannot deactivate the last active admin account.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'username_taken' %}
+<div class="alert alert-danger">Username already exists — choose a different one.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'email_taken' %}
+<div class="alert alert-danger">Email address already registered.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'password_short' %}
+<div class="alert alert-danger">Password must be at least 8 characters.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'db_error' %}
+<div class="alert alert-danger">Database error — user not created. Check the server logs.</div>
+{% endif %}
+
+<div class="admin-section">
+    <div class="admin-section-header">
+        <h2>User accounts</h2>
+        <button type="button" class="btn btn-sm" onclick="document.getElementById('create-user-form').classList.toggle('hidden')">+ Create user</button>
+    </div>
+
+    <div id="create-user-form" class="hidden" style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1.25rem;margin-bottom:1rem">
+        <h3 style="margin-top:0">New user</h3>
+        <form method="post" action="/admin/users/new">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+                <div>
+                    <label for="nu-username" class="form-label">Username</label>
+                    <input id="nu-username" type="text" name="username" class="filter-select" style="width:100%" required minlength="3">
+                </div>
+                <div>
+                    <label for="nu-email" class="form-label">Email</label>
+                    <input id="nu-email" type="email" name="email" class="filter-select" style="width:100%" required>
+                </div>
+                <div>
+                    <label for="nu-password" class="form-label">Password</label>
+                    <input id="nu-password" type="password" name="password" class="filter-select" style="width:100%" required minlength="8">
+                </div>
+                <div>
+                    <label for="nu-role" class="form-label">Role</label>
+                    <select id="nu-role" name="role" class="filter-select" style="width:100%">
+                        {% for r in roles %}
+                        <option value="{{ r }}" {% if r == 'viewer' %}selected{% endif %}>{{ r }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Create</button>
+        </form>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Username</th><th>Email</th><th>Role</th><th>Active</th>
+                <th>Timeout</th><th>Last login</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for u in users %}
+        {% set timeout = u.get('session_timeout_seconds', 86400) %}
+        <tr>
+            <td>{{ u.username }}</td>
+            <td>{{ u.email }}</td>
+            <td><span class="badge badge-{{ u.role }}">{{ u.role }}</span></td>
+            <td>{% if u.is_active %}Yes{% else %}No{% endif %}</td>
+            <td>
+                {% if timeout < 3600 %}{{ timeout // 60 }} min
+                {% elif timeout < 86400 %}{{ timeout // 3600 }} h
+                {% elif timeout == 86400 %}24 h
+                {% else %}{{ timeout // 86400 }} days{% endif %}
+            </td>
+            <td>{{ u.get('last_login_at', '') or 'Never' }}</td>
+            <td style="white-space:nowrap">
+                <a href="/users/{{ u.id }}/edit" class="btn btn-ghost btn-sm">Edit</a>
+                {% if u.is_active %}
+                <form method="post" action="/users/{{ u.id }}/deactivate" style="display:inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="btn btn-danger btn-sm">Deactivate</button>
+                </form>
+                {% else %}
+                <form method="post" action="/users/{{ u.id }}/activate" style="display:inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="btn btn-success btn-sm">Activate</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-muted" style="text-align:center">No users found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{# ══════════════════════════════════════════════════════
+   IMPORT TAB
+   ══════════════════════════════════════════════════════ #}
+{% elif tab == 'import' %}
+
+<div class="admin-section">
+    <h2>Discogs collection import</h2>
+
+    <div class="info-card" style="margin-bottom:1.5rem">
+        <h3 style="margin-top:0;color:var(--accent)">How collection import works</h3>
+        <p>MediaCat can import your entire Discogs record collection automatically. Here is what you need to know:</p>
+        <ul style="line-height:1.8">
+            <li><strong>Discogs username</strong> — your public Discogs profile name (visible in your Discogs URL, e.g. <code>discogs.com/user/<em>yourname</em></code>).</li>
+            <li><strong>Personal access token</strong> — required if your collection is private, or to avoid anonymous rate limits.
+                Find it at <strong>discogs.com → Settings → Developers → Generate new token</strong>. The token is used only during the import and is never stored.</li>
+            <li><strong>Existing pressings are skipped</strong> — any release already in MediaCat (matched by Discogs release ID) will not be re-imported. You can safely restart or resume.</li>
+            <li><strong>Rate limiting</strong> — import runs at ~40 requests/min to stay well within Discogs limits. A collection of 200 albums takes roughly 15–20 minutes, including image downloads.</li>
+            <li><strong>Pause &amp; resume</strong> — you can pause the import at any point. It resumes from the last completed page, so no progress is lost.</li>
+        </ul>
+    </div>
+
+    <div class="admin-section-header" style="margin-bottom:1rem">
+        <h3 style="margin:0">Start new import</h3>
+    </div>
+    <form method="post" action="/admin/import/start" style="max-width:480px;margin-bottom:2rem">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div style="margin-bottom:1rem">
+            <label for="imp-username" class="form-label">Discogs username <span style="color:var(--text-danger)">*</span></label>
+            <input id="imp-username" type="text" name="discogs_username" class="filter-select" style="width:100%" required
+                   placeholder="your-discogs-name" autocomplete="off">
+        </div>
+        <div style="margin-bottom:1rem">
+            <label for="imp-token" class="form-label">Personal access token <span class="text-muted">(optional for public collections)</span></label>
+            <input id="imp-token" type="text" name="discogs_token" class="filter-select" style="width:100%"
+                   placeholder="paste your Discogs token here" autocomplete="off" spellcheck="false">
+            <small class="text-muted">Not stored — used only for this import session.</small>
+        </div>
+        <div style="margin-bottom:1.25rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0.9rem 1rem">
+            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer">
+                <input type="checkbox" name="reimport" value="1" id="imp-reimport"
+                       style="margin-top:0.15rem;accent-color:var(--accent);flex-shrink:0">
+                <span>
+                    <span style="font-weight:600;color:var(--text)">Re-fetch existing releases</span><br>
+                    <span class="text-muted" style="font-size:0.82rem">
+                        Update albums already in the catalogue with fresh data from Discogs — genres, community rating, tracklist, and market price.
+                        Without this, already-imported releases are skipped.
+                    </span>
+                </span>
+            </label>
+        </div>
+        <button type="submit" class="btn btn-primary">Start import</button>
+    </form>
+
+    {% if discogs_import_count %}
+    <details class="import-releases-fold" style="margin-bottom:2rem">
+        <summary style="cursor:pointer;font-weight:600;color:var(--text);padding:0.6rem 0;list-style:none;display:flex;align-items:center;gap:0.5rem">
+            <span class="import-fold-arrow">▶</span>
+            Imported from Discogs
+            <span class="badge" style="background:var(--surface-high);color:var(--text-muted);font-weight:400">{{ discogs_import_count }} pressings</span>
+        </summary>
+        <div id="imported-releases-container"
+             style="margin-top:0.75rem;overflow-x:auto"
+             hx-get="/admin/import/imported-releases"
+             hx-trigger="toggle from:closest details once"
+             hx-target="this"
+             hx-swap="innerHTML">
+            <p class="text-muted" style="font-size:0.85rem;font-style:italic">Open to load the list…</p>
+        </div>
+    </details>
+    <style>
+        details.import-releases-fold[open] .import-fold-arrow { transform: rotate(90deg); }
+        .import-releases-fold summary::-webkit-details-marker { display:none; }
+        .import-fold-arrow { display:inline-block; transition: transform 0.15s; font-size:0.75rem; color:var(--text-muted); }
+    </style>
+    {% endif %}
+
+    {% if jobs %}
+    <h3>Import history</h3>
+    {% set active_job_id = request.query_params.get('job') %}
+    <div class="import-jobs-list">
+    {% for job in jobs %}
+    {% set is_active = job.id in active_job_ids %}
+    <div class="import-job-card {% if job.id == active_job_id %}import-job-card--active{% endif %}"
+         id="job-{{ job.id }}">
+        <div class="import-job-header">
+            <span class="import-status-dot
+                {%- if job.status == 'running' %} status-running
+                {%- elif job.status == 'pending' %} status-pending
+                {%- elif job.status == 'paused' %} status-paused
+                {%- elif job.status == 'completed' %} status-completed
+                {%- elif job.status == 'failed' %} status-failed
+                {%- endif %}" title="{{ job.status }}"></span>
+            <span class="import-job-user">{{ job.discogs_username }}</span>
+            <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+            <span class="text-muted" style="font-size:0.8rem">{{ job.created_at or '' }}</span>
+        </div>
+
+        <div class="import-progress-wrap" {% if not job.total_releases %}style="display:none"{% endif %}>
+            {% set done = (job.imported_count or 0) + (job.skipped_count or 0) + (job.failed_count or 0) %}
+            {% set pct = ((done / job.total_releases) * 100) | round(0) | int if job.total_releases else 0 %}
+            <div class="import-progress-bar">
+                <div class="import-progress-fill" style="width:{{ pct }}%"></div>
+            </div>
+            <span class="import-progress-label">
+                {% if job.total_releases %}
+                {{ done }} / {{ job.total_releases }}
+                ({{ job.imported_count or 0 }} imported · {{ job.skipped_count or 0 }} skipped · {{ job.failed_count or 0 }} failed)
+                {% else %}—{% endif %}
+            </span>
+        </div>
+
+        {% if job.error_message %}
+        <div class="import-error-msg text-muted" style="font-size:0.8rem;margin-top:0.4rem;color:var(--text-danger)">{{ job.error_message }}</div>
+        {% endif %}
+
+        <div class="import-job-actions" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center">
+            {% if is_active %}
+            <form method="post" action="/admin/import/{{ job.id }}/pause" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn btn-ghost btn-sm">⏸ Pause</button>
+            </form>
+            {% endif %}
+            {% if job.status in ('paused', 'failed') %}
+            <form method="post" action="/admin/import/{{ job.id }}/resume" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn btn-ghost btn-sm">▶ Resume</button>
+            </form>
+            {% endif %}
+        </div>
+
+        {% if is_active %}
+        <div class="import-live-status text-muted" style="font-size:0.8rem;margin-top:0.5rem"
+             data-job-id="{{ job.id }}">{{ job.status }}</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{# ══════════════════════════════════════════════════════
+   BACKUP TAB
+   ══════════════════════════════════════════════════════ #}
+{% elif tab == 'backup' %}
+
+{% if request.query_params.get('msg') == 'import_done' %}
+<div class="alert alert-success">Restore complete — {{ request.query_params.get('rows', '0') }} rows imported.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'invalid_zip' %}
+<div class="alert alert-danger">Uploaded file is not a valid ZIP archive.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'missing_manifest' or request.query_params.get('error') == 'invalid_manifest' %}
+<div class="alert alert-danger">ZIP file does not contain a valid MediaCat backup manifest.</div>
+{% endif %}
+
+<div class="admin-section">
+    <h2>Backup &amp; Restore</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start">
+
+        {# Export #}
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1.5rem">
+            <h3 style="margin-top:0;color:var(--accent)">Export</h3>
+            <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:1rem">
+                Downloads a ZIP archive containing JSON exports of all catalogue tables:
+                pressings, revisions, price history, images, artists, labels, and users.
+                The file is saved to your browser's default download location.
+            </p>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1.25rem">
+                <strong>Includes:</strong> tokens, revisions, images, price history, symbols, labels, manufacturers, users, review items.
+            </p>
+            <a href="/admin/backup/export" class="btn btn-primary">⬇ Download backup</a>
+        </div>
+
+        {# Import #}
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1.5rem">
+            <h3 style="margin-top:0;color:var(--accent)">Restore</h3>
+            <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:1rem">
+                Upload a MediaCat backup ZIP to restore catalogue data.
+                Existing records with the same ID are skipped (safe to re-import).
+                Images stored in MinIO are not included in the backup — only their metadata.
+            </p>
+            <div class="alert alert-warning" style="font-size:0.85rem;margin-bottom:1rem">
+                <strong>Caution:</strong> Restore adds rows — it does not wipe existing data first.
+                To replace everything, clear the database manually before restoring.
+            </div>
+            <form method="post" action="/admin/backup/import" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div style="margin-bottom:1rem">
+                    <label for="bk-file" class="form-label">Backup ZIP file <span style="color:var(--text-danger)">*</span></label>
+                    <input id="bk-file" type="file" name="file" accept=".zip" required
+                           style="display:block;width:100%;padding:0.4rem 0;color:var(--text)">
+                </div>
+                <button type="submit" class="btn btn-primary">⬆ Restore from backup</button>
+            </form>
+        </div>
+
+    </div>
+</div>
+{# ══════════════════════════════════════════════════════
+   DOCS TAB
+   ══════════════════════════════════════════════════════ #}
+{% elif tab == 'docs' %}
+
+<div class="admin-section">
+    <h2>Documentation</h2>
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
+        <a href="http://127.0.0.1:8800" target="_blank" rel="noopener noreferrer"
+           class="btn btn-primary">Open Documentation ↗</a>
+    </div>
+    <p class="text-muted" style="font-size:0.85rem;max-width:560px">
+        Live MkDocs site with architecture notes, API reference, ADRs, and runbooks.
+        Start or stop the server from <strong>mediacat-ctl.sh → options 38 / 39</strong>.
+        The server also starts and stops automatically with the main stack (options 1 / 2 / 3).
+    </p>
+</div>
+
+{# ══════════════════════════════════════════════════════
+   DEBUG TAB
+   ══════════════════════════════════════════════════════ #}
+{% elif tab == 'debug' %}
+
+<div class="admin-section">
+    <h2>Genre diagnostics</h2>
+
+    <div style="display:grid;gap:1.5rem;margin-top:1rem">
+
+        {# 1 — Lookup genres for a token UUID #}
+        <div class="diag-section">
+            <h4 style="margin:0 0 .4rem">1 · Genres stored for a token</h4>
+            <p class="text-muted" style="font-size:.85em;margin:0 0 .5rem">Enter a token UUID (or first 8 chars) to see the raw genres JSONB value in the database.</p>
+            <div style="display:flex;gap:.5rem;align-items:center">
+                <input type="text" id="diag-token-id" name="token_id" placeholder="e.g. a1b2c3d4-…"
+                       class="search-input" style="max-width:22rem"
+                       hx-get="/catalogue/debug/token-genres"
+                       hx-trigger="keyup changed delay:400ms"
+                       hx-include="[name='token_id']"
+                       hx-target="#diag-token-result">
+            </div>
+            <div id="diag-token-result" style="margin-top:.6rem"></div>
+        </div>
+
+        {# 2 — What tokens does a genre string match? #}
+        <div class="diag-section">
+            <h4 style="margin:0 0 .4rem">2 · Filter match test — what does a genre search find?</h4>
+            <p class="text-muted" style="font-size:.85em;margin:0 0 .5rem">Type the genre exactly as you'd enter it in the filter field. Shows which tokens the DB query returns.</p>
+            <div style="display:flex;gap:.5rem;align-items:center">
+                <input type="text" id="diag-genre-q" name="genre" placeholder="e.g. Rock"
+                       class="search-input" style="max-width:16rem"
+                       hx-get="/catalogue/debug/genre-search"
+                       hx-trigger="keyup changed delay:500ms"
+                       hx-include="[name='genre']"
+                       hx-target="#diag-genre-result">
+            </div>
+            <div id="diag-genre-result" style="margin-top:.6rem"></div>
+        </div>
+
+        {# 3 — All genres in DB vs dropdown #}
+        <div class="diag-section">
+            <h4 style="margin:0 0 .4rem">3 · All genres in the database vs filter dropdown</h4>
+            <p class="text-muted" style="font-size:.85em;margin:0 0 .5rem">Shows every distinct genre value stored, how many tokens have it, and whether it appears in the filter dropdown. Red rows = in DB but not in dropdown.</p>
+            <button type="button" class="btn btn-ghost"
+                    hx-get="/catalogue/debug/all-genres"
+                    hx-target="#diag-allgenres-result">Load all genres</button>
+            <div id="diag-allgenres-result" style="margin-top:.6rem"></div>
+        </div>
+
+    </div>
+</div>
+
+{% elif tab == 'layout' %}
+
+{# ══════════════════════════════════════════════════════
+   LAYOUT TAB — switch between UI layout versions
+   ══════════════════════════════════════════════════════ #}
+{% if request.query_params.get('msg') == 'layout_saved' %}
+<div class="alert alert-success">Layout preference saved.</div>
+{% endif %}
+
+<div class="admin-section">
+    <h2>UI Layout</h2>
+    <p class="text-muted" style="margin-bottom:1rem">
+        Select the layout for this browser. The preference is stored as a cookie
+        and takes effect on the next page load.
+    </p>
+
+    <div class="layout-cards">
+
+        {# Classic layout #}
+        <div class="layout-card {% if request.cookies.get('mc_layout', 'classic') == 'classic' %}active{% endif %}">
+            <div class="layout-card-name">Classic</div>
+            <div class="layout-card-version">v1.0</div>
+            <div class="layout-card-desc">
+                Late Night Hi-Fi — Espresso Lounge dark theme.
+                Single-column with sticky navbar. Original design.
+            </div>
+            {% if request.cookies.get('mc_layout', 'classic') == 'classic' %}
+            <span class="layout-card-badge">&#x2714; Active</span>
+            {% else %}
+            <form method="post" action="/layout/set" style="margin-top:0.5rem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="layout" value="classic">
+                <button type="submit" class="btn btn-ghost btn-sm">Activate</button>
+            </form>
+            {% endif %}
+        </div>
+
+        {# 3panel 3-column layout #}
+        <div class="layout-card {% if request.cookies.get('mc_layout') == '3panel' %}active{% endif %}">
+            <div class="layout-card-name">3panel 3-Column</div>
+            <div class="layout-card-version">v2.0 (in development)</div>
+            <div class="layout-card-desc">
+                Three-panel layout: list left, details centre, selected item right.
+                Global search in top bar with history. Espresso Lounge palette kept.
+            </div>
+            {% if request.cookies.get('mc_layout') == '3panel' %}
+            <span class="layout-card-badge">&#x2714; Active</span>
+            {% else %}
+            <form method="post" action="/layout/set" style="margin-top:0.5rem">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="layout" value="3panel">
+                <button type="submit" class="btn btn-primary btn-sm">Activate</button>
+            </form>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+
+{% elif tab == 'api-tokens' %}
+
+{# ══════════════════════════════════════════════════════
+   API TOKENS TAB
+   ══════════════════════════════════════════════════════ #}
+{% if request.query_params.get('msg') == 'saved' %}
+<div class="alert alert-success">API credentials saved.</div>
+{% endif %}
+{% if request.query_params.get('error') == 'db' %}
+<div class="alert alert-danger">Failed to save — check server logs.</div>
+{% endif %}
+
+<div class="admin-section">
+    <h2>API Credentials</h2>
+    <p class="text-muted" style="margin-bottom:1.25rem">
+        Store API keys and tokens here so they are available site-wide without
+        editing environment variables or Docker secrets.  Secrets are masked
+        below — leave a field <em>blank</em> to keep the existing value.
+        To clear a token, enter a single space.
+    </p>
+
+    <form method="post" action="/admin/api-tokens/save">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="api-token-grid">
+            {% for cred in api_credentials %}
+            <div class="api-token-row">
+                <div class="api-token-meta">
+                    <label class="api-token-label" for="cred-{{ cred.key }}">{{ cred.label }}</label>
+                    <span class="api-token-hint">{{ cred.hint }}</span>
+                    <a href="{{ cred.url }}" class="api-token-link" target="_blank" rel="noopener">
+                        ↗ {{ cred.url | replace('https://', '') | truncate(50, True, '…') }}
+                    </a>
+                </div>
+                <div class="api-token-input-wrap">
+                    <input type="{{ 'password' if cred.secret == 'true' else 'text' }}"
+                           id="cred-{{ cred.key }}"
+                           name="{{ cred.key }}"
+                           placeholder="{{ cred.value if cred.is_set else 'Not set' }}"
+                           class="filter-select api-token-input"
+                           autocomplete="off"
+                           spellcheck="false">
+                    {% if cred.is_set %}
+                    <span class="api-token-status api-token-status--set">&#x2714; set</span>
+                    {% else %}
+                    <span class="api-token-status api-token-status--unset">not set</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div style="margin-top:1.5rem">
+            <button type="submit" class="btn btn-primary">Save credentials</button>
+        </div>
+    </form>
+</div>
+
+{% endif %}
+
+{# ══════════════════════════════════════════════════════
+   HOUSEKEEPING TAB
+   ══════════════════════════════════════════════════════ #}
+{% if tab == 'housekeeping' %}
+
+{% if request.query_params.get('msg') == 'deleted' %}
+<div class="alert alert-success">{{ request.query_params.get('count', '?') }} pressing(s) soft-deleted. They can be recovered below for {{ 30 }} days.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'recovered' %}
+<div class="alert alert-success">Pressing recovered and set back to active.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'purged' %}
+<div class="alert alert-success">{{ request.query_params.get('count', '?') }} expired pressing(s) permanently removed.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'no_selection' %}
+<div class="alert alert-warning">No pressings selected.</div>
+{% endif %}
+{% if request.query_params.get('error') %}
+<div class="alert alert-danger">Operation failed: {{ request.query_params.get('error') }}. Check server logs.</div>
+{% endif %}
+
+{# ── Pending delete confirmation ── #}
+{% if pending_delete_items is defined and pending_delete_items %}
+<div class="admin-section">
+    <div class="alert alert-danger">
+        <strong>Are you sure you want to delete {{ pending_delete_count }} pressing(s)?</strong>
+        <ul style="margin:.5rem 0 .75rem;font-size:.88em">{{ pending_delete_items | safe }}</ul>
+        <p style="font-size:.85em;margin-bottom:.75rem">Deleted pressings are retained for 30 days and can be recovered in the section below. After 30 days they are permanently purged.</p>
+        <form method="post" action="/admin/housekeeping/bulk-delete" style="display:inline-flex;gap:.5rem;align-items:center">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="confirm" value="1">
+            {{ pending_delete_hidden | safe }}
+            <button type="submit" class="btn btn-danger">Yes, delete them</button>
+            <a href="/admin?tab=housekeeping" class="btn btn-ghost">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{# ── Search & select ── #}
+<div class="admin-section">
+    <div class="admin-section-header">
+        <h2>Find &amp; delete pressings</h2>
+    </div>
+    <p class="text-muted" style="font-size:.88em;margin-bottom:1rem">Search the catalogue, select pressings, then delete them in one go. Deletions are soft — items are recoverable for 30 days.</p>
+
+    <form id="hk-search-form" class="search-row" style="gap:.5rem;margin-bottom:.75rem">
+        <input type="text" name="q" id="hk-q" placeholder="Artist or title…"
+               class="search-input" autocomplete="off"
+               hx-get="/admin/housekeeping/search"
+               hx-trigger="input changed delay:400ms, search"
+               hx-include="#hk-search-form"
+               hx-target="#hk-results"
+               hx-indicator="#hk-spinner">
+        <select name="fmt" class="filter-select"
+                hx-get="/admin/housekeeping/search"
+                hx-trigger="change"
+                hx-include="#hk-search-form"
+                hx-target="#hk-results">
+            <option value="">All formats</option>
+            <option value="vinyl">Vinyl</option>
+            <option value="cd">CD</option>
+        </select>
+        <button type="button" class="btn btn-ghost"
+                hx-get="/admin/housekeeping/search"
+                hx-include="#hk-search-form"
+                hx-target="#hk-results">Search</button>
+        <span id="hk-spinner" class="htmx-indicator text-muted" style="font-size:.82em">Searching…</span>
+    </form>
+
+    <form id="hk-delete-form" method="post" action="/admin/housekeeping/bulk-delete">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div id="hk-results" style="margin-bottom:.75rem">
+            <p class="text-muted" style="font-size:.85em">Enter a search term above to find pressings.</p>
+        </div>
+        <div id="hk-delete-bar" class="hk-delete-bar">
+            <span id="hk-selected-count" class="text-muted" style="font-size:.85em">0 selected</span>
+            <button type="submit" class="btn btn-danger btn-sm">Delete selected &rarr;</button>
+        </div>
+    </form>
+    <p class="text-muted" style="font-size:.78em;margin-top:.5rem">Note: search results are shown in the form above. Checking a box and clicking "Delete selected" will ask for confirmation before deleting.</p>
+</div>
+
+{# ── Deleted pressings (recoverable) ── #}
+<div class="admin-section">
+    <div class="admin-section-header">
+        <h2>Deleted pressings (last 30 days)</h2>
+        <form method="post" action="/admin/housekeeping/purge-expired" style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-ghost btn-sm"
+                    title="Permanently remove all soft-deleted items older than 30 days">Purge expired</button>
+        </form>
+    </div>
+    {% if deleted_pressings %}
+    <table class="hk-table" style="margin-top:.5rem">
+        <thead><tr>
+            <th>Artist</th><th>Title</th><th>Year</th><th>Format</th>
+            <th>Deleted at</th><th>Expires in</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for p in deleted_pressings %}
+        <tr>
+            <td>{{ p.artist }}</td>
+            <td>{{ p.title }}</td>
+            <td>{{ p.year or '—' }}</td>
+            <td>{{ p.fmt.upper() }}</td>
+            <td class="text-muted" style="font-size:.82em">{{ p.deleted_at }}</td>
+            <td class="text-muted" style="font-size:.82em">{{ p.expires_in_days }}d</td>
+            <td>
+                <form method="post" action="/admin/housekeeping/recover" style="margin:0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="token_id" value="{{ p.id }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">Recover</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted" style="font-size:.85em">No recently deleted pressings.</p>
+    {% endif %}
+</div>
+
+{% endif %}
+
+</div>{# end admin-page #}
+{% endblock %}
+
+{% block scripts %}
+<style>
+/* Housekeeping */
+.hk-table { width:100%; border-collapse:collapse; font-size:.85em }
+.hk-table th { text-align:left; padding:.3rem .6rem; border-bottom:1px solid var(--border,#333); font-size:.78em; text-transform:uppercase; letter-spacing:.04em; opacity:.7 }
+.hk-table td { padding:.4rem .6rem; border-bottom:1px solid var(--border,#222); vertical-align:middle }
+.hk-table tr:hover td { background:var(--surface-2,#1e1e2e) }
+.hk-table a { color:var(--accent,#7c6af7); text-decoration:none }
+.hk-table a:hover { text-decoration:underline }
+#hk-delete-bar { display:none; align-items:center; gap:.75rem; padding:.5rem .75rem;
+    background:var(--surface-2,#1e1e2e); border:1px solid var(--danger,#ef4444);
+    border-radius:var(--radius,4px); margin-top:.5rem }
+#hk-results:has(.hk-check:checked) + #hk-delete-bar { display:flex }
+
+/* Diagnostics */
+.diag-section { padding: .75rem; background: var(--surface-2, #1e1e2e); border-radius:4px }
+.diag-token-row { margin:.4rem 0; padding:.4rem .6rem; background:var(--surface-3,#2a2a3c); border-radius:3px; font-size:.85em; line-height:1.6 }
+.diag-uuid { font-size:.78em; opacity:.75 }
+.diag-label { font-size:.8em; color:var(--text-muted,#888); margin-right:.3rem }
+.diag-none { color:var(--warning,#f59e0b); font-size:.9em }
+.diag-ok { color:var(--success,#22c55e); font-size:.9em }
+.diag-list { font-size:.83em; line-height:1.7; padding-left:1.2em }
+.diag-table { border-collapse:collapse; font-size:.83em; width:100%; margin-top:.5rem }
+.diag-table th, .diag-table td { padding:.25rem .6rem; border:1px solid var(--border,#333); text-align:left }
+.diag-table th { background:var(--surface-3,#2a2a3c) }
+.diag-mismatch td { color:var(--danger,#ef4444) }
+
+/* API Tokens tab */
+.api-token-grid { display:flex; flex-direction:column; gap:1.25rem }
+.api-token-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; padding:1rem; background:var(--surface-2,#1e1e2e); border-radius:var(--radius,6px); border:1px solid var(--border,#2a2a3a) }
+.api-token-meta { display:flex; flex-direction:column; gap:0.25rem }
+.api-token-label { font-weight:600; font-size:0.9rem }
+.api-token-hint { font-size:0.8rem; color:var(--text-muted,#888); line-height:1.5 }
+.api-token-link { font-size:0.78rem; color:var(--accent,#7c6af7); text-decoration:none; margin-top:0.15rem }
+.api-token-link:hover { text-decoration:underline }
+.api-token-input-wrap { display:flex; align-items:center; gap:0.6rem }
+.api-token-input { flex:1; font-family:monospace; font-size:0.85rem }
+.api-token-status { font-size:0.78rem; white-space:nowrap }
+.api-token-status--set { color:var(--success,#22c55e) }
+.api-token-status--unset { color:var(--text-muted,#888) }
+@media (max-width:768px) { .api-token-row { grid-template-columns:1fr } }
+</style>
+{% endblock scripts %}

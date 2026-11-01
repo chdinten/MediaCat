@@ -91,7 +91,7 @@ class TokenBucketRateLimiter:
     def __init__(self, rate: int, period: float = 60.0) -> None:
         self._rate = rate
         self._period = period
-        self._tokens = float(rate)
+        self._tokens = 1.0  # start at 1 to avoid an initial burst
         self._last_refill = time.monotonic()
         self._lock = asyncio.Lock()
 
@@ -263,10 +263,11 @@ class BaseConnector(ABC):
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Issue an HTTP request with rate limiting, retry, and circuit breaker.
 
-        Returns the parsed JSON body.
+        Returns the parsed JSON body (``{}`` for empty responses such as 204).
 
         Raises
         ------
@@ -282,11 +283,12 @@ class BaseConnector(ABC):
             raise RuntimeError(msg)
 
         last_exc: Exception | None = None
+        rate_limited_attempts = 0
         for attempt in range(1, self._max_retries + 1):
             await self._rate_limiter.acquire()
             t0 = time.monotonic()
             try:
-                resp = await self._client.request(method, path, params=params)
+                resp = await self._client.request(method, path, params=params, json=json)
                 elapsed = time.monotonic() - t0
                 logger.debug(
                     "[%s] %s %s → %d (%.2fs)",
@@ -299,15 +301,22 @@ class BaseConnector(ABC):
 
                 if resp.status_code == 429:
                     # Rate-limited by upstream; back off harder
-                    retry_after = float(resp.headers.get("Retry-After", self._base_delay * attempt))
+                    retry_after = float(resp.headers.get("Retry-After", 60.0))
+                    rate_limited_attempts += 1
                     logger.warning(
-                        "[%s] 429 rate-limited, retry after %.1fs", self.name, retry_after
+                        "[%s] 429 rate-limited (attempt %d/%d), retry after %.1fs",
+                        self.name,
+                        attempt,
+                        self._max_retries,
+                        retry_after,
                     )
                     await asyncio.sleep(min(retry_after, self._max_delay))
                     continue
 
                 resp.raise_for_status()
                 self._circuit_breaker.record_success()
+                if not resp.content:
+                    return {}
                 return resp.json()  # type: ignore[no-any-return]
 
             except (httpx.HTTPStatusError, httpx.TransportError) as exc:
@@ -329,8 +338,12 @@ class BaseConnector(ABC):
         # All retries exhausted
         if last_exc is not None:
             raise last_exc
-        msg = f"[{self.name}] all retries exhausted with no recorded exception"
-        raise RuntimeError(msg)
+        if rate_limited_attempts:
+            raise RuntimeError(
+                f"[{self.name}] rate-limited on all {rate_limited_attempts} attempt(s) — "
+                "add a DISCOGS_TOKEN to your Discogs import or increase the retry budget"
+            )
+        raise RuntimeError(f"[{self.name}] all retries exhausted with no recorded exception")
 
     # ------------------------------------------------------------------
     # Status

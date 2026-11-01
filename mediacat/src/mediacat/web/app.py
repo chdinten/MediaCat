@@ -41,7 +41,9 @@ from mediacat.web.routes import (
     auth_router,
     dashboard_router,
     health_router,
+    register_router,
     review_router,
+    search_router,
     set_templates,
     token_router,
     user_router,
@@ -94,6 +96,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                                 password_hash=udata["password_hash"],
                                 role=UserRole(udata.get("role", "admin")),
                                 is_active=bool(udata.get("is_active", True)),
+                                session_timeout_seconds=int(
+                                    udata.get("session_timeout_seconds", 86400)
+                                ),
                             )
                             .on_conflict_do_update(
                                 index_elements=["id"],
@@ -284,14 +289,26 @@ def create_app() -> FastAPI:
     # ---- Routers ----
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(register_router)
     app.include_router(dashboard_router)
     app.include_router(review_router)
     app.include_router(token_router)
     app.include_router(user_router)
+    app.include_router(search_router)
 
     # Catalogue router imported here to avoid circular imports at module level.
     from mediacat.web.catalogue import catalogue_router
+    from mediacat.web.discogs_details import discogs_details_router
 
     app.include_router(catalogue_router)
+    app.include_router(discogs_details_router)
+
+    from mediacat.web.artists import artists_router
+
+    app.include_router(artists_router)
+
+    from mediacat.web.admin import admin_router
+
+    app.include_router(admin_router)
 
     return app

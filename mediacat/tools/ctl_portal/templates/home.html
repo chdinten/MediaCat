@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% macro act_button(a) -%}
+<button class="act" name="action" value="{{ a.num }}"{% if busy %} disabled{% endif %}>
+  <span class="num">[{{ a.num }}]</span> {{ a.label }}</button>
+{%- endmacro %}
+
+{% block main %}
+<section class="card app-hero">
+  <div class="hero-logo" aria-hidden="true"></div>
+  <div class="hero-text">
+    <h1>Media Catalogue</h1>
+    <p class="dim">Vinyl &amp; CD catalogue · <code>{{ urls.app }}</code></p>
+    {% if app_svc and app_svc.badge != 'ok' %}
+    <p class="small hero-warn">The app container is {{ app_svc.label | lower }}. Start the stack with [1] or restart the app with [4].</p>
+    {% elif not app_svc and not st.error %}
+    <p class="small hero-warn">The app container does not exist yet. Start the stack with [1].</p>
+    {% endif %}
+  </div>
+  <div class="hero-actions">
+    {% if app_svc %}<span class="badge {{ app_svc.badge }}">App {{ app_svc.label | lower }}</span>{% endif %}
+    <a class="btn primary big" href="{{ urls.app }}" target="_blank" rel="noopener">Open MediaCat ↗</a>
+  </div>
+</section>
+
+<section class="card status">
+  <div class="row">
+    <strong>Docker stack</strong>
+    {% if st.error %}
+      <span class="badge bad">unavailable</span>
+    {% else %}
+      <span class="badge {{ 'ok' if st.running and st.running == st.total else ('warn' if st.running else 'off') }}">
+        {{ st.running }} of {{ st.total }} running</span>
+    {% endif %}
+    <span class="spacer"></span>
+    <span class="small">Docs server
+      <span class="badge {{ 'ok' if docs else 'off' }}">{{ 'Running' if docs else 'Stopped' }}</span></span>
+    <a class="small" href="/">↻ Refresh</a>
+  </div>
+  {% if st.error %}
+  <p class="error">{{ st.error }}</p>
+  {% else %}
+  <ul class="services">
+    {% for s in st.services %}
+    <li class="svc" title="{{ s.detail }}">
+      <span class="dot {{ s.badge }}"></span><span class="svc-name">{{ s.name }}</span>
+      <span class="svc-state {{ s.badge }}">{{ s.label }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <p class="small dim">Project <code>{{ proj_dir }}</code>. One action runs at a time; its output opens on a progress page.</p>
+</section>
+
+<div class="sections">
+{% for sec in sections %}
+  <article class="card sec {{ sec.key }}">
+    <div class="row"><h2>{{ sec.title }}</h2></div>
+    <p class="tagline">{{ sec.blurb }}</p>
+
+    {% if sec.key == 'monitor' %}
+    <form method="post" action="/run">
+      <input type="hidden" name="token" value="{{ csrf }}">
+      <div class="row inputs small">
+        <label>Lines <input type="number" name="tail" value="50" min="1" max="5000" class="num-input"></label>
+        <label>Service for [31]
+          <select name="service">{% for s in services %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="acts">{% for a in sec.actions %}{{ act_button(a) }}{% endfor %}</div>
+    </form>
+
+    {% elif sec.key == 'cleanup' %}
+    <form method="post" action="/run">
+      <input type="hidden" name="token" value="{{ csrf }}">
+      <div class="acts">{% for a in sec.actions if a.kind != 'danger' %}{{ act_button(a) }}{% endfor %}</div>
+    </form>
+    {% for a in sec.actions if a.kind == 'danger' %}
+    <details class="danger-box lvl{{ a.danger | length }}">
+      <summary><span class="num">[{{ a.num }}]</span> {{ a.label }}</summary>
+      <form method="post" action="/run">
+        <input type="hidden" name="token" value="{{ csrf }}">
+        <input type="hidden" name="action" value="{{ a.num }}">
+        <p class="small">{{ a.warning }}</p>
+        <label class="small confirm"><input type="checkbox" name="confirm" value="yes" required>
+          I understand this cannot be undone</label>
+        <button class="btn danger"{% if busy %} disabled{% endif %}>Run [{{ a.num }}]</button>
+      </form>
+    </details>
+    {% endfor %}
+
+    {% else %}
+    <form method="post" action="/run">
+      <input type="hidden" name="token" value="{{ csrf }}">
+      <div class="acts">{% for a in sec.actions %}{{ act_button(a) }}{% endfor %}</div>
+    </form>
+    {% endif %}
+  </article>
+{% endfor %}
+</div>
+
+{% if recent %}
+<section class="card small">
+  <strong>Recent actions</strong>
+  <ul class="recent">
+    {% for j in recent %}
+    <li><a href="/job/{{ j.id }}">[{{ j.num }}] {{ j.title }}</a>
+      <span class="badge {{ {'done': 'ok', 'running': 'warn', 'failed': 'bad'}.get(j.status, 'off') }}">{{ j.status }}</span>
+      <span class="dim">{{ j.elapsed_s | round | int }} s</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="card small">
+  <p class="dim">CLI: <code>bash scripts/mediacat-ctl.sh</code> (menu) · <code>scripts/mediacat-ctl.sh --run 23</code> (one action) ·
+    numbers are the same here and in the menu.</p>
+</section>
+{% endblock %}

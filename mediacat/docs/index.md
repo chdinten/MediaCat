@@ -13,10 +13,23 @@ under `docs/`. It has four layers:
 | Runbooks           | `docs/runbooks/*.md`    | Operators                 |
 | API reference      | `docs/reference/` (pdoc)| Developers                |
 
+## Opening MediaCat
+
+| What | Address |
+|---|---|
+| **MediaCat app** | `https://mediacat.localhost:8443/` |
+| This documentation | `https://docs.mediacat.localhost:8443/` |
+| Stack control panel (`make ctl-web`) | `http://127.0.0.1:8810/` |
+
+Always include `:8443`. Caddy publishes HTTPS there, and on this machine port 443
+belongs to Kasm Workspaces. Details: [Control panel and addresses](runbooks/control-panel.md).
+
 ## Quick links
 
 - [Architecture overview](architecture.md)
 - [Section 1 — bootstrap & scaffolding](sections/01-bootstrap.md)
+- [Control panel and addresses](runbooks/control-panel.md)
+- [Backup and restore](runbooks/backup-restore.md)
 - [API reference](reference/mediacat.html)
 
 ## Regenerating

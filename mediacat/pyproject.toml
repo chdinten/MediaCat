@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mediacat"
-version = "0.1.0"
+version = "0.3.0"
 description = "Cataloging platform for physical music media (vinyl + CD)."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,6 +37,7 @@ dependencies = [
     "itsdangerous>=2.2",
     "redis[hiredis]>=5.0",
     "pyzbar>=0.1.9",
+    "reportlab>=4.2,<6",
 ]
 
 [project.optional-dependencies]
@@ -52,7 +53,7 @@ dev = [
     "types-PyYAML",
 ]
 docs = [
-    "mkdocs>=1.6",
+    "mkdocs>=1.6,<2",
     "mkdocs-material>=9.5",
     "mkdocs-mermaid2-plugin>=1.1",
     "pdoc>=14.6",
@@ -89,6 +90,9 @@ select = [
     "G",                # logging format
     "A",                # shadowing builtins
 ]
+# Symbols used on purpose: en dash in year ranges, "IQR x 3" multiplication sign,
+# and runout marks quoted in docstrings (Columbia "Ƨ", Lindström "ℒ").
+allowed-confusables = ["–", "×", "Ƨ", "ℒ"]
 ignore = [
     "E501",   # line length handled by formatter
     "PLR0913",
@@ -100,8 +104,10 @@ ignore = [
 "alembic/env.py" = ["E402"]
 "src/mediacat/rules/local.py" = ["ARG002"]  # media_format is interface-mandated
 "src/mediacat/vision/adapter.py" = ["ARG002", "PLC0415"]  # interface params + deferred imports
-"src/mediacat/web/routes.py" = ["ARG001", "E402", "PLC0415"]  # FastAPI handler params + deferred imports
-"src/mediacat/web/catalogue.py" = ["ARG001", "E402", "PLC0415", "B008", "PLR0912", "PLR0915", "RUF001", "RUF003", "A001", "SIM105", "B904", "G201"]  # FastAPI DI params + deferred imports; intentional EN dash; complexity in route handlers
+"src/mediacat/web/routes.py" = ["ARG001", "E402", "PLC0415", "N814"]  # FastAPI handler params + deferred (aliased) imports
+"src/mediacat/web/catalogue.py" = ["ARG001", "E402", "PLC0415", "B008", "PLR0912", "PLR0915", "RUF001", "RUF003", "A001", "SIM105", "B904", "G201", "N806", "N814"]  # FastAPI DI params + deferred imports; intentional EN dash; complexity in route handlers
+"src/mediacat/web/admin.py" = ["PLC0415", "B008", "N814", "PLR0912", "PLR0915"]  # FastAPI DI params + deferred imports; complexity in route handlers / import loop
+"src/mediacat/web/artists.py" = ["PLC0415", "PLR0912", "PLR0915"]  # deferred imports; complexity in route handlers
 "src/mediacat/web/app.py" = ["PLR0912", "PLR0915", "PLC0415"]  # lifespan complexity + deferred imports
 "src/mediacat/web/middleware.py" = ["PLC0415", "SIM110"]  # inline import + loop clarity
 "src/mediacat/config.py" = ["PLC0415", "S104"]  # deferred imports + 0.0.0.0 bind is intentional
@@ -125,6 +131,10 @@ show_error_codes = true
 show_column_numbers = true
 plugins = ["pydantic.mypy"]
 exclude = ["alembic/versions/", "build/", "dist/", "site/"]
+
+[[tool.mypy.overrides]]
+module = ["reportlab.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["tests.*"]

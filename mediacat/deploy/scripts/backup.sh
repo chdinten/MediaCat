@@ -4,8 +4,15 @@
 #   1. pg_dump (custom format, compressed) to /backups/postgres/
 #   2. Prune backups older than 30 days.
 #
-# MinIO mirror is handled separately if mc is available.
+# Run by hand:  docker compose ... exec backup /scripts/backup.sh
+# MinIO objects are not included (no MinIO mirror yet).
 set -eu
+
+# The secret holds a bare password; libpq's PGPASSFILE expects pgpass format.
+if [ -z "${PGPASSWORD:-}" ] && [ -n "${PGPASSWORD_FILE:-}" ] && [ -r "$PGPASSWORD_FILE" ]; then
+    PGPASSWORD="$(cat "$PGPASSWORD_FILE")"
+    export PGPASSWORD
+fi
 
 BACKUP_DIR="/backups/postgres"
 DATE="$(date -u +%Y%m%dT%H%M%SZ)"

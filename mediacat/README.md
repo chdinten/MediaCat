@@ -9,14 +9,20 @@ comparison, anomaly detection, translation (British English), and text generatio
 
 ## Key capabilities
 
-- **Catalogue browser** — Artist → Album → Pressing hierarchy with HTMX drill-down; create, edit, archive, and merge pressings
+- **Catalogue browser** — Artist → Album → Pressing hierarchy with HTMX drill-down; create, edit, archive, merge, soft-delete, and flag pressings for review
+- **Artists tab** — Grid of all artists with portrait images (Wikipedia), pressing counts, and year ranges; click-through to album list, Wikipedia biography, and discography (MusicBrainz primary → Wikipedia fallback, enriched with Spotify album URLs, cached daily); Spotify links appear in the discography list and on the pressing detail page
+- **Direct import** — Create a Token from a Discogs or MusicBrainz release ID with a one-click preview-and-import flow; scan a barcode to pre-fill
+- **Bulk collection import** — Import an entire Discogs user collection via the Admin panel; resumable, skip-existing-by-default, with live progress tracking
 - **External search** — Discogs and MusicBrainz lookup directly from the catalogue UI
 - **Revision history** — Every change is a new `TokenRevision`; nothing is overwritten
-- **Vision pipeline** — Ollama (local-first) or Anthropic API transcribes labels, OBI strips, runout etchings
+- **Vision pipeline** — Ollama (local-first) or Anthropic API transcribes labels, OBI strips, runout etchings; matrix breakdown into 7 typed fields with confidence scores
 - **Symbol registry** — 26 seeded runout / dead-wax symbols (EMI △, PRS ▽, Porky, etc.) with slug-based indexing
 - **Review queue** — All AI proposals land here first; humans approve before any token is updated
-- **Dark / light UI** — Netflix-inspired dark theme (default) with persistent toggle
-- **Security hardened** — Argon2id passwords, CSRF protection, non-root containers, least-privilege DB roles
+- **Ratings & genres** — Personal rating (0–10), Discogs community rating/votes, genre tags, tracklist, price history
+- **Admin panel** — Tabbed: user management, bulk collection import, catalogue ZIP backup/restore
+- **3panel-style layout** — Optional 3-column UI (Admin → Layout): left panel scrolls artists or search results, centre shows artist detail (bio + collection + discography), right shows a pressing brief on album click; panels are drag-resizable with per-page localStorage persistence; classic layout retained as alternative
+- **Late Night Hi-Fi UI** — Dark-first theme with hero dashboard, genre/year stats; light theme toggle
+- **Security hardened** — Argon2id passwords, Redis-backed rate limiter, CSRF with dedicated secret, trusted-proxy IP validation, RBAC on all mutating routes, non-root containers, least-privilege DB roles, strict CSP
 
 ## Technology stack
 
@@ -51,10 +57,11 @@ cp .env.example .env && nano .env
 cp config/app.example.yaml config/app.yaml
 make up                          # start all 8 Docker services
 docker compose --env-file .env -f deploy/docker-compose.yaml \
-    exec app python -m alembic -c alembic/alembic.ini upgrade head
+    exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat \
+    app alembic -c alembic.ini upgrade head
 ```
 
-Open `https://mediacat.localhost` in your browser.
+Open **`https://mediacat.localhost:8443/`** in your browser. Mind the port: Caddy publishes HTTPS on `HTTPS_BIND` (default `127.0.0.1:8443`), and on this machine port 443 belongs to Kasm Workspaces.
 Default admin credentials are set via `MEDIACAT_DEV_ADMIN_PASSWORD` in `.env`.
 
 ## Optional: Ollama / local AI (GPU recommended)
@@ -66,7 +73,7 @@ cp .env.example .env   # if not already done
 make ollama-gpu-up     # starts Ollama + Open WebUI, pulls qwen2.5vl:32b + glm-ocr
 ```
 
-Open WebUI is available at `https://ollama.mediacat.localhost`.
+Open WebUI is available at `https://ollama.mediacat.localhost:8443`.
 
 ## Design invariants
 
@@ -83,13 +90,13 @@ mediacat/
 ├── scripts/          Bootstrap & lifecycle scripts
 ├── config/           Non-secret YAML config (examples checked in; live files host-mounted)
 ├── deploy/           Dockerfiles, Docker Compose, Caddy, OPA bundles, backup scripts
-├── alembic/          Database migrations (0001 initial schema, 0002 symbol registry)
+├── alembic/          Database migrations (0001–0014: schema, symbols, matrix, covers, genres/ratings, contributors, price history, vinyl material, artist bios, countries, site settings, Spotify URL)
 ├── src/mediacat/     Python application package
 │   ├── db/           ORM models, enums, migrations engine
 │   ├── web/          FastAPI app, routes, auth, middleware, templates, static assets
 │   ├── vision/       VLM adapter, task prompts, candidate matcher
 │   ├── llm/          LLM adapter, tasks, safety, Ollama & Anthropic backends
-│   ├── ingestion/    Connector base, Discogs, MusicBrainz, Redis queue, drift detector
+│   ├── ingestion/    Connector base, Discogs, MusicBrainz, Spotify, Wikipedia, Redis queue, drift detector
 │   ├── rules/        OPA adapter, local Python fallback
 │   └── storage/      MinIO wrapper, image pipeline, OCR, translation
 ├── tests/            Pytest suite
@@ -104,10 +111,36 @@ ${MEDIACAT_DATA_ROOT}/
 ├── minio/            Object store data
 ├── redis/            AOF + RDB (uid 999)
 ├── secrets/          0700, root-owned — Docker reads secrets from here
-├── backups/          pg_dump + mc mirror output
+├── backups/          Daily pg_dump (02:00 UTC, 30-day retention)
 ├── logs/             Optional host-mounted logs
 └── open-webui/       Open WebUI data (if Ollama enabled)
 ```
+
+## Stack manager script
+
+`scripts/mediacat-ctl.sh` is an interactive terminal menu for managing the
+Docker Compose stack from WSL2. Copy it to your home directory, set `PROJ_DIR`
+on line 11, make it executable, and run it:
+
+```bash
+cp scripts/mediacat-ctl.sh ~/mediacat-ctl.sh
+chmod +x ~/mediacat-ctl.sh
+~/mediacat-ctl.sh
+```
+
+The menu covers start/stop/restart, image rebuilds, per-service restarts,
+database migrations, logs, the docs server, and destructive cleanup (with confirmation).
+Full option reference: `scripts/mediacat-ctl.md`.
+
+**Windows launcher.** Double-click `scripts\mediacat-start.bat`. It checks that WSL is
+running (and starts it, kept alive in the background, if not), waits for Docker, says
+whether MediaCat is up, prints the start command and the browser address, and offers
+to run both. Edit `DISTRO` / `PROJ_DIR` / `APP_URL` at the top if they change.
+
+**Web control panel.** The same menu is also a web page: run `make ctl-web` and open
+`http://127.0.0.1:8810/`. It shows container status, has a prominent link to the app, and
+runs each action as `mediacat-ctl.sh --run N` with live output, so both always run the
+same commands.
 
 ## Common make targets
 

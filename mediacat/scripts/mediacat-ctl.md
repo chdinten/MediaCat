@@ -163,3 +163,41 @@ Colour requires a terminal with ANSI escape support (standard in WSL2 + Windows 
 | Migration fails with connection error | The `app` container must be running. Start the stack first (option 1), then run migrations (option 21). |
 | Ollama GPU option starts but no GPU seen | Verify NVIDIA Container Toolkit is installed in WSL2: `docker run --rm --gpus all nvidia/cuda:12-base nvidia-smi` |
 | Menu rendering looks garbled | Use a terminal that supports UTF-8 box-drawing characters (Windows Terminal, iTerm2). PuTTY may need its character set set to UTF-8. |
+
+---
+
+## Web control panel
+
+The same menu is available as a web page, in the style of the Music Lab portal:
+
+```bash
+cd /mnt/c/MEGA/SoundDB/mediacat
+make ctl-web            # or: .venv/bin/python -m tools.ctl_portal [--port N]
+```
+
+Open **http://127.0.0.1:8810** in a Windows browser (WSL2 mirrored networking).
+
+- The start page shows every container's state (healthy / running / stopped) and the docs server.
+- Each menu section is a card; buttons carry the same numbers as the terminal menu.
+- Clicking runs `scripts/mediacat-ctl.sh --run N` as a background job and opens a progress
+  page with the live output. One action runs at a time; **Cancel** stops it.
+- Logs (23–31) are printed once with the chosen number of lines instead of followed.
+- The dangerous cleanup actions (35–37) need a confirmation tick.
+- Loopback only: every action is a POST with a CSRF token, and requests from other hosts or
+  origins are refused.
+
+To keep it running across WSL restarts, install the user service:
+
+```bash
+mkdir -p ~/.config/systemd/user
+sed "s#@CHECKOUT@#$PWD#" tools/ctl_portal/mediacat-ctl-web.service.in > ~/.config/systemd/user/mediacat-ctl-web.service
+systemctl --user daemon-reload && systemctl --user enable --now mediacat-ctl-web
+```
+
+### Non-interactive mode
+
+`mediacat-ctl.sh --run N` runs one action and exits with its status. Inputs the menu would ask
+for come from the environment: `CTL_TAIL` (log lines), `CTL_SERVICE` (action 31) and
+`CTL_CONFIRM=yes` (required for 35–37). The web panel uses exactly this, so both always run the
+same commands. A test (`tests/test_ctl_portal.py`) fails if the web page's numbers or labels
+drift from the menu.

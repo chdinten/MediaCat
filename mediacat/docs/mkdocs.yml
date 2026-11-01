@@ -76,5 +76,9 @@ nav:
       - 'ADR-0003 Rule engine — OPA (default)': adr/0003-rule-engine.md
       - 'ADR-0004 Data/code separation': adr/0004-data-code-separation.md
       - 'ADR-0005 Web UI — FastAPI + Jinja + HTMX': adr/0005-web-stack.md
-  - Runbooks: runbooks/
+  - Runbooks:
+      - Overview: runbooks/index.md
+      - Control panel and addresses: runbooks/control-panel.md
+      - Backup and restore: runbooks/backup-restore.md
+      - Stack cleanup: runbooks/cleanup-stack.md
   - API reference: reference/mediacat.html

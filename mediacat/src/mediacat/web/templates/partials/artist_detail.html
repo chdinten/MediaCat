@@ -1,0 +1,70 @@
+{# Full artist detail panel: Wikipedia info, stored albums, full discography #}
+<div class="artist-detail">
+
+    {# ── Header ── #}
+    <div class="artist-detail-header">
+        <h2 class="artist-detail-name">{{ artist }}</h2>
+        <a href="/catalogue?q={{ enc_artist }}" class="btn btn-ghost btn-sm">View in Catalogue</a>
+    </div>
+
+    {# ── Biography — full width ── #}
+    <div class="artist-detail-bio">
+        <div id="artist-wiki-{{ enc_artist }}"
+             hx-get="/artists/info?artist={{ enc_artist }}"
+             hx-trigger="load"
+             hx-swap="innerHTML"
+             class="artist-wiki-placeholder">
+            <span class="text-muted" style="font-size:0.85em">Loading Wikipedia info…</span>
+        </div>
+    </div>
+
+    {# ── Albums in collection — horizontal scroll ── #}
+    <div class="artist-section">
+        <h3 class="artist-section-title">In your collection</h3>
+        {% if albums %}
+        <div class="artist-albums-grid">
+            {% for album in albums %}
+            {% if layout_base == "base_3panel.html" %}
+            <div class="artist-album-card"
+                 style="cursor:pointer"
+                 hx-get="/catalogue/{{ album.id }}/brief"
+                 hx-target="#sp-right"
+                 hx-swap="innerHTML">
+            {% else %}
+            <a href="/catalogue/{{ album.id }}" class="artist-album-card">
+            {% endif %}
+                {% if album.cover_image_id %}
+                <img src="/catalogue/{{ album.id }}/images/{{ album.cover_image_id }}"
+                     alt="{{ album.title }}" loading="lazy" class="artist-album-cover">
+                {% else %}
+                <div class="artist-album-no-cover">
+                    <span>{{ (album.title or '?')[0] | upper }}</span>
+                </div>
+                {% endif %}
+                <div class="artist-album-info">
+                    <div class="artist-album-title">{{ album.title or 'Untitled' }}</div>
+                    {% if album.year %}<div class="artist-album-year text-muted">{{ album.year }}</div>{% endif %}
+                </div>
+            {% if layout_base == "base_3panel.html" %}</div>{% else %}</a>{% endif %}
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted" style="font-style:italic">
+            You have no albums by {{ artist }} in the database yet.
+        </p>
+        {% endif %}
+    </div>
+
+    {# ── Full discography (lazy-loaded) — full width below #}
+    <div class="artist-section">
+        <h3 class="artist-section-title">Discography</h3>
+        <div id="artist-disco-{{ enc_artist }}"
+             hx-get="/artists/discography?artist={{ enc_artist }}"
+             hx-trigger="load"
+             hx-swap="innerHTML"
+             class="artist-disco-placeholder">
+            <span class="text-muted" style="font-size:0.85em">Loading discography…</span>
+        </div>
+    </div>
+
+</div>

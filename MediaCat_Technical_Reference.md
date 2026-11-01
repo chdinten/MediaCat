@@ -714,7 +714,7 @@ This means CSP can block all inline script execution without breaking any UI fun
 |---|---|---|
 | `media-originals` | Raw images from Discogs, CoverArtArchive, upload | `<sha256>.<ext>` |
 | `ocr-artifacts` | OCR extraction results | `<sha256>.json` |
-| `backups` | Daily pg_dump snapshots | `YYYY-MM-DD/<dump>.sql.gz` |
+| `backups` | Reserved; not written yet. Database dumps go to the host instead (see [18.6](#186-backup-and-restore)) | — |
 
 ### 10.2 Image Validation
 
@@ -804,7 +804,7 @@ Open WebUI (`ghcr.io/open-webui/open-webui`) provides a browser-based chat inter
 | `PUBLIC_HOSTNAME` | `mediacat.localhost` | Browser-visible hostname |
 | `PUBLIC_SCHEME` | `https` | `https` for Caddy TLS; `http` for plain |
 | `HTTP_BIND` | `127.0.0.1:8080` | Caddy HTTP listener |
-| `HTTPS_BIND` | `127.0.0.1:8443` | Caddy HTTPS listener |
+| `HTTPS_BIND` | `127.0.0.1:8443` | Caddy HTTPS listener; its port is part of every browser address (`https://mediacat.localhost:8443/`) |
 | `MEDIACAT_DEV_ADMIN_PASSWORD` | *(blank)* | Seeds dev admin user at startup (MEDIACAT_ENV=dev only) |
 | `TZ` | `Europe/London` | Container timezone |
 | `MEDIACAT_OLLAMA` | `0` | `1` to enable the Ollama Compose profile |
@@ -859,6 +859,18 @@ The `Caddyfile` uses environment variable substitution for all site addresses:
 ```
 
 This pattern allows switching between HTTP (dev, no cert) and HTTPS (local CA or Let's Encrypt) without editing the file.
+
+**Browser addresses include the port.** The site address above carries no port, so Caddy serves it on its container port 443, which Compose publishes on the host as `HTTPS_BIND` (default `127.0.0.1:8443`). Browsers must therefore use:
+
+| What | Address |
+|---|---|
+| **MediaCat app** | `https://mediacat.localhost:8443/` |
+| Documentation (when the docs server runs) | `https://docs.mediacat.localhost:8443/` |
+| MinIO console | `https://minio.mediacat.localhost:8443/` |
+| Open WebUI (Ollama profile) | `https://ollama.mediacat.localhost:8443/` |
+| Stack control panel (`make ctl-web`) | `http://127.0.0.1:8810/` |
+
+> **Why `:8443`?** Caddy publishes HTTPS on `HTTPS_BIND` (default `127.0.0.1:8443`), not on the standard port 443. An address without the port goes to whatever else listens on 443. On this machine that is **Kasm Workspaces**, which shows its own login page. The port is set in `.env`; if 443 is free and you prefer short addresses, set `HTTPS_BIND=127.0.0.1:443` and restart Caddy.
 
 **Local development HTTPS:** Caddy generates its own local CA for `.localhost` domains. The root certificate must be imported into the Windows certificate store once:
 
@@ -1154,16 +1166,26 @@ The loser is never hard-deleted; it remains in the database and can be recovered
 
 ### 18.6 Backup and Restore
 
-```bash
-# Manual backup (pg_dump to MinIO backups bucket)
-deploy/scripts/backup.sh
+The `backup` sidecar runs `deploy/scripts/backup.sh` every day at **02:00 UTC** using the image's BusyBox `crond`. It installs nothing at start-up, because the `backend` network is `internal: true` and has no internet. Each run writes a compressed `pg_dump` (custom format) to `${MEDIACAT_DATA_ROOT}/backups/postgres/mediacat_<UTC timestamp>.dump` and deletes dumps older than 30 days. Output appears in `docker compose logs backup`.
 
-# Restore from backup
-docker compose ... stop app worker
-# restore PostgreSQL dump into the postgres container
-docker compose ... start app worker
-docker compose ... exec app python -m alembic -c alembic/alembic.ini upgrade head
+**Not included:** MinIO objects (cover and runout images). Dumps also sit on the same disk as the database; copy `backups/` elsewhere for off-host safety.
+
+```bash
+C="docker compose --env-file .env -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml"
+
+# Manual backup
+$C exec backup /scripts/backup.sh
+
+# Restore one dump into the live database (replaces its contents)
+$C stop app worker
+$C exec backup sh -c 'PGPASSWORD="$(cat "$PGPASSWORD_FILE")" pg_restore --clean --if-exists \
+    --no-owner --role=mediacat_migrator -d mediacat /backups/postgres/mediacat_YYYYMMDDTHHMMSSZ.dump'
+$C exec backup sh -c 'PGPASSWORD="$(cat "$PGPASSWORD_FILE")" psql -d mediacat \
+    -c "REVOKE UPDATE, DELETE ON TABLE audit_log FROM mediacat_app"'
+$C start app worker
 ```
+
+`--role=mediacat_migrator` makes the restored tables belong to the migrator role, so the database's default privileges grant `mediacat_app` its access again (the dump is taken with `--no-owner --no-acl`). The `REVOKE` re-applies the append-only rule on `audit_log`; the app checks it at start-up (`DEF-003`). This procedure was tested against a scratch database: two consecutive restores, no errors, permissions correct.
 
 ### 18.7 Managing Images
 

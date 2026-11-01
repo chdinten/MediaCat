@@ -44,6 +44,7 @@ dashboard_router = APIRouter(tags=["dashboard"])
 review_router = APIRouter(tags=["review"])
 token_router = APIRouter(tags=["tokens"])
 user_router = APIRouter(prefix="/users", tags=["users"])
+search_router = APIRouter(tags=["search"])
 
 _templates: Jinja2Templates | None = None
 
@@ -66,8 +67,20 @@ def _tmpl() -> Jinja2Templates:
 # ---------------------------------------------------------------------------
 
 
+_LAYOUT_COOKIE = "mc_layout"
+_VALID_LAYOUTS = {"classic", "3panel"}
+
+
+def _layout_base(request: Request) -> str:
+    """Return the base template name based on the mc_layout cookie."""
+    layout = request.cookies.get(_LAYOUT_COOKIE, "classic")
+    if layout not in _VALID_LAYOUTS:
+        layout = "classic"
+    return "base_3panel.html" if layout == "3panel" else "base.html"
+
+
 def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
-    """Build the Jinja2 template context with CSRF and user info."""
+    """Build the Jinja2 template context with CSRF, user info, and layout selection."""
     session = getattr(request.state, "session", None) or {}
     csrf_token = getattr(request.state, "csrf_token", "")
     return {
@@ -75,6 +88,7 @@ def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
         "user": session,
         "csrf_token": csrf_token,
         "is_htmx": request.headers.get("hx-request") == "true",
+        "layout_base": _layout_base(request),
         **extra,
     }
 
@@ -177,7 +191,7 @@ async def login_page(request: Request) -> HTMLResponse:
 
 
 @auth_router.post("/login", response_model=None)
-async def login_submit(
+async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout, audit)
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -201,17 +215,20 @@ async def login_submit(
     if user is None:
         try:
             from sqlalchemy import select as _sel
+
             from mediacat.db.models import User as _UModel
 
             sf = getattr(request.app.state, "db_session_factory", None)
             if sf:
                 async with sf() as _db:
-                    _row = (await _db.execute(
-                        _sel(_UModel).where(
-                            _UModel.username == username,
-                            _UModel.deleted_at.is_(None),
+                    _row = (
+                        await _db.execute(
+                            _sel(_UModel).where(
+                                _UModel.username == username,
+                                _UModel.deleted_at.is_(None),
+                            )
                         )
-                    )).scalar_one_or_none()
+                    ).scalar_one_or_none()
                     if _row:
                         user = {
                             "id": str(_row.id),
@@ -220,7 +237,9 @@ async def login_submit(
                             "password_hash": _row.password_hash,
                             "role": str(_row.role),
                             "is_active": _row.is_active,
-                            "session_timeout_seconds": getattr(_row, "session_timeout_seconds", 86400),
+                            "session_timeout_seconds": getattr(
+                                _row, "session_timeout_seconds", 86400
+                            ),
                             "failed_login_count": _row.failed_login_count or 0,
                             "locked_until": _row.locked_until,
                             "_db_id": str(_row.id),
@@ -264,18 +283,21 @@ async def login_submit(
 
     # Persist last_login_at (and optional rehash) to DB
     try:
-        from sqlalchemy import select as _sel, update as _upd
+        from sqlalchemy import select as _sel
+        from sqlalchemy import update as _upd
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _vals: dict[str, Any] = {"last_login_at": datetime.now(UTC), "failed_login_count": 0}
+                _vals: dict[str, Any] = {
+                    "last_login_at": datetime.now(UTC),
+                    "failed_login_count": 0,
+                }
                 if new_hash:
                     _vals["password_hash"] = new_hash
-                await _db.execute(
-                    _upd(_UModel).where(_UModel.username == username).values(**_vals)
-                )
+                await _db.execute(_upd(_UModel).where(_UModel.username == username).values(**_vals))
                 await _db.commit()
     except Exception as _exc:
         logger.debug("DB last_login_at update skipped: %s", _exc)
@@ -374,6 +396,7 @@ async def dashboard(request: Request) -> HTMLResponse:
                     .scalars()
                     .all()
                 )
+                _recent_ids = {t.id for t in recent}
                 top_rated = list(
                     (
                         await db.execute(
@@ -382,7 +405,11 @@ async def dashboard(request: Request) -> HTMLResponse:
                                 selectinload(Token.label),
                                 selectinload(Token.media_objects),
                             )
-                            .where(*base_filter, Token.personal_rating.isnot(None))
+                            .where(
+                                *base_filter,
+                                Token.personal_rating.isnot(None),
+                                Token.id.notin_(_recent_ids),
+                            )
                             .order_by(Token.personal_rating.desc())
                             .limit(8)
                         )
@@ -415,26 +442,19 @@ async def dashboard(request: Request) -> HTMLResponse:
                 from collections import defaultdict
 
                 _by_genre: dict[str, list[Any]] = defaultdict(list)
+                _dedup_ids = {t.id for t in recent} | {t.id for t in top_rated}
                 for t in tagged:
-                    if t.genres:
+                    if t.genres and t.id not in _dedup_ids:
                         _by_genre[t.genres[0]].append(t)
                 # Sort genres by album count descending; cap at 12 carousels
                 _sorted_genres = sorted(_by_genre.items(), key=lambda kv: -len(kv[1]))
                 genre_carousels = [
-                    {"genre": g, "tokens": ts[:8]}
-                    for g, ts in _sorted_genres
-                    if ts
+                    {"genre": g, "tokens": ts[:8]} for g, ts in _sorted_genres if ts
                 ][:12]
-                genre_stats = [
-                    {"genre": g, "count": len(ts)}
-                    for g, ts in _sorted_genres
-                    if ts
-                ][:5]
+                genre_stats = [{"genre": g, "count": len(ts)} for g, ts in _sorted_genres if ts][:5]
                 stats["oldest_year"] = (
                     await db.execute(
-                        select(func.min(Token.year)).where(
-                            *base_filter, Token.year.isnot(None)
-                        )
+                        select(func.min(Token.year)).where(*base_filter, Token.year.isnot(None))
                     )
                 ).scalar_one()
 
@@ -742,9 +762,7 @@ def _user_row_to_dict(u: Any) -> dict[str, Any]:
         "role": str(u.role),
         "is_active": u.is_active,
         "session_timeout_seconds": getattr(u, "session_timeout_seconds", 86400),
-        "last_login_at": (
-            u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else None
-        ),
+        "last_login_at": (u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else None),
         "failed_login_count": u.failed_login_count or 0,
     }
 
@@ -755,17 +773,22 @@ async def user_list(request: Request) -> HTMLResponse:
     _require_role(request, "admin")
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if not sf:
             raise RuntimeError("no db")
         async with sf() as _db:
-            rows = (await _db.execute(
-                _sel(_UModel)
-                .where(_UModel.deleted_at.is_(None))
-                .order_by(_UModel.username)
-            )).scalars().all()
+            rows = (
+                (
+                    await _db.execute(
+                        _sel(_UModel).where(_UModel.deleted_at.is_(None)).order_by(_UModel.username)
+                    )
+                )
+                .scalars()
+                .all()
+            )
             users: list[dict[str, Any]] = [_user_row_to_dict(r) for r in rows]
     except Exception as _exc:
         logger.warning("user_list DB query failed, using memory store: %s", _exc)
@@ -798,17 +821,18 @@ async def user_create_submit(
     if not _taken:
         try:
             from sqlalchemy import select as _sel
+
             from mediacat.db.models import User as _UModel
 
             sf = getattr(request.app.state, "db_session_factory", None)
             if sf:
                 async with sf() as _db:
-                    _existing = (await _db.execute(
-                        _sel(_UModel.id).where(_UModel.username == username)
-                    )).scalar_one_or_none()
+                    _existing = (
+                        await _db.execute(_sel(_UModel.id).where(_UModel.username == username))
+                    ).scalar_one_or_none()
                     _taken = _existing is not None
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("username availability check failed: %s", exc)
 
     if _taken:
         context = _ctx(
@@ -843,8 +867,9 @@ async def user_create_submit(
     # Persist to DB
     try:
         from sqlalchemy.dialects.postgresql import insert as _pg_ins
-        from mediacat.db.models import User as _UModel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
@@ -889,17 +914,20 @@ async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
     target: dict[str, Any] | None = None
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _row = (await _db.execute(
-                    _sel(_UModel).where(
-                        _UModel.id == uuid.UUID(user_id),
-                        _UModel.deleted_at.is_(None),
+                _row = (
+                    await _db.execute(
+                        _sel(_UModel).where(
+                            _UModel.id == uuid.UUID(user_id),
+                            _UModel.deleted_at.is_(None),
+                        )
                     )
-                )).scalar_one_or_none()
+                ).scalar_one_or_none()
                 if _row:
                     target = _user_row_to_dict(_row)
     except Exception as _exc:
@@ -930,15 +958,19 @@ async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
 async def _active_admin_count(request: Request) -> int:
     """Return the number of active admin accounts (DB-backed with in-memory fallback)."""
     try:
-        from sqlalchemy import func, select as _sel
-        from mediacat.db.models import User as _UModel
+        from sqlalchemy import func
+        from sqlalchemy import select as _sel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
                 result = await _db.execute(
-                    _sel(func.count()).select_from(_UModel).where(
+                    _sel(func.count())
+                    .select_from(_UModel)
+                    .where(
                         _UModel.role == _UR.ADMIN,
                         _UModel.is_active.is_(True),
                         _UModel.deleted_at.is_(None),
@@ -948,8 +980,7 @@ async def _active_admin_count(request: Request) -> int:
     except Exception as _exc:
         logger.warning("_active_admin_count DB query failed: %s", _exc)
     return sum(
-        1 for u in _users_store.values()
-        if u.get("role") == "admin" and u.get("is_active", False)
+        1 for u in _users_store.values() if u.get("role") == "admin" and u.get("is_active", False)
     )
 
 
@@ -968,17 +999,20 @@ async def user_edit_submit(
     target: dict[str, Any] | None = None
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _row = (await _db.execute(
-                    _sel(_UModel).where(
-                        _UModel.id == uuid.UUID(user_id),
-                        _UModel.deleted_at.is_(None),
+                _row = (
+                    await _db.execute(
+                        _sel(_UModel).where(
+                            _UModel.id == uuid.UUID(user_id),
+                            _UModel.deleted_at.is_(None),
+                        )
                     )
-                )).scalar_one_or_none()
+                ).scalar_one_or_none()
                 if _row:
                     target = _user_row_to_dict(_row)
     except Exception as _exc:
@@ -1002,8 +1036,13 @@ async def user_edit_submit(
                 target=target,
                 roles=["admin", "contributor", "reviewer", "viewer"],
                 timeout_options=[
-                    (900, "15 minutes"), (1800, "30 minutes"), (3600, "1 hour"),
-                    (14400, "4 hours"), (28800, "8 hours"), (86400, "24 hours"), (604800, "7 days"),
+                    (900, "15 minutes"),
+                    (1800, "30 minutes"),
+                    (3600, "1 hour"),
+                    (14400, "4 hours"),
+                    (28800, "8 hours"),
+                    (86400, "24 hours"),
+                    (604800, "7 days"),
                 ],
                 error="Cannot demote or deactivate the last active admin account.",
             )
@@ -1014,8 +1053,9 @@ async def user_edit_submit(
     # Persist changes to DB
     try:
         from sqlalchemy import update as _upd
-        from mediacat.db.models import User as _UModel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
@@ -1054,17 +1094,20 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
     target_username: str = ""
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _row = (await _db.execute(
-                    _sel(_UModel).where(
-                        _UModel.id == uuid.UUID(user_id),
-                        _UModel.deleted_at.is_(None),
+                _row = (
+                    await _db.execute(
+                        _sel(_UModel).where(
+                            _UModel.id == uuid.UUID(user_id),
+                            _UModel.deleted_at.is_(None),
+                        )
                     )
-                )).scalar_one_or_none()
+                ).scalar_one_or_none()
                 if _row:
                     target_role = str(_row.role)
                     target_username = _row.username
@@ -1079,11 +1122,14 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
                 break
 
     if target_role == "admin" and await _active_admin_count(request) <= 1:
-        logger.warning("Blocked deactivation of last admin %s by=%s", target_username, request.state.user_id)
+        logger.warning(
+            "Blocked deactivation of last admin %s by=%s", target_username, request.state.user_id
+        )
         return RedirectResponse(url="/users?error=last_admin", status_code=303)
 
     try:
         from sqlalchemy import update as _upd
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
@@ -1112,6 +1158,7 @@ async def user_activate(request: Request, user_id: str) -> RedirectResponse:
 
     try:
         from sqlalchemy import update as _upd
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
@@ -1169,7 +1216,10 @@ async def register_submit(
             status_code=400,
         )
 
-    if len(username) < 3 or not username.replace("_", "").replace("-", "").replace(".", "").isalnum():
+    if (
+        len(username) < 3
+        or not username.replace("_", "").replace("-", "").replace(".", "").isalnum()
+    ):
         return _err("Username must be at least 3 characters (letters, numbers, ._- only).")
 
     # Check uniqueness in both DB and in-memory store
@@ -1177,17 +1227,18 @@ async def register_submit(
     if not _username_taken:
         try:
             from sqlalchemy import select as _sel
+
             from mediacat.db.models import User as _UModel
 
             sf = getattr(request.app.state, "db_session_factory", None)
             if sf:
                 async with sf() as _db:
-                    _existing = (await _db.execute(
-                        _sel(_UModel.id).where(_UModel.username == username)
-                    )).scalar_one_or_none()
+                    _existing = (
+                        await _db.execute(_sel(_UModel.id).where(_UModel.username == username))
+                    ).scalar_one_or_none()
                     _username_taken = _existing is not None
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("username availability check failed: %s", exc)
     if _username_taken:
         return _err(f"Username '{username}' is already taken.")
     if len(password) < 8:
@@ -1201,8 +1252,9 @@ async def register_submit(
     # Persist to DB
     try:
         from sqlalchemy.dialects.postgresql import insert as _pg_ins
-        from mediacat.db.models import User as _UModel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
@@ -1237,3 +1289,181 @@ async def register_submit(
     }
     logger.info("Self-registration: user=%s email=%s", username, email)
     return RedirectResponse(url="/login?registered=1", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Global search  (3panel layout top-bar)
+# ---------------------------------------------------------------------------
+
+
+@search_router.get("/search", response_class=HTMLResponse)
+async def global_search(request: Request, q: str = Query(default="")) -> HTMLResponse:
+    """Search across tokens (artist, title, catalogue number). Returns HTMX partial or full page."""
+    import urllib.parse
+
+    from sqlalchemy import func, or_, select
+
+    from mediacat.db.enums import TokenStatus
+    from mediacat.db.models import ArtistBio, MediaObject, Token
+
+    q = q.strip()[:200]  # cap query length
+    sf = getattr(request.app.state, "db_session_factory", None)
+
+    # ── 3panel layout: return artist-panel view ──────────────────────────────
+    if _is_htmx(request) and _layout_base(request) == "base_3panel.html" and q and sf:
+        try:
+            async with sf() as db:
+                # Distinct artists from matching tokens, with stats
+                artist_rows = (
+                    await db.execute(
+                        select(
+                            Token.artist,
+                            func.count(Token.id).label("cnt"),
+                            func.min(Token.year).label("yr_min"),
+                            func.max(Token.year).label("yr_max"),
+                        )
+                        .where(Token.deleted_at.is_(None))
+                        .where(Token.status != TokenStatus.MERGED)
+                        .where(Token.artist.isnot(None))
+                        .where(
+                            or_(
+                                Token.artist.ilike(f"%{q}%"),
+                                Token.title.ilike(f"%{q}%"),
+                                Token.catalog_number.ilike(f"%{q}%"),
+                            )
+                        )
+                        .group_by(Token.artist)
+                        .order_by(Token.artist.asc())
+                        .limit(50)
+                    )
+                ).all()
+
+                artist_names = [r.artist for r in artist_rows]
+                cover_by_artist: dict[str, str] = {}
+                portrait_by_artist: dict[str, str] = {}
+
+                if artist_names:
+                    cover_rows = (
+                        await db.execute(
+                            select(Token.artist, MediaObject.id, MediaObject.token_id)
+                            .join(MediaObject, MediaObject.token_id == Token.id)
+                            .where(Token.deleted_at.is_(None))
+                            .where(Token.status != TokenStatus.MERGED)
+                            .where(Token.artist.in_(artist_names))
+                            .order_by(
+                                Token.artist.asc(),
+                                MediaObject.is_primary_cover.desc().nulls_last(),
+                                Token.year.asc().nulls_last(),
+                            )
+                        )
+                    ).all()
+                    for row in cover_rows:
+                        if row.artist not in cover_by_artist:
+                            cover_by_artist[row.artist] = f"{row.token_id}|{row.id}"
+
+                    bio_rows = (
+                        await db.execute(
+                            select(ArtistBio.artist_name, ArtistBio.thumbnail_url)
+                            .where(ArtistBio.artist_name.in_(artist_names))
+                            .where(ArtistBio.thumbnail_url.isnot(None))
+                        )
+                    ).all()
+                    portrait_by_artist = {r.artist_name: r.thumbnail_url for r in bio_rows}
+
+            artists = [
+                {
+                    "name": r.artist,
+                    "pressing_count": r.cnt,
+                    "year_range": (
+                        str(r.yr_min) + (f"–{r.yr_max}" if r.yr_max != r.yr_min else "")
+                        if r.yr_min
+                        else ""
+                    ),
+                    "enc": urllib.parse.quote(r.artist or "", safe=""),
+                    "portrait_url": portrait_by_artist.get(r.artist),
+                    "cover_url": (
+                        "/catalogue/{}/images/{}".format(*cover_by_artist[r.artist].split("|"))
+                        if r.artist in cover_by_artist
+                        else None
+                    ),
+                }
+                for r in artist_rows
+            ]
+            ctx = _ctx(request, q=q, artists=artists)
+            return _tmpl().TemplateResponse(
+                request=request,
+                name="partials/search_3panel.html",
+                context=ctx,
+            )
+        except Exception as exc:
+            logger.warning("global_search (3panel) error: %s", exc)
+
+    # ── Classic layout or empty query: flat pressing list ───────────────────
+    results: list[Any] = []
+    if q and sf:
+        try:
+            async with sf() as db:
+                rows = (
+                    await db.execute(
+                        select(
+                            Token.id,
+                            Token.artist,
+                            Token.title,
+                            Token.year,
+                            Token.media_format,
+                            Token.catalog_number,
+                        )
+                        .where(Token.deleted_at.is_(None))
+                        .where(Token.status != TokenStatus.MERGED)
+                        .where(
+                            or_(
+                                Token.artist.ilike(f"%{q}%"),
+                                Token.title.ilike(f"%{q}%"),
+                                Token.catalog_number.ilike(f"%{q}%"),
+                            )
+                        )
+                        .order_by(Token.artist.asc(), Token.title.asc())
+                        .limit(40)
+                    )
+                ).all()
+            results = [dict(r._mapping) for r in rows]
+        except Exception as exc:
+            logger.warning("global_search error: %s", exc)
+
+    ctx = _ctx(request, q=q, results=results)
+
+    if _is_htmx(request):
+        return _tmpl().TemplateResponse(
+            request=request,
+            name="partials/global_search_results.html",
+            context=ctx,
+        )
+    # Full-page fallback (non-HTMX)
+    return _tmpl().TemplateResponse(
+        request=request,
+        name="search.html",
+        context=ctx,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layout switcher  (sets mc_layout cookie; used by admin Layout tab)
+# ---------------------------------------------------------------------------
+
+
+@search_router.post("/layout/set", response_model=None)
+async def layout_set(request: Request, layout: str = Form("classic")) -> RedirectResponse:
+    """Set the UI layout preference cookie. Admin-only."""
+    _require_role(request, "admin")
+    if layout not in _VALID_LAYOUTS:
+        layout = "classic"
+    response = RedirectResponse(url="/admin?tab=layout&msg=layout_saved", status_code=303)
+    response.set_cookie(
+        _LAYOUT_COOKIE,
+        layout,
+        max_age=60 * 60 * 24 * 365,  # 1 year
+        httponly=False,  # JS must NOT read it, but it's non-sensitive
+        samesite="lax",
+    )
+    logger.info("Layout switched to %r by %s", layout, getattr(request.state, "user_id", "?"))
+    return response
