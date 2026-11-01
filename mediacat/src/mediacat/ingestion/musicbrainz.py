@@ -99,7 +99,8 @@ class MusicBrainzConnector(BaseConnector):
             score = int(a.get("score", 0))
             return exact, is_group, score
 
-        return sorted(artists, key=rank, reverse=True)[0]
+        best: dict[str, Any] = sorted(artists, key=rank, reverse=True)[0]
+        return best
 
     async def get_artist(
         self,

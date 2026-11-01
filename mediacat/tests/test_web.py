@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -65,12 +67,17 @@ def test_session_invalid_token() -> None:
 
 
 @pytest.mark.slow
-def test_session_expired() -> None:
+def test_session_expired(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Fake the signer's clock: its timestamps are whole seconds, so a real
+    # sleep just past max_age passes or fails depending on the sub-second.
+    from itsdangerous import TimestampSigner
+
+    now = [1_700_000_000]
+    monkeypatch.setattr(TimestampSigner, "get_timestamp", lambda _self: now[0])
     sm = SessionManager("test-secret-key-1234567890abcdef", max_age_seconds=1)
     token = sm.create_session("user-123", "admin")
-    import time
-
-    time.sleep(1.5)
+    assert sm.validate_session(token) is not None
+    now[0] += 2
     assert sm.validate_session(token) is None
 
 
@@ -101,32 +108,32 @@ def test_csrf_tampered_token() -> None:
 # ===========================================================================
 
 
-def test_login_rate_limiter_allows_under_threshold() -> None:
+async def test_login_rate_limiter_allows_under_threshold() -> None:
     rl = LoginRateLimiter(max_attempts=3, window_seconds=60)
-    rl.record_failure("user1")
-    rl.record_failure("user1")
-    assert not rl.is_locked("user1")
+    await rl.record_failure("user1")
+    await rl.record_failure("user1")
+    assert not await rl.is_locked("user1")
 
 
-def test_login_rate_limiter_locks_at_threshold() -> None:
+async def test_login_rate_limiter_locks_at_threshold() -> None:
     rl = LoginRateLimiter(max_attempts=3, window_seconds=60)
     for _ in range(3):
-        rl.record_failure("user1")
-    assert rl.is_locked("user1")
+        await rl.record_failure("user1")
+    assert await rl.is_locked("user1")
 
 
-def test_login_rate_limiter_clear() -> None:
+async def test_login_rate_limiter_clear() -> None:
     rl = LoginRateLimiter(max_attempts=2, window_seconds=60)
-    rl.record_failure("user1")
-    rl.record_failure("user1")
-    assert rl.is_locked("user1")
-    rl.clear("user1")
-    assert not rl.is_locked("user1")
+    await rl.record_failure("user1")
+    await rl.record_failure("user1")
+    assert await rl.is_locked("user1")
+    await rl.clear("user1")
+    assert not await rl.is_locked("user1")
 
 
-def test_login_rate_limiter_unknown_user_not_locked() -> None:
+async def test_login_rate_limiter_unknown_user_not_locked() -> None:
     rl = LoginRateLimiter(max_attempts=3)
-    assert not rl.is_locked("nobody")
+    assert not await rl.is_locked("nobody")
 
 
 # ===========================================================================
@@ -266,9 +273,10 @@ def test_reviews_htmx_partial(auth_client: TestClient) -> None:
     assert "<!DOCTYPE" not in resp.text
 
 
-def test_review_detail_renders(auth_client: TestClient) -> None:
-    resp = auth_client.get("/reviews/test-review-id")
-    assert resp.status_code == 200
+def test_review_detail_unknown_id_is_404(auth_client: TestClient) -> None:
+    # Malformed id and a well-formed id with no review behind it (no DB in tests)
+    assert auth_client.get("/reviews/test-review-id").status_code == 404
+    assert auth_client.get(f"/reviews/{uuid.uuid4()}").status_code == 404
 
 
 def test_tokens_page_renders(auth_client: TestClient) -> None:

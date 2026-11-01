@@ -162,7 +162,7 @@ def calculate_confidence(
 
 def compute_statistics(
     valid_rows: list[SalesRow],
-) -> dict[str, Decimal | None]:
+) -> dict[str, Decimal | int | None]:
     """Return low / median / high sold price, excluding outlier rows.
 
     All returned values are :class:`decimal.Decimal` or ``None`` when no

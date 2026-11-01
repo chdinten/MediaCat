@@ -256,20 +256,20 @@ async def find_symbol_candidates(
         # Exact slug lookup — highest confidence path
         if slug_hint:
             stmt = (
-                select(Symbol)
-                .where(Symbol.slug == slug_hint, Symbol.deleted_at.is_(None))
-                .limit(1)
+                select(Symbol).where(Symbol.slug == slug_hint, Symbol.deleted_at.is_(None)).limit(1)
             )
             row = (await session.execute(stmt)).scalar_one_or_none()
             if row is not None:
-                matches.append({
-                    "id": str(row.id),
-                    "slug": row.slug,
-                    "name": row.name,
-                    "category": row.category.value,
-                    "score": 1.0,
-                    "match_by": "exact_slug",
-                })
+                matches.append(
+                    {
+                        "id": str(row.id),
+                        "slug": row.slug,
+                        "name": row.name,
+                        "category": row.category.value,
+                        "score": 1.0,
+                        "match_by": "exact_slug",
+                    }
+                )
 
         # Unicode approximation lookup — fallback when slug unknown
         if not matches and unicode_hint:
@@ -284,14 +284,16 @@ async def find_symbol_candidates(
             )
             rows = (await session.execute(stmt)).scalars().all()
             for row in rows:
-                matches.append({
-                    "id": str(row.id),
-                    "slug": row.slug,
-                    "name": row.name,
-                    "category": row.category.value,
-                    "score": 0.8,
-                    "match_by": "unicode_approx",
-                })
+                matches.append(
+                    {
+                        "id": str(row.id),
+                        "slug": row.slug,
+                        "name": row.name,
+                        "category": row.category.value,
+                        "score": 0.8,
+                        "match_by": "unicode_approx",
+                    }
+                )
 
         if not matches:
             logger.debug(

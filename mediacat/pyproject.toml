@@ -91,8 +91,9 @@ select = [
     "A",                # shadowing builtins
 ]
 # Symbols used on purpose: en dash in year ranges, "IQR x 3" multiplication sign,
-# and runout marks quoted in docstrings (Columbia "Ƨ", Lindström "ℒ").
-allowed-confusables = ["–", "×", "Ƨ", "ℒ"]
+# runout marks quoted in docstrings (Columbia "Ƨ", Lindström "ℒ"), and IPA
+# stress marks matched when cleaning Wikipedia leads (artist_bio.clean_lead).
+allowed-confusables = ["–", "×", "Ƨ", "ℒ", "ˈ", "ˌ"]
 ignore = [
     "E501",   # line length handled by formatter
     "PLR0913",
@@ -133,7 +134,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["alembic/versions/", "build/", "dist/", "site/"]
 
 [[tool.mypy.overrides]]
-module = ["reportlab.*"]
+module = ["reportlab.*", "pyzbar.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

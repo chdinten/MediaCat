@@ -10,6 +10,7 @@ GET  /artists/{artist}/discography     HTMX partial: discography list (Discogs �
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import urllib.parse
@@ -19,10 +20,11 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, func, select, update
 
 from mediacat.db.enums import TokenStatus
 from mediacat.db.models import ArtistBio, MediaObject, SiteSetting, Token
+from mediacat.ingestion.artist_bio import BioResult, resolve_artist_bio
 from mediacat.web.routes import _ctx, _tmpl
 
 logger = logging.getLogger(__name__)
@@ -39,7 +41,8 @@ _USER_AGENT = "MediaCat/1.0 (artists browser)"
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _sf(request: Request):  # type: ignore[return]
+def _sf(request: Request) -> Any:
+    """The app's async_sessionmaker (set in the lifespan)."""
     return request.app.state.db_session_factory
 
 
@@ -73,6 +76,7 @@ async def artists_index(
         if q.strip():
             base = base.where(Token.artist.ilike(f"%{q.strip()}%"))
 
+        order: ColumnElement[Any]
         if sort == "count":
             order = func.count(Token.id).desc()
         elif sort == "rating":
@@ -266,29 +270,83 @@ async def artist_albums(request: Request, artist: str) -> HTMLResponse:
     )
 
 
+# Biography lookups in progress, by artist name.  A lookup is a task of its
+# own that also saves the result, so it finishes even when the browser leaves
+# the page; requests only wait on it (shielded), and a second request for the
+# same artist joins the running lookup instead of starting another.
+_bio_jobs: dict[str, asyncio.Task[BioResult]] = {}
+
+
+async def _lookup_and_cache_bio(
+    sf: Any, name: str, llm: Any, discogs_token: str | None
+) -> BioResult:
+    bio = await resolve_artist_bio(name, llm=llm, discogs_token=discogs_token)
+    logger.info("Artist bio %r via %s (%d chars)", name, bio.source, len(bio.extract))
+    # Cache the outcome, including "not found", so the page explains the gap
+    # until the user asks for a refresh.
+    try:
+        async with sf() as db:
+            row = (
+                await db.execute(select(ArtistBio).where(ArtistBio.artist_name == name))
+            ).scalar_one_or_none()
+            if row is None:
+                row = ArtistBio(artist_name=name)
+                db.add(row)
+            row.extract = bio.extract
+            row.description = bio.description or None
+            row.wiki_url = bio.url or None
+            row.thumbnail_url = bio.thumbnail_url
+            row.bio_source = bio.source
+            row.fetched_at = datetime.now(UTC)
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Failed to cache bio for %r: %s", name, exc)
+    return bio
+
+
+def _bio_job_done(name: str, task: asyncio.Task[BioResult]) -> None:
+    if _bio_jobs.get(name) is task:
+        del _bio_jobs[name]
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning("Bio lookup for %r failed: %s", name, task.exception())
+
+
+async def _start_bio_job(request: Request, name: str) -> asyncio.Task[BioResult]:
+    from mediacat.web.admin import _resolve_discogs_token
+
+    token = await _resolve_discogs_token(request) or None
+    task = asyncio.create_task(
+        _lookup_and_cache_bio(_sf(request), name, getattr(request.app.state, "llm", None), token),
+        name=f"artist-bio:{name[:40]}",
+    )
+    _bio_jobs[name] = task
+    task.add_done_callback(lambda t: _bio_job_done(name, t))
+    return task
+
+
 @artists_router.get("/{artist}/info", response_class=HTMLResponse)
 async def artist_info(
     request: Request,
     artist: str,
     refresh: bool = Query(default=False),
 ) -> HTMLResponse:
-    """HTMX partial: Wikipedia biography for an artist.
+    """HTMX partial: artist biography.
 
-    Serves the cached DB entry on normal load; re-fetches when refresh=true.
-    Resolution order for a fresh fetch:
-      1. MusicBrainz → (Wikipedia URL | Wikidata → Wikipedia title) → REST summary
-      2. Direct Wikipedia title search (fallback)
+    Serves the cached DB entry on normal load; looks it up again when
+    refresh=true (see :mod:`mediacat.ingestion.artist_bio` for the order).
+    While a lookup for the artist is running, every request waits for it.
     """
     name = urllib.parse.unquote(artist)
+    running = _bio_jobs.get(name)
 
     # ── Serve from DB cache unless caller requested a refresh ────────────────
-    if not refresh:
+    if not refresh and running is None:
         async with _sf(request)() as db:
             row = (
                 await db.execute(select(ArtistBio).where(ArtistBio.artist_name == name))
             ).scalar_one_or_none()
         if row and row.extract:
-            summary = {
+            summary: dict[str, Any] = {
                 "extract": row.extract,
                 "description": row.description,
                 "url": row.wiki_url,
@@ -330,61 +388,25 @@ async def artist_info(
                 request=request, name="partials/artist_info.html", context=ctx
             )
 
-    # ── Fetch from Wikipedia (fresh or cache miss) ───────────────────────────
-    from mediacat.ingestion.wikipedia import WikipediaConnector
+    # ── Look the bio up (fresh, cache miss, or join a running lookup) ────────
+    task = running or await _start_bio_job(request, name)
+    # shield: if the browser goes away, this request is cancelled but the
+    # lookup carries on and stores its result.
+    bio = await asyncio.shield(task)
+    summary = {
+        "extract": bio.extract,
+        "description": bio.description,
+        "url": bio.url,
+        "thumbnail_url": bio.thumbnail_url,
+    }
 
-    wiki = WikipediaConnector()
-    summary: dict[str, Any] = {}
-    source: str = ""
-
-    try:
-        summary = await wiki.fetch_artist_summary_via_musicbrainz(name)
-        if summary.get("extract"):
-            source = "MusicBrainz→Wikipedia"
-    except Exception as exc:
-        logger.warning("MB→Wikipedia chain error for %r: %s", name, exc)
-
-    if not summary.get("extract"):
-        logger.info("Bio fallback: direct Wikipedia search for %r", name)
-        try:
-            candidates = await wiki.search_artist(name)
-            if candidates:
-                best = next(
-                    (c for c in candidates if name.lower() in c["title"].lower()),
-                    candidates[0],
-                )
-                summary = await wiki.fetch_artist_summary(best["title"])
-                if summary.get("extract"):
-                    source = "Wikipedia search"
-        except Exception as exc:
-            logger.warning("Wikipedia fallback failed for %r: %s", name, exc)
-
-    if summary.get("extract"):
-        logger.info("Artist bio OK: %r via %s (%d chars)", name, source, len(summary["extract"]))
-        # ── Persist / update cache ───────────────────────────────────────────
-        try:
-            async with _sf(request)() as db:
-                row = (
-                    await db.execute(select(ArtistBio).where(ArtistBio.artist_name == name))
-                ).scalar_one_or_none()
-                if row is None:
-                    row = ArtistBio(artist_name=name)
-                    db.add(row)
-                row.extract = summary.get("extract")
-                row.description = summary.get("description")
-                row.wiki_url = summary.get("url")
-                row.thumbnail_url = summary.get("thumbnail_url")
-                row.bio_source = source
-                row.fetched_at = datetime.now(UTC)
-                await db.commit()
-        except Exception as exc:
-            logger.warning("Failed to cache bio for %r: %s", name, exc)
-    else:
-        logger.info("Artist bio empty for %r — no summary found via any source", name)
-
-    fallback_cover = None if summary.get("thumbnail_url") else await _first_cover_url(request, name)
+    fallback_cover = None if bio.thumbnail_url else await _first_cover_url(request, name)
     ctx = _ctx(
-        request, artist=name, summary=summary, bio_source=source, fallback_cover_url=fallback_cover
+        request,
+        artist=name,
+        summary=summary,
+        bio_source=bio.source,
+        fallback_cover_url=fallback_cover,
     )
     return _tmpl().TemplateResponse(request=request, name="partials/artist_info.html", context=ctx)
 
@@ -423,7 +445,7 @@ async def artist_discography(
                 )
 
     # ── Fresh fetch: MusicBrainz primary, Wikipedia fallback ────────────────
-    discography: list[dict[str, Any]] = []
+    discography = []
     source_used: str = ""
 
     try:
@@ -668,7 +690,8 @@ async def _discogs_artist_image(name: str, token: str | None = None) -> str | No
                 (img for img in images if img.get("type") == "primary"),
                 images[0],
             )
-            return primary.get("uri150") or primary.get("uri")
+            url = primary.get("uri150") or primary.get("uri")
+            return str(url) if url else None
         except Exception as exc:
             logger.warning("_discogs_artist_image failed for %r: %s", name, exc)
             return None
@@ -735,10 +758,19 @@ async def _wikipedia_discography(name: str) -> tuple[list[dict[str, Any]], str]:
     if not candidates:
         return [], ""
 
+    from mediacat.ingestion.artist_bio import is_meta_title, title_matches_name
+
+    # Only a page named after the artist; a list or song page has no discography
     best = next(
-        (c for c in candidates if name.lower() in c["title"].lower()),
-        candidates[0],
+        (
+            c
+            for c in candidates
+            if title_matches_name(c["title"], name) and not is_meta_title(c["title"])
+        ),
+        None,
     )
+    if best is None:
+        return [], ""
     albums = await wiki.fetch_discography(best["title"])
     for a in albums:
         a["url"] = (

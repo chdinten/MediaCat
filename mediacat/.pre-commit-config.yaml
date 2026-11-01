@@ -30,23 +30,22 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+  # mypy and bandit run from the project venv (make setup) so they see the
+  # app's dependencies and config; paths are relative to the repo root.
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies:
-          - pydantic>=2.7
-          - types-PyYAML
-        args: [--config-file=pyproject.toml]
-        files: ^src/
-
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.10
-    hooks:
+        name: mypy (make typecheck)
+        entry: bash -c 'cd mediacat && .venv/bin/mypy src'
+        language: system
+        pass_filenames: false
+        files: ^mediacat/src/.*\.py$
       - id: bandit
-        args: [-q, -c, pyproject.toml]
-        additional_dependencies: ["bandit[toml]"]
-        files: ^src/
+        name: bandit (make security)
+        entry: bash -c 'cd mediacat && .venv/bin/bandit -q -c pyproject.toml -r src'
+        language: system
+        pass_filenames: false
+        files: ^mediacat/src/.*\.py$
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2

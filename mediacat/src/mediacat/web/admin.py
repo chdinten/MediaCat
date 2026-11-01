@@ -53,7 +53,8 @@ _TIMEOUT_OPTIONS = [
 _VALID_ROLES = ("admin", "contributor", "reviewer", "viewer")
 
 
-def _sf(request: Request):  # type: ignore[return]
+def _sf(request: Request) -> Any:
+    """The app's async_sessionmaker (set in the lifespan)."""
     return request.app.state.db_session_factory
 
 
@@ -114,7 +115,8 @@ async def admin_home(request: Request, tab: str = "users") -> HTMLResponse:
         logger.warning("admin_home users query failed: %s", exc)
         from mediacat.web.routes import _users_store
 
-        users = [{**u, "password_hash": "***"} for u in _users_store.values()]
+        mask = "***"  # display mask, not a password  # nosec B105
+        users = [{**u, "password_hash": mask} for u in _users_store.values()]
 
     if tab == "import":
         try:
@@ -385,7 +387,7 @@ async def admin_api_tokens_save(request: Request) -> RedirectResponse:
     updates: dict[str, str] = {}
     for key in _KNOWN_CREDENTIAL_KEYS:
         raw = form.get(key)
-        if raw is None:
+        if raw is None or not isinstance(raw, str):
             continue
         # A truly blank field means "don't touch it"
         if raw == "":
@@ -710,21 +712,21 @@ _API_CREDENTIALS_META: list[dict[str, str]] = [
         "hint": "From discogs.com → Settings → Developers → Generate new token. "
         "Required for price data and collection import.",
         "url": "https://www.discogs.com/settings/developers",
-        "secret": "true",
+        "secret": "true",  # "secret" is a yes/no display flag  # nosec B105
     },
     {
         "key": "spotify_client_id",
         "label": "Spotify Client ID",
         "hint": "From developer.spotify.com → Dashboard → your app. Used for artist discography.",
         "url": "https://developer.spotify.com/dashboard",
-        "secret": "false",
+        "secret": "false",  # "secret" is a yes/no display flag  # nosec B105
     },
     {
         "key": "spotify_client_secret",
         "label": "Spotify Client Secret",
         "hint": "Paired with the Client ID above. Keep this secret.",
         "url": "https://developer.spotify.com/dashboard",
-        "secret": "true",
+        "secret": "true",  # "secret" is a yes/no display flag  # nosec B105
     },
     {
         "key": "musicbrainz_user_agent",
@@ -732,7 +734,7 @@ _API_CREDENTIALS_META: list[dict[str, str]] = [
         "hint": "Optional. Format: AppName/version (contact@example.com). "
         "MusicBrainz needs no auth token but requires a meaningful User-Agent.",
         "url": "https://musicbrainz.org/doc/MusicBrainz_API",
-        "secret": "false",
+        "secret": "false",  # "secret" is a yes/no display flag  # nosec B105
     },
 ]
 
@@ -785,7 +787,7 @@ def _get_app_discogs_token(request: Request) -> str:
             # "Discogs token=XXXX" → extract XXXX
             hdr = dc._auth_header
             if "token=" in hdr:
-                return hdr.split("token=", 1)[1].strip()
+                return str(hdr.split("token=", 1)[1].strip())
     except Exception as exc:
         logger.debug("no Discogs token on the app connector: %s", exc)
     return ""
@@ -806,13 +808,15 @@ async def _resolve_discogs_token(request: Request) -> str:
                 await db.execute(_sel(SiteSetting.value).where(SiteSetting.key == "discogs_token"))
             ).scalar_one_or_none()
         if row:
-            return row
+            return str(row)
     except Exception as exc:
         logger.debug("site_settings Discogs token lookup failed: %s", exc)
     return _get_app_discogs_token(request)
 
 
-def _get_discogs_connector(request: Request, override_token: str = "") -> Any:
+def _get_discogs_connector(
+    request: Request, override_token: str = ""
+) -> Any:  # empty means "use the stored token"  # nosec B107
     """Return a fresh DiscogsConnector for collection imports.
 
     Always creates a dedicated connector so the import's circuit-breaker state
@@ -1281,7 +1285,7 @@ async def backup_export(request: Request) -> StreamingResponse:
         for table in _BACKUP_TABLES:
             try:
                 async with _sf(request)() as db:
-                    result = await db.execute(_text(f"SELECT * FROM {table}"))  # noqa: S608
+                    result = await db.execute(_text(f"SELECT * FROM {table}"))  # noqa: S608  # table from _BACKUP_TABLES  # nosec B608
                     cols = list(result.keys())
                     rows = result.fetchall()
 
@@ -1364,7 +1368,7 @@ async def backup_import(
             col_list = ", ".join(cols)
             placeholders = ", ".join(f":{c}" for c in cols)
             sql = _text(
-                f"INSERT INTO {table} ({col_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"  # noqa: S608
+                f"INSERT INTO {table} ({col_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"  # noqa: S608  # table from _BACKUP_TABLES, columns regex-checked  # nosec B608
             )
             inserted = 0
             for rec in records:

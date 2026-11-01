@@ -14,9 +14,10 @@ import ipaddress
 import logging
 import os
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -187,6 +188,37 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("Vision backend unavailable: %s — image analysis disabled", exc)
         app.state.vision = None
 
+    # Text LLM — same Ollama server; advisory tasks such as checking that a
+    # found Wikipedia article is really about the artist.  The vision model
+    # handles plain text too, so no extra model download is needed.
+    try:
+        from mediacat.llm.adapter import HybridLlm
+        from mediacat.llm.api import AnthropicBackend
+        from mediacat.llm.ollama import OllamaBackend
+
+        llm_cfg = cfg.get("llm", {})
+        ollama_url = os.environ.get("OLLAMA_HOST") or llm_cfg.get(
+            "ollama_url", "http://ollama:11434"
+        )
+        text_model = (
+            os.environ.get("OLLAMA_TEXT_MODEL")
+            or llm_cfg.get("text_model")
+            or os.environ.get("OLLAMA_VLM_MODEL")
+            or llm_cfg.get("vlm_model", "qwen2.5vl:32b")
+        )
+        anthropic_key_file = cfg.get("anthropic", {}).get("api_key_file") or os.environ.get(
+            "ANTHROPIC_API_KEY_FILE"
+        )
+        app.state.llm = HybridLlm(
+            # 180 s: the first call after idle loads the model into the GPU
+            OllamaBackend(base_url=ollama_url, default_model=text_model, timeout=180.0),
+            AnthropicBackend(api_key_file=anthropic_key_file) if anthropic_key_file else None,
+        )
+        logger.info("Text LLM: Ollama(%s, model=%s)", ollama_url, text_model)
+    except Exception as exc:
+        logger.warning("Text LLM unavailable: %s — AI checks disabled", exc)
+        app.state.llm = None
+
     # Redis login rate limiter — replaces the in-memory default set in create_app()
     redis_cfg = cfg.get("redis", {})
     redis_url = redis_cfg.get("url", "redis://redis:6379/0")
@@ -199,7 +231,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         import redis.asyncio as aioredis
 
         redis_client = aioredis.from_url(redis_url, password=redis_pw, decode_responses=False)
-        await redis_client.ping()
+        # redis-py types ping() as "Awaitable[bool] | bool" for sync/async clients
+        await cast("Awaitable[bool]", redis_client.ping())
         app.state.login_rate_limiter = RedisLoginRateLimiter(
             redis_client, max_attempts=rl_max, window_seconds=rl_window
         )

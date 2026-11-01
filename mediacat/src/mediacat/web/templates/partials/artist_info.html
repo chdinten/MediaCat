@@ -1,34 +1,51 @@
-{# Wikipedia artist biography partial — loaded via HTMX #}
+{# Artist biography partial — loaded via HTMX. bio_source "Not found" means
+   summary.extract is the explanation, not a biography. #}
+{% set not_found = bio_source == 'Not found' %}
+{% set ai_summary = bio_source and 'AI summary' in bio_source %}
 {% if summary and summary.extract %}
-<div class="artist-wiki">
+<div class="artist-wiki{% if not_found %} artist-wiki--none{% endif %}">
+    {% if not not_found %}
     {% if summary.thumbnail_url %}
     <img src="{{ summary.thumbnail_url }}" alt="{{ artist }}" class="artist-wiki-thumb" loading="lazy">
     {% elif fallback_cover_url %}
     <img src="{{ fallback_cover_url }}" alt="{{ artist }}" class="artist-wiki-thumb" loading="lazy">
     {% endif %}
+    {% endif %}
     <div class="artist-wiki-text">
-        <p>{{ summary.extract[:700] }}{% if summary.extract | length > 700 %}…{% endif %}</p>
-        <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.6rem;flex-wrap:wrap">
+        {% if not_found %}
+        <p class="artist-wiki-none">{{ summary.extract }}</p>
+        {% else %}
+        {% if summary.description %}<p class="artist-wiki-desc">{{ summary.description }}</p>{% endif %}
+        {% for para in summary.extract.split('\n\n') %}<p>{{ para }}</p>{% endfor %}
+        {% if ai_summary %}
+        <p class="artist-wiki-ai">Written by the local AI from the artist's official website only. Check it before relying on it.</p>
+        {% endif %}
+        {% endif %}
+        <div class="artist-wiki-actions">
             {% if summary.url %}
             <a href="{{ summary.url }}" target="_blank" rel="noopener noreferrer"
-               class="btn btn-ghost btn-sm">Wikipedia ↗</a>
+               class="btn btn-ghost btn-sm">{% if 'wikipedia.org' in summary.url %}Wikipedia{% elif 'discogs.com' in summary.url %}Discogs{% else %}Source{% endif %} ↗</a>
             {% endif %}
-            <button type="button" class="btn btn-ghost btn-sm"
+            <button type="button" class="btn btn-ghost btn-sm js-bio-refresh"
                     hx-get="/artists/info?artist={{ artist | urlencode }}&amp;refresh=true"
                     hx-target="closest .artist-wiki"
                     hx-swap="outerHTML"
-                    title="Re-fetch biography from Wikipedia">↻ Refresh bio</button>
-            {% if bio_source %}<span class="text-muted" style="font-size:0.75rem">via {{ bio_source }}</span>{% endif %}
+                    title="Look the biography up again (MusicBrainz, Wikipedia, Discogs, official website)">↻ {% if not_found %}Try again{% else %}Refresh bio{% endif %}</button>
+            {% if bio_source %}<span class="text-muted artist-wiki-src">via {{ bio_source }}</span>{% endif %}
         </div>
     </div>
 </div>
 {% else %}
-<div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
-    <p class="text-muted" style="font-size:0.85em;font-style:italic;margin:0">No Wikipedia biography found for {{ artist }}.</p>
-    <button type="button" class="btn btn-ghost btn-sm"
-            hx-get="/artists/info?artist={{ artist | urlencode }}"
-            hx-target="closest div"
-            hx-swap="outerHTML"
-            title="Try fetching biography again">↻ Try again</button>
+<div class="artist-wiki artist-wiki--none">
+    <div class="artist-wiki-text">
+        <p class="artist-wiki-none">No biography found for {{ artist }}.</p>
+        <div class="artist-wiki-actions">
+            <button type="button" class="btn btn-ghost btn-sm js-bio-refresh"
+                    hx-get="/artists/info?artist={{ artist | urlencode }}&amp;refresh=true"
+                    hx-target="closest .artist-wiki"
+                    hx-swap="outerHTML"
+                    title="Look the biography up again">↻ Try again</button>
+        </div>
+    </div>
 </div>
 {% endif %}

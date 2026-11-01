@@ -31,9 +31,15 @@ PostgreSQL 16, MinIO, Redis, OPA. Docker Compose deployment on WSL2.
 - `backend` network is `internal: true` (no internet): containers on it must not install packages at start-up — backup sidecar uses the image's BusyBox `crond` (daily pg_dump 02:00 UTC → `/srv/mediacat/backups/postgres`)
 - Web control panel `tools/ctl_portal` (`make ctl-web`, 127.0.0.1:8810) runs `scripts/mediacat-ctl.sh --run N`; keep menu numbers/labels in `tools/ctl_portal/actions.py` in sync (enforced by `tests/test_ctl_portal.py`)
 - CSP `script-src 'self'` blocks all inline JS including HTMX `hx-on` attributes — wire all event handlers in static `.js` files instead
+- CSP lives in `SecurityHeadersMiddleware` (the `security.csp` key in app.yaml is not read); `img-src` must list every external image host (Wikipedia uses both `upload.` and `thumb.wikimedia.org`)
+- Artist bios (`ingestion/artist_bio.py`): Wikipedia (MusicBrainz link, trusted; or search with title/music checks + LLM verdict) — used as-is when ≥ 800 chars — else compared with the Discogs artist profile (`choose_bio`: Discogs needs ≥ 2× the length and a real bio, ≥ 150 chars / 2 sentences) → official homepage summarised by the LLM ("AI summary") → cached "Not found" statement; sized 1200–2500 chars; Discogs "(N)" name suffix dropped for MusicBrainz/Wikipedia only
+- Bio lookups run as server-side tasks (`web/artists.py` `_bio_jobs`, awaited via `asyncio.shield`): they finish and save even if the browser leaves; concurrent requests join the running task. The "Research in progress" banner is `static/bio_research.js`
+- Text LLM is `app.state.llm` (HybridLlm, Ollama `OLLAMA_TEXT_MODEL` / `llm.text_model`, defaults to the vision model); pass untrusted text through `llm.safety.build_prompt`
+- Quality gates: `make lint`, `ruff format --check`, `make typecheck` (mypy src: 0 errors), bandit (0 findings) all clean; pre-commit runs mypy/bandit from the venv. Bandit reasons go *before* the marker: `# reason  # nosec B105`
+- `.bat` files keep CRLF (`/.gitattributes`); everything else LF
 
 ## Open items
-- (none)
+- Test coverage is ~39% against `--cov-fail-under=55`, so `make test` fails on coverage although all tests pass
 
 ## Documentation
 - MediaCat_Technical_Reference.md — architecture, schema, API, configuration

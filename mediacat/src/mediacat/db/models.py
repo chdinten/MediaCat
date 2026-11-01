@@ -313,12 +313,12 @@ class Token(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, SoftDeleteMixin, Ba
     matrix_runout_b: Mapped[str | None] = mapped_column(Text)
     # Structured parts arrays — authoritative form once symbols are resolved.
     # Each element is {"t":"text","v":"…"} or {"t":"sym","slug":"…","id":"uuid"}.
-    matrix_runout_parts: Mapped[list[dict] | None] = mapped_column(JSONB)
-    matrix_runout_b_parts: Mapped[list[dict] | None] = mapped_column(JSONB)
+    matrix_runout_parts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    matrix_runout_b_parts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     # Structured parsed breakdown — each key maps to {"value", "confidence", "source"}.
     # source: "vision" | "human" | "import" | "rule" | null
-    matrix_runout_parsed: Mapped[dict | None] = mapped_column(JSONB)
-    matrix_runout_b_parsed: Mapped[dict | None] = mapped_column(JSONB)
+    matrix_runout_parsed: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    matrix_runout_b_parsed: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     media_format: Mapped[MediaFormat] = mapped_column(_media_format_enum, nullable=False)
     vinyl_material: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -352,7 +352,7 @@ class Token(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, SoftDeleteMixin, Ba
     genres: Mapped[list[str] | None] = mapped_column(JSONB)
 
     # Tracklist — [{disc, position, title, artists, duration_ms}, …]
-    tracklist: Mapped[list[dict] | None] = mapped_column(JSONB)
+    tracklist: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
     # Ratings
     personal_rating: Mapped[float | None] = mapped_column(Float)
@@ -515,7 +515,7 @@ class OcrArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     confidence: Mapped[float | None] = mapped_column(Float)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
     # Vision-proposed symbol matches: [{"slug":"…","confidence":0.9,"bbox":[…]}]
-    symbol_candidates: Mapped[list[dict] | None] = mapped_column(JSONB)
+    symbol_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
     media_object: Mapped[MediaObject] = relationship(back_populates="ocr_artifacts")
 
@@ -660,7 +660,7 @@ class ArtistBio(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     thumbnail_url: Mapped[str | None] = mapped_column(String(500))
     bio_source: Mapped[str | None] = mapped_column(String(100))
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    disco_data: Mapped[list[dict] | None] = mapped_column(JSONB)
+    disco_data: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     disco_source: Mapped[str | None] = mapped_column(String(100))
     disco_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -909,7 +909,7 @@ class DiscogsSalesImport(Base):
     # List of validated row objects.  Each entry:
     # {sold_date, sold_price (str Decimal), currency,
     #  media_condition, sleeve_condition, is_outlier}
-    parsed_sales_rows: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
+    parsed_sales_rows: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     # ── aggregates — Numeric, not Float ───────────────────────────────────────
 

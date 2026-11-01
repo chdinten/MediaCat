@@ -539,11 +539,15 @@ async def review_detail(request: Request, review_id: str) -> HTMLResponse:
 
     from mediacat.db.models import ReviewItem, Token
 
+    try:
+        rid = uuid.UUID(review_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Review not found") from None
+
     review = None
     token = None
     revisions: list[Any] = []
     try:
-        rid = uuid.UUID(review_id)
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as db:
@@ -792,7 +796,8 @@ async def user_list(request: Request) -> HTMLResponse:
             users: list[dict[str, Any]] = [_user_row_to_dict(r) for r in rows]
     except Exception as _exc:
         logger.warning("user_list DB query failed, using memory store: %s", _exc)
-        users = [{**u, "password_hash": "***"} for u in _users_store.values()]
+        mask = "***"  # display mask, not a password  # nosec B105
+        users = [{**u, "password_hash": mask} for u in _users_store.values()]
     context = _ctx(request, users=users)
     return _tmpl().TemplateResponse(request=request, name="users.html", context=context)
 

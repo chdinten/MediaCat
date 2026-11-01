@@ -87,7 +87,7 @@ def _get_discogs_connector(request: Request) -> Any:
     import pathlib
 
     # Token resolution order: Docker secret file → env var
-    token = ""
+    token = ""  # empty until a token is found  # nosec B105
     for secret_path in ("/run/secrets/discogs_token", "/run/secrets/discogs_token.txt"):
         p = pathlib.Path(secret_path)
         if p.exists():
@@ -110,7 +110,8 @@ def _get_discogs_connector(request: Request) -> Any:
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 
-def _sf(request: Request):  # type: ignore[return]
+def _sf(request: Request) -> Any:
+    """The app's async_sessionmaker (set in the lifespan)."""
     return request.app.state.db_session_factory
 
 
@@ -159,7 +160,8 @@ async def _get_or_create_country(db: Any, name: str) -> uuid.UUID | None:
         await db.execute(select(Country).where(func.lower(Country.name) == name.lower()))
     ).scalar_one_or_none()
     if row:
-        return row.id
+        country_id: uuid.UUID = row.id
+        return country_id
     # Generate deterministic synthetic alpha codes; retry on collision
     letters = re.sub(r"[^A-Za-z]", "", name).upper()
     a2_base = letters[:2] if len(letters) >= 2 else letters.ljust(2, "X")
@@ -288,7 +290,7 @@ async def _import_discogs_images(
     store: Any,
     db: Any,
     token_id: uuid.UUID,
-    images: list[dict[str, Any]],
+    images: list[Any],  # raw Discogs JSON: entries are checked below
 ) -> int:
     """Download Discogs images and store them in MinIO. Returns count stored."""
     if not store or not images:
@@ -421,7 +423,8 @@ async def _load_token(request: Request, token_id: str) -> Token:
         ).scalar_one_or_none()
     if token is None:
         raise HTTPException(status_code=404, detail="Not found")
-    return token
+    loaded: Token = token
+    return loaded
 
 
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
@@ -538,7 +541,7 @@ async def _fetch_facets(
     year_from: str,
     year_to: str,
     country_q: str,
-) -> dict[str, list[dict]]:
+) -> dict[str, list[dict[str, Any]]]:
     """Return genre/format/decade counts for the current (non-genre) filters."""
     from sqlalchemy import text as _text
 
@@ -574,14 +577,14 @@ async def _fetch_facets(
     full_where = " AND ".join(full_clauses)
     base_where = " AND ".join(base_clauses)
 
-    def _sql(sql_str: str, params: dict) -> Any:
+    def _sql(sql_str: str, params: dict[str, Any]) -> Any:
         s = _text(sql_str)
         return s.bindparams(**params) if params else s
 
     genre_rows = (
         await db.execute(
             _sql(
-                f"SELECT g.value AS genre, count(t.id) AS cnt "  # noqa: S608 - fixed clause fragments; values are bound params
+                f"SELECT g.value AS genre, count(t.id) AS cnt "  # noqa: S608  # fixed clause fragments; values are bound params  # nosec B608
                 f"FROM tokens t "
                 f"CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(t.genres, '[]'::jsonb)) AS g(value) "
                 f"WHERE {full_where} "
@@ -594,7 +597,7 @@ async def _fetch_facets(
     format_rows = (
         await db.execute(
             _sql(
-                f"SELECT t.media_format::text AS fmt, count(t.id) AS cnt "  # noqa: S608 - fixed clause fragments; values are bound params
+                f"SELECT t.media_format::text AS fmt, count(t.id) AS cnt "  # noqa: S608  # fixed clause fragments; values are bound params  # nosec B608
                 f"FROM tokens t "
                 f"WHERE {base_where} AND t.media_format IS NOT NULL "
                 f"GROUP BY t.media_format ORDER BY cnt DESC",
@@ -606,7 +609,7 @@ async def _fetch_facets(
     decade_rows = (
         await db.execute(
             _sql(
-                f"SELECT (floor(t.year::numeric / 10) * 10)::int AS decade, count(t.id) AS cnt "  # noqa: S608 - fixed clause fragments; values are bound params
+                f"SELECT (floor(t.year::numeric / 10) * 10)::int AS decade, count(t.id) AS cnt "  # noqa: S608  # fixed clause fragments; values are bound params  # nosec B608
                 f"FROM tokens t "
                 f"WHERE {full_where} AND t.year IS NOT NULL AND t.year BETWEEN 1900 AND 2100 "
                 f"GROUP BY decade ORDER BY decade",
@@ -652,15 +655,15 @@ async def catalogue_index(
         for _i, _g in enumerate(genre_list):
             _pn = f"genre_{_i}"
             _parts.append(
-                f"EXISTS (SELECT 1 FROM jsonb_array_elements_text(tokens.genres) _ge"  # noqa: S608 - placeholder names only
+                f"EXISTS (SELECT 1 FROM jsonb_array_elements_text(tokens.genres) _ge"  # noqa: S608  # placeholder names only  # nosec B608
                 f" WHERE lower(_ge) = :{_pn})"
             )
             _genre_params[_pn] = _g.lower()
         _genre_sql = "(" + " OR ".join(_parts) + ")"
 
-    facets_genres: list[dict] = []
-    facets_formats: list[dict] = []
-    facets_decades: list[dict] = []
+    facets_genres: list[dict[str, Any]] = []
+    facets_formats: list[dict[str, Any]] = []
+    facets_decades: list[dict[str, Any]] = []
 
     try:
         async with _sf(request)() as db:
@@ -1129,8 +1132,8 @@ async def token_new_form(
                 r["id"] for r in search_results if r.get("source") == "musicbrainz" and r.get("id")
             ]
 
-            existing_d: set = set()
-            existing_mb: set = set()
+            existing_d: set[Any] = set()
+            existing_mb: set[Any] = set()
             if d_ids:
                 existing_d = set(
                     (
@@ -2472,18 +2475,18 @@ async def pressing_detail(request: Request, token_id: str) -> HTMLResponse:
 
     # Derive header display text from parsed breakdown when available.
     # Falls back to the plain stored text so old records still display.
-    def _display(parsed: dict | None, fallback: str | None) -> str | None:
+    def _display(parsed: dict[str, Any] | None, fallback: str | None) -> str | None:
         return _build_full_runout_text(parsed or {}) or fallback
 
     # Group tracklist by vinyl side (A, B, Câ€¦) when positions start with a
     # letter, otherwise fall back to disc number grouping.
-    tracklist_discs: list[dict] = []
+    tracklist_discs: list[dict[str, Any]] = []
     if token.tracklist:
         import re
         from collections import defaultdict
 
-        key_order: list = []
-        by_key: dict = defaultdict(list)
+        key_order: list[Any] = []
+        by_key: dict[Any, list[Any]] = defaultdict(list)
         for track in token.tracklist:
             pos = str(track.get("position") or "")
             m = re.match(r"^([A-Za-z]+)", pos)
@@ -2558,7 +2561,7 @@ async def pressing_detail(request: Request, token_id: str) -> HTMLResponse:
         all_genres = sorted(_DATALIST_GENRES, key=str.casefold)
 
     # Load user-assisted sales history imports for this token
-    sales_imports: list = []
+    sales_imports: list[Any] = []
     try:
         from mediacat.db.models import DiscogsSalesImport as _DSI
 
@@ -3455,7 +3458,7 @@ def _sanitize_genre(raw: str) -> str | None:
     return cleaned[:_GENRE_MAX_LEN] if cleaned else None
 
 
-def _sanitize_genre_list(raw: list | None) -> list[str] | None:
+def _sanitize_genre_list(raw: list[Any] | None) -> list[str] | None:
     """Sanitise and deduplicate a list of genre strings from any source."""
     if not raw:
         return None
@@ -3471,7 +3474,7 @@ def _sanitize_genre_list(raw: list | None) -> list[str] | None:
     return result or None
 
 
-def _merge_genres(existing: list | None, incoming: list | None) -> list[str] | None:
+def _merge_genres(existing: list[Any] | None, incoming: list[Any] | None) -> list[str] | None:
     """Add incoming genres to existing without removing user choices.
 
     Deduplicates case-insensitively; preserves the order of existing entries.

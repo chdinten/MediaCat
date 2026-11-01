@@ -158,7 +158,9 @@ class LlmTranslator:
             "text with no preamble, explanation, or commentary."
         )
         lang_hint = f" The source language is {source_language}." if source_language else ""
-        user_prompt = f"Translate the following text to British English.{lang_hint}\n\n{sanitised.text}"
+        user_prompt = (
+            f"Translate the following text to British English.{lang_hint}\n\n{sanitised.text}"
+        )
 
         try:
             translated = await self._llm_call(system_prompt, user_prompt)

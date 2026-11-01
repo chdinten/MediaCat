@@ -75,7 +75,7 @@ class SpotifyClient:
             r.raise_for_status()
             data: dict[str, Any] = r.json()
 
-        token = data["access_token"]
+        token = str(data["access_token"])
         expires_in = int(data.get("expires_in", 3600))
         _token_cache[cache_key] = (token, time.monotonic() + expires_in)
         logger.debug("Spotify: new access token acquired (expires in %ds)", expires_in)

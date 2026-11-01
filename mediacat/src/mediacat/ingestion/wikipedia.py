@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 _API_BASE = "https://en.wikipedia.org/api/rest_v1"
 _SEARCH_BASE = "https://en.wikipedia.org/w/api.php"
+_WIKIDATA_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
 _USER_AGENT = "MediaCat/0.1 (+https://example.invalid/mediacat)"
 _TIMEOUT = 10.0
 
@@ -115,6 +116,7 @@ class WikipediaConnector:
 
         return {
             "title": data.get("title", page_title),
+            "type": data.get("type", ""),  # "standard" | "disambiguation" | …
             "description": data.get("description", ""),
             "extract": data.get("extract", ""),
             "url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
@@ -124,7 +126,7 @@ class WikipediaConnector:
 
     async def _fetch_page_image(self, page_title: str) -> str | None:
         """Return a lead image URL via the MediaWiki pageimages API, or None."""
-        params = {
+        params: dict[str, str | int] = {
             "action": "query",
             "titles": page_title,
             "prop": "pageimages",
@@ -145,7 +147,7 @@ class WikipediaConnector:
             src = (page.get("thumbnail") or {}).get("source")
             if src:
                 logger.info("pageimages found image for %r: %s", page_title, src)
-                return src
+                return str(src)
         logger.info(
             "pageimages returned no image for %r (pages=%s)", page_title, list(pages.keys())
         )
@@ -182,29 +184,57 @@ class WikipediaConnector:
 
         return _parse_discography_wikitext(wikitext)
 
+    async def fetch_plain_paragraphs(self, page_title: str) -> list[str]:
+        """Prose paragraphs of the whole article as plain text, lead section first."""
+        from mediacat.ingestion.artist_bio import split_paragraphs  # noqa: PLC0415 - cycle
+
+        params = {
+            "action": "query",
+            "titles": page_title,
+            "prop": "extracts",
+            "explaintext": "1",
+            "exsectionformat": "plain",
+            "redirects": "1",
+            "format": "json",
+            "origin": "*",
+        }
+        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as client:
+            try:
+                r = await client.get(_SEARCH_BASE, params=params)
+                r.raise_for_status()
+                pages = r.json().get("query", {}).get("pages", {})
+            except Exception as exc:
+                logger.warning("Wikipedia extract fetch failed for %r: %s", page_title, exc)
+                return []
+        for page in pages.values():
+            return split_paragraphs(page.get("extract", ""))
+        return []
+
     async def fetch_artist_image_url(self, page_title: str) -> str | None:
         """Return the first summary image URL for an artist page, or None."""
         summary = await self.fetch_artist_summary(page_title)
         return summary.get("thumbnail_url") or summary.get("original_image_url")
 
-    async def fetch_artist_summary_via_musicbrainz(self, name: str) -> dict[str, Any]:
-        """Resolve MusicBrainz → Wikipedia to fetch an artist biography."""
-        wd_base = "https://www.wikidata.org/wiki/Special:EntityData"
+    async def musicbrainz_links(self, name: str) -> dict[str, Any]:
+        """Resolve *name* on MusicBrainz and collect the links a bio lookup needs.
 
+        Returns ``{"mbid", "wp_title", "homepages", "discogs_url"}``; keys are
+        missing / empty when MusicBrainz has no such data.  The English
+        Wikipedia title comes from a direct link or, failing that, from the
+        Wikidata sitelink.
+        """
         mb = MusicBrainzConnector(
             name="musicbrainz",
             base_url="https://musicbrainz.org/ws/2",
             user_agent=_USER_AGENT,
             rate_limit=50,
         )
-
         try:
             async with mb:
                 best_artist = await mb.resolve_artist(name)
                 if not best_artist:
                     logger.info("MB: no artists found for %r", name)
                     return {}
-
                 mbid: str = best_artist["id"]
                 logger.info(
                     "MB: resolved %r → %r, type=%r, score=%r, mbid=%s",
@@ -214,76 +244,49 @@ class WikipediaConnector:
                     best_artist.get("score"),
                     mbid,
                 )
-
                 detail = await mb.get_artist(mbid)
                 relations = detail.get("relations", [])
         except Exception as exc:
             logger.info("MB lookup failed for %r: %s", name, exc)
             return {}
 
-        logger.info("MB: %d URL relations for mbid=%s", len(relations), mbid)
-
-        wp_title: str | None = None
-
+        links: dict[str, Any] = {"mbid": mbid, "wp_title": None, "homepages": []}
+        wikidata_id: str | None = None
         for rel in relations:
             resource = rel.get("url", {}).get("resource", "")
-            match = re.search(r"en\.wikipedia\.org/wiki/([^#?]+)", resource)
+            kind = rel.get("type", "")
+            wp = re.search(r"en\.wikipedia\.org/wiki/([^#?]+)", resource)
+            wd = re.search(r"wikidata\.org/wiki/(Q\d+)", resource)
+            if wp and not links["wp_title"]:
+                links["wp_title"] = urllib.parse.unquote(wp.group(1).replace("_", " "))
+            elif wd and not wikidata_id:
+                wikidata_id = wd.group(1)
+            elif kind == "official homepage" and resource not in links["homepages"]:
+                links["homepages"].append(resource)
+            elif kind == "discogs":
+                links["discogs_url"] = resource
 
-            if match:
-                wp_title = urllib.parse.unquote(match.group(1).replace("_", " "))
-                logger.info("MB: found direct Wikipedia URL → %r", wp_title)
-                break
-
-        if not wp_title:
-            wikidata_id: str | None = None
-
-            for rel in relations:
-                resource = rel.get("url", {}).get("resource", "")
-                match = re.search(r"wikidata\.org/wiki/(Q\d+)", resource)
-
-                if match:
-                    wikidata_id = match.group(1)
-                    break
-
-            if not wikidata_id:
-                logger.info(
-                    "MB: no Wikipedia/Wikidata relation for %r, mbid=%s",
-                    name,
-                    mbid,
-                )
-                return {}
-
-            logger.info("MB: Wikidata=%s, resolving enwiki title", wikidata_id)
-
+        if not links["wp_title"] and wikidata_id:
             try:
-                async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as wd:
-                    r3 = await wd.get(f"{wd_base}/{wikidata_id}.json")
+                async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as wd_client:
+                    r3 = await wd_client.get(f"{_WIKIDATA_BASE}/{wikidata_id}.json")
                     r3.raise_for_status()
                     entity = r3.json().get("entities", {}).get(wikidata_id, {})
-                    wp_title = entity.get("sitelinks", {}).get("enwiki", {}).get("title")
+                    links["wp_title"] = entity.get("sitelinks", {}).get("enwiki", {}).get("title")
             except Exception as exc:
                 logger.info("Wikidata fetch failed for %s: %s", wikidata_id, exc)
-                return {}
+        logger.info(
+            "MB links for %r: wikipedia=%r homepages=%d",
+            name,
+            links["wp_title"],
+            len(links["homepages"]),
+        )
+        return links
 
-            if not wp_title:
-                logger.info("Wikidata %s has no enwiki sitelink", wikidata_id)
-                return {}
-
-            logger.info("Wikidata resolved → Wikipedia title %r", wp_title)
-
-        summary = await self.fetch_artist_summary(wp_title)
-
-        if summary.get("extract"):
-            logger.info(
-                "Wikipedia summary OK for %r, title=%r, extract=%d chars",
-                name,
-                wp_title,
-                len(summary["extract"]),
-            )
-        else:
-            logger.info("Wikipedia summary empty for title %r", wp_title)
-
-        return summary
+    async def fetch_artist_summary_via_musicbrainz(self, name: str) -> dict[str, Any]:
+        """REST summary of the Wikipedia page MusicBrainz links for *name* ({} if none)."""
+        title = (await self.musicbrainz_links(name)).get("wp_title")
+        return await self.fetch_artist_summary(title) if title else {}
 
 
 def _strip_html(text: str) -> str:
