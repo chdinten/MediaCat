@@ -17,7 +17,7 @@ PDOC    := $(VENV)/bin/pdoc
 MKDOCS  := $(VENV)/bin/mkdocs
 
 .PHONY: help bootstrap setup venv deps-sync data-init \
-        lint format typecheck security test test-fast \
+        lint format typecheck security test test-fast test-unit test-integration \
         docs docs-build docs-serve docs-api \
         up down restart logs ps config-check db-migrate db-status \
         ollama-up ollama-gpu-up ollama-down ollama-models \
@@ -67,11 +67,17 @@ security: ## Bandit + pip-audit
 	$(BANDIT) -q -r src -c pyproject.toml
 	$(AUDIT) --strict --disable-pip || true
 
-test: ## Pytest with coverage
+test: ## Pytest with coverage gate: unit + integration (throwaway Postgres container)
 	$(PYTEST)
 
-test-fast: ## Pytest excluding slow/integration
-	$(PYTEST) -m "not slow and not integration"
+test-unit: ## Unit tests only, no Docker needed (coverage reported, not gated)
+	$(PYTEST) -m "not integration" --cov-fail-under=0
+
+test-integration: ## Integration tests only (throwaway Postgres container; coverage not gated)
+	$(PYTEST) tests/integration --cov-fail-under=0
+
+test-fast: ## Pytest excluding slow/integration (coverage not gated)
+	$(PYTEST) -m "not slow and not integration" --cov-fail-under=0
 
 ## ---- Documentation ------------------------------------------------------
 
