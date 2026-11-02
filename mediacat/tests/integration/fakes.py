@@ -9,8 +9,10 @@ from __future__ import annotations
 import hashlib
 import io
 import ipaddress
+import json as json_mod
 import random
 import socket
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -138,19 +140,33 @@ class StubLlmBackend:
         return LlmResponse(text=self.reply, provider="stub", model="stub-model")
 
 
+Responder = httpx.Response | Callable[[httpx.Request], httpx.Response]
+
+
 class FakeHttp:
     """Canned answers for outbound ``httpx`` requests (Discogs, MusicBrainz, CDNs).
 
-    Register responses with :meth:`add`; a request matches on its URL without
-    the query string.  Anything unmatched falls through to :class:`NetworkGuard`
-    (blocked and reported).  ``requests`` lists every request answered here.
+    Replaces ``httpx.AsyncHTTPTransport.handle_async_request`` on top of
+    :class:`NetworkGuard`, so code that builds its own ``httpx.AsyncClient``
+    gets these answers.  A request matches on method and URL without the
+    query string; one matching no route is reported to the guard as blocked,
+    so the test still fails at teardown.  ``requests`` lists every request.
     """
 
-    def __init__(self) -> None:
-        self.routes: dict[str, list[httpx.Response]] = {}
+    def __init__(self, guard: NetworkGuard) -> None:
+        self.guard = guard
+        self.routes: list[tuple[str, str, list[Responder]]] = []
         self.requests: list[httpx.Request] = []
 
-    def add(
+    def add(self, method: str, url: str, *responses: Responder) -> None:
+        """Answer *method* requests to *url* (scheme://host/path).
+
+        Several responses are served in order; the last one repeats.  A
+        callable gets the request and returns the response.
+        """
+        self.routes.append((method.upper(), url, list(responses)))
+
+    def reply(
         self,
         url: str,
         *,
@@ -158,34 +174,46 @@ class FakeHttp:
         content: bytes = b"",
         status: int = 200,
         headers: dict[str, str] | None = None,
+        method: str = "GET",
     ) -> None:
-        """Answer requests to *url*.  Several answers for one URL are given in order; the last repeats."""
+        """Shorthand for :meth:`add` with one response built from the arguments."""
         resp = (
             httpx.Response(status, json=json, headers=headers)
             if json is not None
             else httpx.Response(status, content=content, headers=headers)
         )
-        self.routes.setdefault(url, []).append(resp)
+        self.add(method, url, resp)
 
-    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> FakeHttp:
         fake = self
-        fallthrough = httpx.AsyncHTTPTransport.handle_async_request
 
-        async def _send(transport: Any, request: httpx.Request) -> httpx.Response:
-            key = str(request.url.copy_with(query=None))
-            replies = fake.routes.get(key)
-            if not replies:
-                return await fallthrough(transport, request)
+        async def _send(_transport: Any, request: httpx.Request) -> httpx.Response:
+            await request.aread()
             fake.requests.append(request)
-            reply = replies.pop(0) if len(replies) > 1 else replies[0]
-            return httpx.Response(
-                reply.status_code, headers=reply.headers, content=reply.content, request=request
-            )
+            key = f"{request.url.scheme}://{request.url.host}{request.url.path}"
+            for method, url, responses in fake.routes:
+                if method == request.method and url == key:
+                    responder = responses.pop(0) if len(responses) > 1 else responses[0]
+                    return responder(request) if callable(responder) else responder
+            fake.guard.blocked.append(str(request.url))
+            msg = f"network blocked in tests (no FakeHttp route): {request.url}"
+            raise httpx.ConnectError(msg, request=request)
 
         monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _send)
+        return self
 
     def urls(self) -> list[str]:
+        """URLs (without query) of all requests, in order."""
         return [str(r.url.copy_with(query=None)) for r in self.requests]
+
+    def sent(self, method: str, url_prefix: str) -> list[httpx.Request]:
+        return [
+            r for r in self.requests if r.method == method and str(r.url).startswith(url_prefix)
+        ]
+
+
+def json_body(request: httpx.Request) -> Any:
+    return json_mod.loads(request.content)
 
 
 _LOOPBACK_NAMES = {"localhost", "testserver"}

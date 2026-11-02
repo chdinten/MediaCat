@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -13,13 +14,16 @@ from mediacat.db.enums import MediaFormat
 from mediacat.db.models import Country, Token
 from mediacat.storage.object_store import ObjectStore, ObjectStoreError
 
-from .conftest import TEST_DB_NAME, assert_test_db
+from .conftest import TEST_DB_NAME, IntegrationDb, assert_test_db
 from .fakes import FakeObjectStore, NetworkGuard, png_bytes
 
 
-async def test_connected_to_test_db_as_app_role(db: AsyncSession) -> None:
+async def test_connected_to_test_db_as_app_role(
+    db: AsyncSession, test_database: IntegrationDb
+) -> None:
+    expected_user = urlsplit(test_database.app_dsn).username
     row = (await db.execute(text("SELECT current_database(), current_user"))).one()
-    assert tuple(row) == (TEST_DB_NAME, "mediacat_app")
+    assert tuple(row) == (TEST_DB_NAME, expected_user)
 
 
 async def test_schema_is_at_alembic_head(db: AsyncSession) -> None:
@@ -34,7 +38,11 @@ async def test_schema_is_at_alembic_head(db: AsyncSession) -> None:
     assert (await db.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == head
 
 
-async def test_audit_log_is_append_only_for_app_role(db: AsyncSession) -> None:
+async def test_audit_log_is_append_only_for_app_role(
+    db: AsyncSession, test_database: IntegrationDb
+) -> None:
+    if test_database.app_dsn == test_database.migrator_dsn:
+        pytest.skip("MEDIACAT_TEST_DB_URL mode uses one role for everything")
     row = (
         await db.execute(
             text(

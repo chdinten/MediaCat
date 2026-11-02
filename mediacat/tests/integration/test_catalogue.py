@@ -744,12 +744,12 @@ def quick_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
 def serve_release(fake_http: Any, data: dict[str, Any], images: bool = True) -> dict[str, bytes]:
     from .fakes import noisy_jpeg
 
-    fake_http.add(f"{DISCOGS}/releases/{data['id']}", json=data)
+    fake_http.reply(f"{DISCOGS}/releases/{data['id']}", json=data)
     blobs: dict[str, bytes] = {}
     if images:
         for i, img in enumerate(data.get("images") or []):
             blobs[img["uri"]] = noisy_jpeg(seed=i)
-            fake_http.add(
+            fake_http.reply(
                 img["uri"], content=blobs[img["uri"]], headers={"content-type": "image/jpeg"}
             )
     return blobs
@@ -811,11 +811,11 @@ async def test_refresh_from_discogs_error_paths(
     assert (await admin.post(f"/catalogue/{no_id.id}/refresh-discogs")).status_code == 400
 
     token = await seed_token(db, discogs_release_id=9)
-    fake_http.add(f"{DISCOGS}/releases/9", status=500, json={"message": "boom"})
+    fake_http.reply(f"{DISCOGS}/releases/9", status=500, json={"message": "boom"})
     assert (await admin.post(f"/catalogue/{token.id}/refresh-discogs")).status_code == 502
 
     no_images = await seed_token(db, discogs_release_id=10)
-    fake_http.add(f"{DISCOGS}/releases/10", json=discogs_release(10, images=[]))
+    fake_http.reply(f"{DISCOGS}/releases/10", json=discogs_release(10, images=[]))
     r = await admin.post(f"/catalogue/{no_images.id}/refresh-discogs")
     assert r.headers["location"].endswith("?msg=no_discogs_images")
 
@@ -826,14 +826,14 @@ async def test_refresh_from_discogs_error_paths(
 async def test_discogs_preview_of_missing_release_is_404(
     reviewer: httpx.AsyncClient, fake_http: Any
 ) -> None:
-    fake_http.add(f"{DISCOGS}/releases/1", status=404, json={"message": "Release not found."})
+    fake_http.reply(f"{DISCOGS}/releases/1", status=404, json={"message": "Release not found."})
     assert (await reviewer.get("/catalogue/import/discogs/1")).status_code == 404
 
 
 async def test_import_from_musicbrainz(
     reviewer: httpx.AsyncClient, db: AsyncSession, fake_http: Any
 ) -> None:
-    fake_http.add(f"{MB}/release/{MBID}", json=mb_release())
+    fake_http.reply(f"{MB}/release/{MBID}", json=mb_release())
     preview = await reviewer.get(f"/catalogue/import/musicbrainz/{MBID}")
     assert "Remain in Light" in preview.text
 
@@ -856,7 +856,7 @@ async def test_contributor_cannot_import(contributor: httpx.AsyncClient, db: Asy
 async def test_new_form_prefills_from_discogs_id_and_flags_duplicates(
     contributor: httpx.AsyncClient, db: AsyncSession, fake_http: Any
 ) -> None:
-    fake_http.add(f"{DISCOGS}/releases/4242", json=discogs_release())
+    fake_http.reply(f"{DISCOGS}/releases/4242", json=discogs_release())
     r = await contributor.get("/catalogue/new?q=4242")  # a short number is a release id
     assert r.status_code == 200
     assert "Remain in Light" in r.text
@@ -873,7 +873,7 @@ async def test_new_form_text_search_marks_releases_already_catalogued(
     contributor: httpx.AsyncClient, db: AsyncSession, fake_http: Any
 ) -> None:
     await seed_token(db, discogs_release_id=111)
-    fake_http.add(
+    fake_http.reply(
         f"{DISCOGS}/database/search",
         json={
             "results": [
@@ -895,7 +895,7 @@ async def test_new_form_text_search_marks_releases_already_catalogued(
 async def test_new_form_barcode_and_musicbrainz_searches(
     contributor: httpx.AsyncClient, fake_http: Any
 ) -> None:
-    fake_http.add(
+    fake_http.reply(
         f"{DISCOGS}/database/search",
         json={"results": [{"id": 5, "title": "Kraftwerk -- Computer World", "label": ["EMI"]}]},
     )
@@ -903,7 +903,7 @@ async def test_new_form_barcode_and_musicbrainz_searches(
     assert "Computer World" in r.text
     assert fake_http.requests[0].url.params["barcode"] == "0724352200127"
 
-    fake_http.add(
+    fake_http.reply(
         f"{MB}/release/",
         json={
             "releases": [
@@ -922,7 +922,7 @@ async def test_new_form_barcode_and_musicbrainz_searches(
 async def test_new_form_reports_rate_limit_and_unreachable_api(
     contributor: httpx.AsyncClient, fake_http: Any, network_guard: Any
 ) -> None:
-    fake_http.add(f"{DISCOGS}/database/search", status=429, json={})
+    fake_http.reply(f"{DISCOGS}/database/search", status=429, json={})
     r = await contributor.get("/catalogue/new?q=anything")
     assert r.status_code == 200
     assert "rate limit" in r.text
@@ -954,13 +954,13 @@ async def test_save_genres_sanitises_and_dedupes(
 async def test_import_genres_merges_discogs_then_falls_back_to_musicbrainz(
     contributor: httpx.AsyncClient, db: AsyncSession, fake_http: Any
 ) -> None:
-    fake_http.add(f"{DISCOGS}/releases/4242", json=discogs_release())
+    fake_http.reply(f"{DISCOGS}/releases/4242", json=discogs_release())
     token = await seed_token(db, discogs_release_id=4242, genres=["Funk"])
     r = await contributor.post(f"/catalogue/{token.id}/import-genres")
     assert r.headers["location"].endswith("?msg=genres_imported")
     assert (await reload(db, token)).genres == ["Funk", "Rock", "New Wave"]
 
-    fake_http.add(f"{MB}/release/{MBID}", json=mb_release())
+    fake_http.reply(f"{MB}/release/{MBID}", json=mb_release())
     mb_only = await seed_token(db, musicbrainz_release_id=MBID)
     await contributor.post(f"/catalogue/{mb_only.id}/import-genres")
     assert (await reload(db, mb_only)).genres == ["New Wave", "Art Rock"]
@@ -984,14 +984,14 @@ async def test_rating_snaps_to_half_points(
 async def test_import_discogs_community_rating(
     contributor: httpx.AsyncClient, db: AsyncSession, fake_http: Any
 ) -> None:
-    fake_http.add(f"{DISCOGS}/releases/4242", json=discogs_release())
+    fake_http.reply(f"{DISCOGS}/releases/4242", json=discogs_release())
     token = await seed_token(db, discogs_release_id=4242)
     r = await contributor.post(f"/catalogue/{token.id}/import-discogs-rating")
     assert r.headers["location"].endswith("?msg=discogs_rating_imported")
     row = await reload(db, token)
     assert (row.discogs_community_rating, row.discogs_community_votes) == (4.42, 812)
 
-    fake_http.add(f"{DISCOGS}/releases/7", json=discogs_release(7, community={}))
+    fake_http.reply(f"{DISCOGS}/releases/7", json=discogs_release(7, community={}))
     unrated = await seed_token(db, discogs_release_id=7)
     r = await contributor.post(f"/catalogue/{unrated.id}/import-discogs-rating")
     assert r.headers["location"].endswith("?msg=no_discogs_rating")
@@ -1004,8 +1004,8 @@ async def test_import_discogs_community_rating(
 async def test_import_tracks_prefers_discogs_in_auto_mode(
     contributor: httpx.AsyncClient, db: AsyncSession, fake_http: Any
 ) -> None:
-    fake_http.add(f"{DISCOGS}/releases/4242", json=discogs_release())
-    fake_http.add(f"{MB}/release/{MBID}", json=mb_release())
+    fake_http.reply(f"{DISCOGS}/releases/4242", json=discogs_release())
+    fake_http.reply(f"{MB}/release/{MBID}", json=mb_release())
     token = await seed_token(db, discogs_release_id=4242, musicbrainz_release_id=MBID)
 
     r = await contributor.post(f"/catalogue/{token.id}/import-tracks", data={"source": "auto"})
@@ -1027,8 +1027,8 @@ async def test_import_tracks_prefers_discogs_in_auto_mode(
 async def test_import_tracks_falls_back_to_musicbrainz(
     contributor: httpx.AsyncClient, db: AsyncSession, fake_http: Any
 ) -> None:
-    fake_http.add(f"{DISCOGS}/releases/4242", json=discogs_release(tracklist=[]))
-    fake_http.add(f"{MB}/release/{MBID}", json=mb_release())
+    fake_http.reply(f"{DISCOGS}/releases/4242", json=discogs_release(tracklist=[]))
+    fake_http.reply(f"{MB}/release/{MBID}", json=mb_release())
     token = await seed_token(db, discogs_release_id=4242, musicbrainz_release_id=MBID)
     await contributor.post(f"/catalogue/{token.id}/import-tracks")
     assert len((await reload(db, token)).tracklist or []) == 2

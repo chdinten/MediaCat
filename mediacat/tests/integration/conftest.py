@@ -245,12 +245,21 @@ async def _snapshot_seed(admin_dsn: str) -> str:
             if await conn.fetchval(f'SELECT EXISTS (SELECT 1 FROM public."{t}")'):  # noqa: S608
                 await conn.execute(f'CREATE TABLE {_SEED_SCHEMA}."{t}" AS TABLE public."{t}"')
                 seeded.append(t)
+        superuser = await conn.fetchval(
+            "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+        )
     finally:
         await conn.close()
-    sql = "TRUNCATE " + ", ".join(f'public."{t}"' for t in tables) + " RESTART IDENTITY CASCADE;"
-    for t in seeded:
-        sql += f' INSERT INTO public."{t}" SELECT * FROM {_SEED_SCHEMA}."{t}";'  # noqa: S608
-    return sql
+    restore = "".join(
+        f' INSERT INTO public."{t}" SELECT * FROM {_SEED_SCHEMA}."{t}";'  # noqa: S608
+        for t in seeded
+    )
+    if superuser:
+        # DELETE with FK triggers off: ~5x faster than TRUNCATE on near-empty tables.
+        deletes = "".join(f' DELETE FROM public."{t}";' for t in tables)  # noqa: S608
+        return f"BEGIN; SET LOCAL session_replication_role = replica;{deletes}{restore} COMMIT;"
+    targets = ", ".join(f'public."{t}"' for t in tables)
+    return f"TRUNCATE {targets} RESTART IDENTITY CASCADE;{restore}"
 
 
 @pytest.fixture(scope="session")
@@ -321,9 +330,7 @@ def network_guard(monkeypatch: pytest.MonkeyPatch) -> Iterator[NetworkGuard]:
 @pytest.fixture
 def fake_http(network_guard: NetworkGuard, monkeypatch: pytest.MonkeyPatch) -> FakeHttp:
     """Canned external HTTP answers (see :class:`FakeHttp`); unmatched requests stay blocked."""
-    fake = FakeHttp()
-    fake.install(monkeypatch)
-    return fake
+    return FakeHttp(network_guard).install(monkeypatch)
 
 
 @pytest.fixture
