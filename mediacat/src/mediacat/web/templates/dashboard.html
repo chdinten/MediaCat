@@ -5,13 +5,12 @@
 
 {% block head %}
 <script src="/static/dashboard.js" defer></script>
+<script src="/static/background.js" defer></script>
 {% endblock %}
 
 {% block content %}
-<!-- Fixed turntable background (z-index:1) — stays in place while page content scrolls over it -->
-<div id="dash-bg" aria-hidden="true">
-    <img src="/static/hero-turntable1.jpg" alt="" class="dash-bg-img-fixed">
-</div>
+<!-- Fixed background (z-index:1) — stays in place while page content scrolls over it -->
+{% include "partials/page_background.html" %}
 <!-- Fade overlay (z-index:2) — JS fades in after ~1 screen of scroll -->
 <div id="dash-fade-overlay" aria-hidden="true"
      style="position:fixed;inset:0;z-index:2;background:var(--bg);opacity:0;pointer-events:none;"></div>
@@ -20,7 +19,6 @@
 <div class="dash-content-wrap">
 <section class="hero hero--dashboard">
     <div class="hero-bg">
-        <img src="/static/hero-turntable1.jpg" alt="Vinyl record spinning under a warm tungsten lamp" class="hero-bg-img">
         <div class="hero-lamp-wash"></div>
         <div class="hero-fade"></div>
         <div class="hero-vignette"></div>

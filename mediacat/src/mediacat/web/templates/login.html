@@ -1,8 +1,14 @@
 {% extends layout_base %}
 {% block title %}Login — MediaCat{% endblock %}
 
+{% block head %}
+<script src="/static/background.js" defer></script>
+{% endblock %}
+
 {% block content %}
-<div class="auth-wrap">
+{% include "partials/page_background.html" %}
+<div class="auth-wrap{% if background.fit == 'width' %} auth-wrap--below-bg{% endif %}"
+     style="--bg-ratio: {{ background.ratio }}">
     <div class="auth-card">
         <h1>Sign in</h1>
         {% if error %}

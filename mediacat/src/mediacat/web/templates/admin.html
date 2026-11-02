@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Admin — MediaCat{% endblock %}
-{% block head %}<script src="/static/admin.js" defer></script>{% endblock %}
+{% block head %}<script src="/static/admin.js" defer></script>
+<script src="/static/background.js" defer></script>{% endblock %}
 
 {% block content %}
 <div class="admin-page">
@@ -448,6 +449,118 @@
         </div>
 
     </div>
+</div>
+
+{# Background of the login page and the dashboard — web/background.py #}
+{% set bg = background %}
+{% set bg_msg = request.query_params.get('bg_msg') %}
+{% set bg_error = request.query_params.get('bg_error') %}
+<div class="admin-section" id="background">
+    <h2>Background</h2>
+    <p class="text-muted" style="margin-bottom:1rem">
+        Shown behind the login page and the dashboard, for every user.
+        The still image is also shown while the animation loads, and to users
+        whose system asks for reduced motion.
+    </p>
+
+    {% if bg_msg == 'uploaded' %}
+    <div class="alert alert-success">Background uploaded and activated.</div>
+    {% elif bg_msg == 'uploaded_slow' %}
+    <div class="alert alert-success">
+        Background uploaded and activated. Note: this MP4 keeps its index at the end of the
+        file, so playback starts only once it has fully loaded. Re-encoding with
+        <code>-movflags +faststart</code> lets it start at once.
+    </div>
+    {% elif bg_msg == 'mode' %}
+    <div class="alert alert-success">Background mode saved.</div>
+    {% elif bg_msg == 'fit' %}
+    <div class="alert alert-success">Background display saved.</div>
+    {% elif bg_msg == 'reset' %}
+    <div class="alert alert-success">Built-in background restored.</div>
+    {% endif %}
+    {% if bg_error %}
+    <div class="alert alert-danger">{{ bg.errors.get(bg_error, 'Upload failed.') }}</div>
+    {% endif %}
+
+    <div class="layout-cards">
+        <div class="layout-card {% if bg.mode == 'video' %}active{% endif %}">
+            <div class="layout-card-name">Animation</div>
+            <video class="bg-preview bg-preview--{{ bg.fit }} js-bg-video" autoplay muted loop playsinline
+                   disablepictureinpicture preload="metadata" poster="{{ bg.image_url }}">
+                {% for v in bg.videos %}<source src="{{ v.url }}" type="{{ v.type }}">{% endfor %}
+            </video>
+            <div class="layout-card-desc">
+                {% for d in bg.video_descs %}<div>{{ d }}</div>{% endfor %}
+            </div>
+            {% if bg.mode == 'video' %}
+            <span class="layout-card-badge">&#x2714; Active</span>
+            {% else %}
+            <form method="post" action="/admin/background/mode">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="mode" value="video">
+                <button type="submit" class="btn btn-primary btn-sm">Activate</button>
+            </form>
+            {% endif %}
+        </div>
+
+        <div class="layout-card {% if bg.mode == 'image' %}active{% endif %}">
+            <div class="layout-card-name">Still image</div>
+            <img class="bg-preview bg-preview--{{ bg.fit }}" src="{{ bg.image_url }}" alt="Current background image">
+            <div class="layout-card-desc">{{ bg.image_desc }}</div>
+            {% if bg.mode == 'image' %}
+            <span class="layout-card-badge">&#x2714; Active</span>
+            {% else %}
+            <form method="post" action="/admin/background/mode">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="mode" value="image">
+                <button type="submit" class="btn btn-ghost btn-sm">Activate</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="bg-fit">
+        <span class="text-muted">Display:</span>
+        {% for value, label, hint in [
+            ('width', 'Fit to width', 'whole picture across the window, page colour below'),
+            ('cover', 'Fill screen', 'fills the window, cropped at the sides')] %}
+        {% if bg.fit == value %}
+        <span class="layout-card-badge" title="{{ hint }}">&#x2714; {{ label }}</span>
+        {% else %}
+        <form method="post" action="/admin/background/fit">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="fit" value="{{ value }}">
+            <button type="submit" class="btn btn-ghost btn-sm" title="{{ hint }}">{{ label }}</button>
+        </form>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <form method="post" action="/admin/background/upload" enctype="multipart/form-data"
+          class="bg-upload">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="bg-files" class="form-label">Upload a new background (1–3 files at once)</label>
+        <input id="bg-files" type="file" name="files" multiple required
+               accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,image/jpeg,image/png,image/webp,video/mp4,video/webm">
+        <ul class="bg-upload-rules text-muted">
+            <li><b>Still image</b>: JPEG, PNG or WebP, at least {{ bg.limits.min_width }} × {{ bg.limits.min_height }} px,
+                up to {{ bg.limits.image_mb }} MB.</li>
+            <li><b>Animation</b>: MP4 (H.264) and/or WebM (VP8 / VP9 / AV1), up to
+                {{ bg.limits.video_mb }} MB and {{ bg.limits.max_duration }} s, silent seamless loop.
+                Uploading both formats of the same clip lets every browser pick the one it plays best.</li>
+            <li>Files are checked by their content, not their name. A video activates the
+                animation; an image alone activates the still image. Upload the matching still
+                with a new animation so the first frame does not jump.</li>
+        </ul>
+        <button type="submit" class="btn btn-primary btn-sm">&#x2B06; Upload</button>
+    </form>
+
+    {% if bg.customised %}
+    <form method="post" action="/admin/background/reset" class="bg-reset">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-ghost btn-sm">Restore the built-in background</button>
+    </form>
+    {% endif %}
 </div>
 
 {% elif tab == 'api-tokens' %}

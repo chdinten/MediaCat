@@ -183,10 +183,19 @@ if os.environ.get("MEDIACAT_ENV", "dev") == "dev":
 @auth_router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request) -> HTMLResponse:
     """Render the login form."""
+    return await _login_response(request)
+
+
+async def _login_response(
+    request: Request, error: str | None = None, status_code: int = 200
+) -> HTMLResponse:
+    from mediacat.web.background import page_background
+
     return _tmpl().TemplateResponse(
         request=request,
         name="login.html",
-        context=_ctx(request, error=None),
+        context=_ctx(request, error=error, background=await page_background(request)),
+        status_code=status_code,
     )
 
 
@@ -203,12 +212,7 @@ async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout
 
     # Rate limiting by username and IP
     if await rate_limiter.is_locked(username) or await rate_limiter.is_locked(ip):
-        return _tmpl().TemplateResponse(
-            request=request,
-            name="login.html",
-            context=_ctx(request, error="Account temporarily locked. Try again later."),
-            status_code=429,
-        )
+        return await _login_response(request, "Account temporarily locked. Try again later.", 429)
 
     # Lookup user — check in-memory bootstrap store first, then DB
     user: dict[str, Any] | None = _users_store.get(username)
@@ -250,12 +254,7 @@ async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout
     if not user or not user.get("is_active", False):
         await rate_limiter.record_failure(username)
         await rate_limiter.record_failure(ip)
-        return _tmpl().TemplateResponse(
-            request=request,
-            name="login.html",
-            context=_ctx(request, error="Invalid username or password."),
-            status_code=401,
-        )
+        return await _login_response(request, "Invalid username or password.", 401)
 
     # Verify password
     if not verify_password(password, user["password_hash"]):
@@ -263,12 +262,7 @@ async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout
         await rate_limiter.record_failure(ip)
         user["failed_login_count"] = user.get("failed_login_count", 0) + 1
         logger.warning("Failed login for user=%s from ip=%s", username, ip)
-        return _tmpl().TemplateResponse(
-            request=request,
-            name="login.html",
-            context=_ctx(request, error="Invalid username or password."),
-            status_code=401,
-        )
+        return await _login_response(request, "Invalid username or password.", 401)
 
     # Check if password needs rehash (params changed)
     new_hash = hash_password(password) if needs_rehash(user["password_hash"]) else None
@@ -336,6 +330,8 @@ async def logout(request: Request) -> RedirectResponse:
 @dashboard_router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     """Main dashboard."""
+    from mediacat.web.background import page_background
+
     stats: dict[str, Any] = {"total": 0, "vinyl": 0, "cd": 0, "artists": 0, "oldest_year": None}
     recent: list[Any] = []
     top_rated: list[Any] = []
@@ -468,6 +464,7 @@ async def dashboard(request: Request) -> HTMLResponse:
         top_rated=top_rated,
         genre_carousels=genre_carousels,
         genre_stats=genre_stats,
+        background=await page_background(request),
     )
     return _tmpl().TemplateResponse(request=request, name="dashboard.html", context=context)
 

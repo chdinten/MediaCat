@@ -262,6 +262,12 @@ async def admin_home(request: Request, tab: str = "users") -> HTMLResponse:
     if tab == "api-tokens":
         api_credentials = await _load_api_credentials(request)
 
+    background: dict[str, Any] = {}
+    if tab == "layout":
+        from mediacat.web.background import admin_view
+
+        background = await admin_view(request)
+
     context = _ctx(
         request,
         tab=tab,
@@ -273,6 +279,7 @@ async def admin_home(request: Request, tab: str = "users") -> HTMLResponse:
         deleted_pressings=deleted_pressings,
         discogs_import_count=discogs_import_count,
         api_credentials=api_credentials,
+        background=background,
     )
     return _tmpl().TemplateResponse(request=request, name="admin.html", context=context)
 

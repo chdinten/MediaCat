@@ -344,4 +344,8 @@ def create_app() -> FastAPI:
 
     app.include_router(admin_router)
 
+    from mediacat.web.background import background_router
+
+    app.include_router(background_router)
+
     return app

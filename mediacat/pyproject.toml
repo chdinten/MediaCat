@@ -108,6 +108,7 @@ ignore = [
 "src/mediacat/web/routes.py" = ["ARG001", "E402", "PLC0415", "N814"]  # FastAPI handler params + deferred (aliased) imports
 "src/mediacat/web/catalogue.py" = ["ARG001", "E402", "PLC0415", "B008", "PLR0912", "PLR0915", "RUF001", "RUF003", "A001", "SIM105", "B904", "G201", "N806", "N814"]  # FastAPI DI params + deferred imports; intentional EN dash; complexity in route handlers
 "src/mediacat/web/admin.py" = ["PLC0415", "B008", "N814", "PLR0912", "PLR0915"]  # FastAPI DI params + deferred imports; complexity in route handlers / import loop
+"src/mediacat/web/background.py" = ["B008"]  # FastAPI File() default
 "src/mediacat/web/artists.py" = ["PLC0415", "PLR0912", "PLR0915"]  # deferred imports; complexity in route handlers
 "src/mediacat/web/app.py" = ["PLR0912", "PLR0915", "PLC0415"]  # lifespan complexity + deferred imports
 "src/mediacat/web/middleware.py" = ["PLC0415", "SIM110"]  # inline import + loop clarity

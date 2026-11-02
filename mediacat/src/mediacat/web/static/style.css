@@ -859,11 +859,15 @@ select option { background: var(--surface); }
     align-items: center;
     justify-content: center;
     padding: 2rem;
-    /* Turntable background — fixed so it doesn't scroll */
-    background-image: url('/static/hero-turntable2.jpg');
-    background-size: cover;
-    background-position: center 35%;
-    background-attachment: fixed;
+    /* Above the fixed #dash-bg background (partials/page_background.html) */
+    position: relative;
+    z-index: 3;
+}
+/* Background fitted to the width: the card starts in its faded lower edge,
+   leaving the turntable visible (--bg-ratio = picture height / width) */
+.auth-wrap--below-bg {
+    align-items: flex-start;
+    padding-top: calc(var(--bg-ratio) * 100vw * 0.85);
 }
 .auth-card {
     width: 100%;
@@ -2622,7 +2626,6 @@ h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
     margin-bottom: 3rem;
 }
 .hero-bg { position: absolute; inset: 0; }
-.hero-bg-img { width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
 .hero-lamp-wash {
     position: absolute; inset: 0;
     background: var(--gradient-lamp);
@@ -2711,6 +2714,22 @@ h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
     object-position: center 30%;
     display: block;
 }
+/* The looping video lies over the still image (also its poster) */
+#dash-bg .dash-bg-video { position: absolute; inset: 0; }
+/* Fit to width: the whole picture below the top bar, fading into the page colour */
+#dash-bg.dash-bg--width .dash-bg-img-fixed {
+    position: absolute;
+    inset: auto;
+    top: var(--sp-topbar-h, var(--nav-height));
+    left: 0;
+    width: 100%;
+    height: auto;
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+            mask-image: linear-gradient(to bottom, #000 82%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+    #dash-bg .dash-bg-video { display: none; }
+}
 /* Fade overlay sits above bg (z-index:2); JS drives opacity */
 #dash-fade-overlay { transition: opacity 0.25s ease; }
 /* Content wrapper above both bg and fade overlay */
@@ -2724,8 +2743,6 @@ h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
 }
 /* Stats row follows the text block directly */
 .hero--dashboard .hero-stats-row { margin-top: 1.5rem; }
-/* Hide inline hero img — the fixed #dash-bg provides the same image */
-.hero--dashboard .hero-bg-img { display: none; }
 
 /* ── Stat cards ──────────────────────────────────────────── */
 .stat-card { border-radius: 0; border: none; border-top: 2px solid var(--border); padding-top: 1rem; }
@@ -4035,3 +4052,55 @@ dialog.mc-lightbox::backdrop { background: hsl(0 0% 0% / 0.72); backdrop-filter:
 .dc-preview-side b { color: var(--accent-light); }
 .dc-preview-side code { font-family: var(--font-mono); font-size: 0.76rem; overflow-wrap: anywhere; color: var(--text); }
 .dc-preview-error { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+
+/* ============================================================
+   ADMIN — Layout switcher cards
+   ============================================================ */
+.layout-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+.layout-card {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.layout-card.active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+.layout-card-name { font-weight: 700; font-size: 1rem; }
+.layout-card-version { font-size: 0.75rem; color: var(--text-dim); }
+.layout-card-desc { font-size: 0.85rem; color: var(--text-muted); flex: 1; }
+.layout-card-badge {
+    font-size: 0.72rem;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    align-self: flex-start;
+}
+
+/* Background section (login page + dashboard) */
+.bg-preview {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 4px;
+    background: var(--bg);
+    display: block;
+}
+.bg-preview--width { object-fit: contain; object-position: top; }
+.bg-fit { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 1rem; }
+.bg-fit form { display: inline; }
+.bg-upload { margin-top: 1.25rem; max-width: 46rem; }
+.bg-upload input[type="file"] { display: block; width: 100%; padding: 0.4rem 0; color: var(--text); }
+.bg-upload-rules { font-size: 0.82rem; margin: 0.5rem 0 0.9rem 1.1rem; }
+.bg-upload-rules li { margin-bottom: 0.25rem; }
+.bg-reset { margin-top: 0.75rem; }
