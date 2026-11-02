@@ -8,6 +8,7 @@ repos:
     hooks:
       - id: check-added-large-files
         args: [--maxkb=1024]
+        exclude: ^mediacat/design/  # logo sources (design/logos/README.md)
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-symlinks
