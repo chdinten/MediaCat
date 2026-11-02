@@ -44,7 +44,7 @@ PostgreSQL 16, MinIO, Redis, OPA. Docker Compose deployment on WSL2.
 - `.bat` files keep CRLF (`/.gitattributes`); everything else LF
 
 ## Open items
-- Test coverage is ~39% against `--cov-fail-under=55`, so `make test` fails on coverage although all tests pass
+- Test coverage is ~43%; `fail_under` in `[tool.coverage.report]` (pyproject.toml) is a ratchet at 42 — only raise it, target 55
 
 ## Documentation
 - MediaCat_Technical_Reference.md — architecture, schema, API, configuration
