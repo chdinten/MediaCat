@@ -1101,21 +1101,32 @@ async def token_new_form(
             mbid_str = prefill.get("musicbrainz_release_id") or ""
             dup_token: Token | None = None
             if did_int:
+                # Several live rows may share a release id (copies, merged duplicates).
                 dup_token = (
-                    await db.execute(
-                        select(Token)
-                        .where(Token.discogs_release_id == did_int)
-                        .where(Token.deleted_at.is_(None))
+                    (
+                        await db.execute(
+                            select(Token)
+                            .where(Token.discogs_release_id == did_int)
+                            .where(Token.deleted_at.is_(None))
+                            .limit(1)
+                        )
                     )
-                ).scalar_one_or_none()
+                    .scalars()
+                    .first()
+                )
             elif mbid_str:
                 dup_token = (
-                    await db.execute(
-                        select(Token)
-                        .where(Token.musicbrainz_release_id == mbid_str)
-                        .where(Token.deleted_at.is_(None))
+                    (
+                        await db.execute(
+                            select(Token)
+                            .where(Token.musicbrainz_release_id == mbid_str)
+                            .where(Token.deleted_at.is_(None))
+                            .limit(1)
+                        )
                     )
-                ).scalar_one_or_none()
+                    .scalars()
+                    .first()
+                )
             if dup_token:
                 duplicate = {
                     "id": str(dup_token.id),
@@ -3439,7 +3450,7 @@ async def correct_matrix_field(request: Request, token_id: str) -> RedirectRespo
             },
             comment=(
                 f"Corrected {_PARSED_FIELD_LABELS.get(field_key, field_key)} "
-                f"(side {'B' if is_b else 'A'}): {old_value!r} â†' {new_value!r}. "
+                f"(side {'B' if is_b else 'A'}): {old_value!r} → {new_value!r}. "
                 f"Reason: {reason_code}" + (f" -- {reason_text}" if reason_text else "")
             ),
             created_by=_user_uuid(request),
@@ -3701,13 +3712,14 @@ async def import_tracks(
         except Exception as exc:
             logger.warning("Discogs tracklist import failed for token=%s: %s", token_id, exc)
 
-    if (not tracklist or use_mb) and token.musicbrainz_release_id:
+    # "auto": MusicBrainz only when Discogs gave nothing.
+    if use_mb and (not tracklist or source == "musicbrainz") and token.musicbrainz_release_id:
         try:
             mb_data = await _fetch_mb_release(token.musicbrainz_release_id)
             from mediacat.ingestion.musicbrainz import _extract_tracklist as _mbtl
 
             mb_tracks = _mbtl(mb_data.get("media", []))
-            if mb_tracks and (not tracklist or use_mb):
+            if mb_tracks:
                 tracklist = mb_tracks
                 mb_url = f"https://musicbrainz.org/release/{token.musicbrainz_release_id}"
         except Exception as exc:
