@@ -100,12 +100,24 @@
 
     {# ── Search results comparison table ── #}
     {% if search_results %}
-    <div class="find-results">
+    {% set cards_ok = search_source != 'musicbrainz' %}
+    <div class="find-results{% if cards_ok %} js-find-results{% endif %}">
         <div class="find-results-header">
+            <span>
             {{ search_results|length }} result{% if search_results|length != 1 %}s{% endif %}
             from {{ 'MusicBrainz' if search_source == 'musicbrainz' else 'Discogs' }}
             {% if search_query %}for "<strong>{{ search_query }}</strong>"{% endif %}
             — choose the correct pressing:
+            </span>
+            {% if cards_ok %}
+            <span class="find-view-toggle" role="group" aria-label="Result view">
+                <button type="button" class="btn btn-ghost btn-xs js-find-view is-active" data-view="table"
+                        aria-pressed="true">Table</button>
+                <button type="button" class="btn btn-ghost btn-xs js-find-view" data-view="cards"
+                        aria-pressed="false"
+                        title="Cards with Discogs images, format details and the first matrix / runout variant">Cards with images</button>
+            </span>
+            {% endif %}
         </div>
         <div class="find-results-table-wrap">
             <table class="find-results-table">
@@ -151,6 +163,40 @@
                 </tbody>
             </table>
         </div>
+        {% if cards_ok %}
+        {# Cards view: details load per card from Discogs when the card scrolls
+           into view (hidden cards never load), see discogs_preview.html #}
+        <div class="find-cards" hidden>
+            {% for r in search_results %}
+            <article class="find-card {% if r.in_catalogue %}find-row-exists{% endif %}">
+                <header class="find-card-head">
+                    <div class="result-artist-title">
+                        {% if r.artist %}<span class="result-artist-name">{{ r.artist }}</span>
+                        <span class="result-sep">–</span>{% endif %}
+                        <span>{{ r.title }}</span>
+                        {% if r.in_catalogue %}<span class="badge-exists" title="Already in your catalogue">In catalogue</span>{% endif %}
+                    </div>
+                    <div class="find-card-meta">
+                        {{ r.year or '—' }} · {{ r.country or '—' }}
+                        {% if r.catno %} · <span class="monospace">{{ r.catno }}</span>{% endif %}
+                    </div>
+                    <div class="find-card-meta text-dim">{{ r.format or '' }}</div>
+                    <div class="find-card-meta text-dim find-card-label">{{ r.label or '' }}</div>
+                </header>
+                <div class="dc-preview"
+                     hx-get="/catalogue/new/discogs-preview/{{ r.id }}"
+                     hx-trigger="intersect once" hx-swap="innerHTML">
+                    <span class="text-dim dc-preview-loading">Loading images and matrix codes from Discogs…</span>
+                </div>
+                <footer class="find-card-actions">
+                    <a href="/catalogue/new?discogs_id={{ r.id }}" class="btn btn-primary btn-sm">Use this</a>
+                    {% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener noreferrer"
+                       class="btn btn-ghost btn-sm">View on Discogs ↗</a>{% endif %}
+                </footer>
+            </article>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 </div>

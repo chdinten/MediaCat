@@ -5,6 +5,7 @@ URL structure
 POST /catalogue/{token_id}/discogs-details/refresh   re-fetch identifiers + collection fields
 POST /catalogue/{token_id}/discogs-collection        save collection fields (optionally write back)
 GET  /catalogue/{token_id}/print.pdf                 A4 album sheet as PDF
+GET  /catalogue/new/discogs-preview/{release_id}     images + first runout variant (Add pressing cards)
 
 Collection custom fields ("Runout / Matrix LP1 - A", "Autographed",
 "Signed by", …) live on the *collection instance* of a release, so reading and
@@ -17,13 +18,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 import urllib.parse
 import uuid
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -34,9 +36,10 @@ from mediacat.ingestion.discogs_extras import (
     lp_letters,
     merge_collection,
     release_extra,
+    release_preview,
     track_lp,
 )
-from mediacat.web.routes import _require_role
+from mediacat.web.routes import _ctx, _require_role, _tmpl
 
 logger = logging.getLogger(__name__)
 
@@ -421,4 +424,66 @@ async def album_sheet_pdf(request: Request, token_id: str) -> Response:
             ),
             "Cache-Control": "no-store",
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Add pressing: release preview cards
+# ---------------------------------------------------------------------------
+
+#: Release previews by Discogs id: (monotonic time, preview).  Re-searching or
+#: switching views does not spend the shared ~60 requests/minute again.
+_PREVIEW_CACHE: dict[int, tuple[float, dict[str, Any]]] = {}
+_PREVIEW_TTL = 3600.0
+_PREVIEW_MAX = 500
+
+
+async def _fetch_release_as(release_id: int, token: str) -> dict[str, Any]:
+    """Fetch a release with the admin-configured token, riding out 429 bursts."""
+    from mediacat.web.catalogue import _DISCOGS_BASE, _USER_AGENT  # noqa: PLC0415 - circular
+
+    headers = {"User-Agent": _USER_AGENT}
+    if token:
+        headers["Authorization"] = f"Discogs token={token}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for wait in (*RATE_LIMIT_WAITS, None):
+            r = await client.get(f"{_DISCOGS_BASE}/releases/{release_id}", headers=headers)
+            if r.status_code != 429 or wait is None:
+                r.raise_for_status()
+                return r.json()  # type: ignore[no-any-return]
+            await asyncio.sleep(wait)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+@discogs_details_router.get("/new/discogs-preview/{release_id}", response_class=HTMLResponse)
+async def discogs_release_preview(request: Request, release_id: int) -> HTMLResponse:
+    """Images and first runout variant of a search result (HTMX, lazy per card)."""
+    _require_role(request, "admin", "reviewer", "contributor")
+    from mediacat.web.admin import _resolve_discogs_token  # noqa: PLC0415 - circular
+
+    preview: dict[str, Any] | None = None
+    error = ""
+    cached = _PREVIEW_CACHE.get(release_id)
+    if cached and time.monotonic() - cached[0] < _PREVIEW_TTL:
+        preview = cached[1]
+    else:
+        try:
+            data = await _fetch_release_as(release_id, await _resolve_discogs_token(request))
+            preview = release_preview(data)
+            if len(_PREVIEW_CACHE) >= _PREVIEW_MAX:
+                _PREVIEW_CACHE.pop(next(iter(_PREVIEW_CACHE)))
+            _PREVIEW_CACHE[release_id] = (time.monotonic(), preview)
+        except httpx.HTTPStatusError as exc:
+            error = (
+                "Discogs rate limit reached (a running collection import uses the allowance)."
+                if exc.response.status_code == 429
+                else f"Discogs returned HTTP {exc.response.status_code}."
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("Discogs preview %s failed: %s", release_id, exc)
+            error = "Could not reach Discogs."
+    return _tmpl().TemplateResponse(
+        request=request,
+        name="partials/discogs_preview.html",
+        context=_ctx(request, preview=preview, error=error, release_id=release_id),
     )

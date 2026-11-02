@@ -382,8 +382,12 @@
 </form>
 {% endmacro %}
 
+{# A variant with more than two LPs (box sets) spans the full width, shows its
+   LPs as blocks side by side and keeps its header (All / Copy to My copy)
+   pinned while scrolling. #}
 {% macro variant_article(v, can_pick, extra_class="", attrs="") %}
-    <article class="dc-variant{% if v.matches %} is-match{% endif %}{% if can_pick %} dc-variant--pick{% endif %}{{ extra_class }}"{{ attrs | safe }}>
+    {% set wide = v.lps | length > 2 %}
+    <article class="dc-variant{% if v.matches %} is-match{% endif %}{% if can_pick %} dc-variant--pick{% endif %}{% if wide %} dc-variant--wide{% endif %}{{ extra_class }}"{{ attrs | safe }}>
         <header class="dc-variant-head">
             <span class="dc-variant-label">{{ v.label }}{% if v.matches %} · ★ your copy{% endif %}</span>
             {% if can_pick %}
@@ -395,7 +399,9 @@
                         title="Copy the ticked codes into the matching My copy runout fields (you still need to save)">Copy to My copy</button>
             </span>
             {% endif %}
+            {% if wide %}<span class="dc-variant-count text-dim">{{ v.lps | length }} LPs</span>{% endif %}
         </header>
+        <div class="dc-lp-grid">
         {% for lp in v.lps %}
         <div class="dc-lp">
             <div class="dc-lp-label">LP {{ lp.lp }}</div>
@@ -435,6 +441,7 @@
             {% endfor %}
         </div>
         {% endif %}
+        </div>
     </article>
 {% endmacro %}
 
@@ -1255,7 +1262,7 @@
         </div>
         <div id="crop-status" class="upload-status" style="display:none"></div>
     </div>
-</div>
+</dialog>
 
 <script src="/static/pressing.js"></script>
 {% endblock %}

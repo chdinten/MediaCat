@@ -422,6 +422,38 @@ def collection_view(extra: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def release_preview(data: dict[str, Any], *, max_images: int = 8) -> dict[str, Any]:
+    """Summarise a Discogs release for the "Add pressing" cards view.
+
+    Images (primary first, https only), the first runout variant, barcodes and
+    the free-text format details ("Yellow labels", "Gatefold") that tell
+    otherwise identical pressings apart.
+    """
+    images: list[dict[str, Any]] = []
+    for img in data.get("images") or []:
+        if not isinstance(img, dict):
+            continue
+        full = str(img.get("uri") or "")
+        thumb = str(img.get("uri150") or full)
+        if full.startswith("https://") and thumb.startswith("https://"):
+            images.append({"thumb": thumb, "full": full, "primary": img.get("type") == "primary"})
+    images.sort(key=lambda i: not i["primary"])  # stable: primary first
+
+    groups = group_runouts(data.get("identifiers"))
+    variants = groups["variants"]
+    formats = [f for f in data.get("formats") or [] if isinstance(f, dict)]
+    return {
+        "images": images[:max_images],
+        "image_count": len(images),
+        "variant": variants[0] if variants else None,
+        "variant_count": len(variants),
+        "barcodes": [o["value"] for o in groups["other"] if o["type"].lower() == "barcode"][:3],
+        "format_text": ", ".join(str(f["text"]) for f in formats if f.get("text")),
+        "released": str(data.get("released") or ""),
+        "track_count": len([t for t in data.get("tracklist") or [] if isinstance(t, dict)]),
+    }
+
+
 def release_extra(data: dict[str, Any]) -> dict[str, Any]:
     """Build the ``extra["discogs"]`` payload from a Discogs release JSON."""
     return {

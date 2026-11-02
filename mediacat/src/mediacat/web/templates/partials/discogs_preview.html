@@ -1,0 +1,52 @@
+{# Lazy details of one Discogs search result in the Add pressing cards view:
+   images (click opens the lightbox), format details, barcode and the first
+   runout variant.  Loaded per card by /catalogue/new/discogs-preview/{id}. #}
+{% if error %}
+<div class="dc-preview-error">
+    <span class="text-muted">{{ error }}</span>
+    <button type="button" class="btn btn-ghost btn-xs"
+            hx-get="/catalogue/new/discogs-preview/{{ release_id }}"
+            hx-target="closest .dc-preview" hx-swap="innerHTML">Try again</button>
+</div>
+{% elif preview %}
+{% if preview.images %}
+<div class="dc-preview-images">
+    {% for img in preview.images %}
+    <a class="image-thumb-link" href="{{ img.full }}" target="_blank" rel="noopener noreferrer"
+       title="Click to enlarge">
+        <img src="{{ img.thumb }}" alt="Discogs image {{ loop.index }}" loading="lazy">
+    </a>
+    {% endfor %}
+    {% if preview.image_count > preview.images | length %}
+    <span class="dc-preview-more text-dim">+{{ preview.image_count - preview.images | length }}</span>
+    {% endif %}
+</div>
+{% else %}
+<p class="text-dim dc-preview-none">No images on Discogs.</p>
+{% endif %}
+
+<dl class="dc-preview-facts">
+    {% if preview.format_text %}<dt>Details</dt><dd>{{ preview.format_text }}</dd>{% endif %}
+    {% if preview.released %}<dt>Released</dt><dd>{{ preview.released }}</dd>{% endif %}
+    {% if preview.track_count %}<dt>Tracks</dt><dd>{{ preview.track_count }}</dd>{% endif %}
+    {% if preview.barcodes %}<dt>Barcode</dt><dd class="monospace">{{ preview.barcodes | join(', ') }}</dd>{% endif %}
+</dl>
+
+{% if preview.variant %}
+{% set v = preview.variant %}
+<div class="dc-preview-runout">
+    <div class="dc-preview-runout-head">
+        Matrix / runout · {{ v.label }}
+        {% if preview.variant_count > 1 %}<span class="text-dim">(1 of {{ preview.variant_count }} variants)</span>{% endif %}
+    </div>
+    {% for lp in v.lps %}{% for sd in lp.sides %}
+    <div class="dc-preview-side"><b>{{ sd.side }}</b><code>{{ sd.value }}</code></div>
+    {% endfor %}{% endfor %}
+    {% for u in v.unsided %}
+    <div class="dc-preview-side"><b>?</b><code>{{ u.value }}</code></div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-dim dc-preview-none">No matrix / runout codes on Discogs.</p>
+{% endif %}
+{% endif %}

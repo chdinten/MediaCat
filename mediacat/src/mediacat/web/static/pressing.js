@@ -965,9 +965,44 @@ document.addEventListener('click', function (e) {
     if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     if (!mcLightbox) mcLightbox = mcLightboxBuild();
-    var group = link.closest('.image-grid, .runout-image-list') || document;
+    var group = link.closest('.image-grid, .runout-image-list, .dc-preview-images') || document;
     mcLightbox.links = Array.prototype.slice.call(group.querySelectorAll('a.image-thumb-link'));
     mcLightboxShow(Math.max(0, mcLightbox.links.indexOf(link)));
     mcLightbox.dlg.showModal();
     mcLightbox.dlg.querySelector('.mc-lb-close').focus();
 });
+
+/* ── Add pressing: Table / Cards view of the search results ─────────────────
+ * The cards load Discogs images and matrix codes lazily (hx-trigger="intersect
+ * once"), so nothing is fetched until the cards view is shown.  The choice is
+ * remembered per browser. */
+(function () {
+    var KEY = 'mc-find-view';
+
+    function setView(box, view) {
+        var cards = box.querySelector('.find-cards');
+        var table = box.querySelector('.find-results-table-wrap');
+        if (!cards || !table) return;
+        cards.hidden = view !== 'cards';
+        table.hidden = view === 'cards';
+        box.querySelectorAll('.js-find-view').forEach(function (b) {
+            var on = b.dataset.view === view;
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.js-find-view');
+        if (!btn) return;
+        setView(btn.closest('.js-find-results'), btn.dataset.view);
+        try { localStorage.setItem(KEY, btn.dataset.view); } catch (_) { /* blocked */ }
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var saved = null;
+        try { saved = localStorage.getItem(KEY); } catch (_) { /* blocked */ }
+        if (saved !== 'cards') return;
+        document.querySelectorAll('.js-find-results').forEach(function (box) { setView(box, 'cards'); });
+    });
+}());

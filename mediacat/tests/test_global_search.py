@@ -47,18 +47,21 @@ def test_like_pattern_matches_wildcards_literally() -> None:
     assert routes._like_pattern("a\\b") == "%a\\\\b%"
 
 
-def test_first_hit_prefers_artists_then_albums_then_tracks() -> None:
+def test_first_artist_prefers_artist_hits() -> None:
     artists = [{"enc": "ABBA", "name": "ABBA"}]
     album = _hit(id="a1")
+    assert routes._first_artist(artists, [album], []) == {"enc": "ABBA", "name": "ABBA"}
+    assert routes._first_artist([], [album], []) == {"enc": "Pink%20Floyd", "name": "Pink Floyd"}
+    assert routes._first_artist([], [], []) == {"enc": "", "name": ""}
+
+
+def test_single_album_or_track_hit_opens_the_album_page() -> None:
+    album = _hit(id="a1")
     track = _hit(id="t9", track_title="Money")
-    assert routes._first_hit(artists, [album], [])["brief_id"] == ""
-    assert routes._first_hit([], [album], [track]) == {
-        "artist_enc": "Pink%20Floyd",
-        "artist_name": "Pink Floyd",
-        "brief_id": "a1",
-    }
-    assert routes._first_hit([], [], [track])["brief_id"] == "t9"
-    assert routes._first_hit([], [], [])["artist_enc"] == ""
+    assert routes._single_pressing_hit([], [album], []) == "a1"
+    assert routes._single_pressing_hit([], [], [track]) == "t9"
+    assert routes._single_pressing_hit([], [album, _hit(id="a2")], []) is None
+    assert routes._single_pressing_hit([{"enc": "x", "name": "x"}], [album], []) is None
 
 
 async def test_track_search_reads_the_tracklist_json() -> None:
@@ -101,22 +104,22 @@ def _render_hits(**ctx: Any) -> str:
         "tracks": [],
         "albums_more": False,
         "tracks_more": False,
-        "first": {"artist_enc": "", "artist_name": "", "brief_id": ""},
+        "first": {"enc": "", "name": ""},
     }
     return env.get_template("partials/search_3panel.html").render(base | ctx)
 
 
-def test_track_hits_open_artist_and_pressing() -> None:
+def test_track_hits_link_to_the_album_page() -> None:
     html = _render_hits(
         scope="tracks",
-        tracks=[_hit(track_title="Money", position="B1")],
-        first={"artist_enc": "Pink%20Floyd", "artist_name": "Pink Floyd", "brief_id": "t1"},
+        tracks=[_hit(track_title="Money", position="B1"), _hit(id="t2", track_title="Money")],
+        first={"enc": "Pink%20Floyd", "name": "Pink Floyd"},
     )
     assert "Money" in html
     assert 'class="sp-hit-pos">B1<' in html
-    assert 'hx-get="/artists/detail?artist=Pink%20Floyd"' in html
-    assert 'data-mc-brief="/catalogue/t1/brief"' in html
-    assert 'hx-get="/catalogue/t1/brief" hx-trigger="load"' in html  # right panel
+    assert 'href="/catalogue/t1"' in html
+    assert 'hx-get="/artists/detail?artist=Pink%20Floyd"' in html  # centre panel
+    assert "#sp-right" not in html  # no pressing brief from the search
     assert "hx-on" not in html  # inline handlers are blocked by the CSP
 
 
@@ -142,3 +145,11 @@ def test_no_hits_suggests_the_track_search() -> None:
     html = _render_hits(scope="albums")
     assert "No albums match" in html
     assert "Tracks" in html
+
+
+def test_templates_close_every_dialog() -> None:
+    # A <dialog> closed with </div> ends the 3panel grid early, and the right
+    # panel then renders full width once the search switches to three panels.
+    for path in (_WEB_DIR / "templates").rglob("*.html"):
+        text = path.read_text(encoding="utf-8")
+        assert text.count("<dialog") == text.count("</dialog>"), path.name

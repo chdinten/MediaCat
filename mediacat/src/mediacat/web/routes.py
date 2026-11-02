@@ -1501,19 +1501,26 @@ async def _search_tracks(db: Any, pattern: str) -> list[dict[str, Any]]:
     ]
 
 
-def _first_hit(
+def _first_artist(
     artists: list[dict[str, Any]], albums: list[dict[str, Any]], tracks: list[dict[str, Any]]
 ) -> dict[str, str]:
-    """What the centre (artist) and right (pressing) panels open with."""
+    """The artist the centre panel opens with: the first artist hit, else the
+    artist of the first album or track hit."""
     if artists:
-        return {"artist_enc": artists[0]["enc"], "artist_name": artists[0]["name"], "brief_id": ""}
+        return {"enc": artists[0]["enc"], "name": artists[0]["name"]}
     for hit in (albums or tracks)[:1]:
-        return {
-            "artist_enc": hit["enc_artist"],
-            "artist_name": hit["artist"],
-            "brief_id": hit["id"],
-        }
-    return {"artist_enc": "", "artist_name": "", "brief_id": ""}
+        return {"enc": hit["enc_artist"], "name": hit["artist"]}
+    return {"enc": "", "name": ""}
+
+
+def _single_pressing_hit(
+    artists: list[dict[str, Any]], albums: list[dict[str, Any]], tracks: list[dict[str, Any]]
+) -> str | None:
+    """Pressing id when the search found exactly one album or track and no artist."""
+    hits = albums + tracks
+    if not artists and len(hits) == 1:
+        return str(hits[0]["id"])
+    return None
 
 
 @search_router.get("/search", response_class=HTMLResponse)
@@ -1544,6 +1551,10 @@ async def global_search(
                     albums = await _search_pressings(db, pattern, by_artist=False, by_album=True)
                 if scope == "tracks":
                     tracks = await _search_tracks(db, pattern)
+            # One album/track and nothing else: open its detail page directly
+            single = _single_pressing_hit(artists, albums, tracks)
+            if single:
+                return HTMLResponse("", headers={"HX-Redirect": f"/catalogue/{single}"})
             ctx = _ctx(
                 request,
                 q=q,
@@ -1553,7 +1564,7 @@ async def global_search(
                 tracks=tracks[:_SEARCH_LIMIT],
                 albums_more=len(albums) > _SEARCH_LIMIT,
                 tracks_more=len(tracks) > _SEARCH_LIMIT,
-                first=_first_hit(artists, albums, tracks),
+                first=_first_artist(artists, albums, tracks),
             )
             return _tmpl().TemplateResponse(
                 request=request,

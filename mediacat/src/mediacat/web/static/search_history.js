@@ -6,9 +6,7 @@
  * pressing Enter would (same as picking a recent search in the Ctrl+K palette).
  *
  * The scope picker (Artists & albums / Artists / Albums / Tracks) is
- * remembered per browser and re-runs the current search when changed.  Album
- * and track hits carry data-mc-brief: picking one loads the artist into the
- * centre panel (its hx-get) and that pressing into the right panel.
+ * remembered per browser and re-runs the current search when changed.
  */
 (function () {
     var STORAGE_KEY = 'mc-search-history';
@@ -140,14 +138,6 @@
             else inp.focus();
         });
     }
-
-    // Album / track hit: also open the pressing in the right panel
-    document.addEventListener('htmx:beforeRequest', function (evt) {
-        var elt = evt.detail && evt.detail.elt;
-        var url = elt && elt.dataset && elt.dataset.mcBrief;
-        if (!url || !window.htmx) return;
-        window.htmx.ajax('GET', url, { target: '#sp-right', swap: 'innerHTML' });
-    });
 
     // ── DOM wiring ─────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
