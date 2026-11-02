@@ -23,6 +23,9 @@
 {% if request.query_params.get('msg') == 'field_corrected' %}
 <div class="alert alert-success">Field corrected and saved to the revision history.</div>
 {% endif %}
+{% if request.query_params.get('msg') == 'image_exists' %}
+<div class="alert alert-info">That image is already attached to this pressing.</div>
+{% endif %}
 {% if request.query_params.get('msg') == 'image_deleted' %}
 <div class="alert alert-success">Image removed.</div>
 {% endif %}

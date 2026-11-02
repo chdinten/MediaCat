@@ -168,8 +168,9 @@ async def _get_or_create_country(db: Any, name: str) -> uuid.UUID | None:
     a3_base = letters[:3] if len(letters) >= 3 else letters.ljust(3, "X")
     for variant in range(10):
         sfx = str(variant) if variant > 0 else ""
-        _a2 = (a2_base + sfx)[:2].ljust(2, "X")
-        _a3 = (a3_base + sfx)[:3].ljust(3, "X")
+        # The suffix replaces the last letter(s), so it survives the length cut.
+        _a2 = a2_base[: 2 - len(sfx)] + sfx
+        _a3 = a3_base[: 3 - len(sfx)] + sfx
         clash = (
             await db.execute(
                 select(Country.id).where(or_(Country.alpha2 == _a2, Country.alpha3 == _a3))
@@ -571,7 +572,7 @@ async def _fetch_facets(
     full_clauses = base_clauses.copy()
     full_params = base_params.copy()
     if fmt in ("vinyl", "cd"):
-        full_clauses.append("t.media_format = :fmt")
+        full_clauses.append("t.media_format::text = :fmt")  # enum vs varchar bind
         full_params["fmt"] = fmt
 
     full_where = " AND ".join(full_clauses)
@@ -1265,6 +1266,7 @@ async def token_new_submit(
             created_by=_user_uuid(request),
         )
         db.add(revision)
+        await db.flush()  # assigns revision.id (a client-side default)
         token.current_revision_id = revision.id
         await db.commit()
         new_id = str(token.id)
@@ -1565,7 +1567,9 @@ async def merge_submit(
     comment: str = Form(""),
 ) -> RedirectResponse | HTMLResponse:
     _require_role(request, "admin", "reviewer")
-    if winner_id == loser_id:
+    wid = _parse_uuid(winner_id)
+    lid = _parse_uuid(loser_id)
+    if wid is not None and wid == lid:
         winner = await _load_token(request, winner_id)
         ctx = _ctx(
             request,
@@ -1577,8 +1581,6 @@ async def merge_submit(
             request=request, name="merge.html", context=ctx, status_code=400
         )
 
-    wid = _parse_uuid(winner_id)
-    lid = _parse_uuid(loser_id)
     if wid is None or lid is None:
         raise HTTPException(status_code=400, detail="Invalid token IDs")
 
@@ -1607,6 +1609,7 @@ async def merge_submit(
             created_by=_user_uuid(request),
         )
         db.add(revision)
+        await db.flush()  # assigns revision.id (a client-side default)
         winner.current_revision_id = revision.id
         await db.commit()
 
@@ -1878,6 +1881,7 @@ async def import_discogs_create(request: Request, release_id: int) -> RedirectRe
             created_by=_user_uuid(request),
         )
         db.add(revision)
+        await db.flush()  # assigns revision.id (a client-side default)
         token.current_revision_id = revision.id
 
         store = getattr(request.app.state, "object_store", None)
@@ -1969,6 +1973,7 @@ async def import_mb_create(request: Request, release_id: str) -> RedirectRespons
             created_by=_user_uuid(request),
         )
         db.add(revision)
+        await db.flush()  # assigns revision.id (a client-side default)
         token.current_revision_id = revision.id
         await db.commit()
         new_id = str(token.id)
@@ -2797,13 +2802,17 @@ async def token_edit_submit(
             created_by=_user_uuid(request),
         )
         db.add(revision)
+        await db.flush()  # assigns revision.id (a client-side default)
         token.current_revision_id = revision.id
         await db.commit()
 
     logger.info(
         "Token edited: %s rev=%d by user=%s", token_id, rev_count + 1, request.state.user_id
     )
-    redirect_to = back.strip() if back.strip().startswith("/") else f"/catalogue/{token_id}"
+    # Local paths only: browsers read "//host" and "/\host" as another site.
+    back = back.strip()
+    local = back.startswith("/") and not back.startswith(("//", "/\\"))
+    redirect_to = back if local else f"/catalogue/{token_id}"
     return RedirectResponse(url=redirect_to, status_code=303)
 
 
@@ -3032,10 +3041,8 @@ async def upload_image(
     store = getattr(request.app.state, "object_store", None)
     if store is None:
         logger.warning("Image upload attempted but object store not configured")
-        ctx = _ctx(request, error="Image storage is not configured. Check MinIO settings.")
-        return HTMLResponse(
-            content=_tmpl().get_template("pressing_detail.html").render(ctx),
-            status_code=503,
+        raise HTTPException(
+            status_code=503, detail="Image storage is not configured. Check MinIO settings."
         )
 
     # Read and validate file size
@@ -3066,6 +3073,16 @@ async def upload_image(
         ).scalar_one_or_none()
         if token is None:
             raise HTTPException(status_code=404, detail="Not found")
+
+        # Same bytes already attached: (token_id, content_hash) is unique.
+        if (
+            await db.execute(
+                select(MediaObject.id).where(
+                    MediaObject.token_id == tid, MediaObject.content_hash == stored.content_hash
+                )
+            )
+        ).first():
+            return RedirectResponse(url=f"/catalogue/{token_id}?msg=image_exists", status_code=303)
 
         img_region = ImageRegion(region) if region in _VALID_REGIONS else None
         mo = MediaObject(
