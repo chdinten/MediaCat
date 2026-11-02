@@ -24,6 +24,7 @@ comparison, anomaly detection, translation (British English), and text generatio
 - **Admin panel** — Tabbed: user management, bulk collection import, catalogue ZIP backup/restore
 - **3panel-style layout** — Optional 3-column UI (Admin → Layout): left panel scrolls artists or search results, centre shows artist detail (bio + collection + discography), right shows a pressing brief on album click; panels are drag-resizable with per-page localStorage persistence; classic layout retained as alternative
 - **Late Night Hi-Fi UI** — Dark-first theme with hero dashboard, genre/year stats; light theme toggle
+- **Animated background** — Login page and dashboard show a looping turntable video (still image under reduced motion); in Admin → Layout switch between animation and still, fit to width or fill the screen, and upload replacements (JPEG/PNG/WebP, MP4 H.264, WebM VP9) with a content-based format check
 - **Security hardened** — Argon2id passwords, Redis-backed rate limiter, CSRF with dedicated secret, trusted-proxy IP validation, RBAC on all mutating routes, non-root containers, least-privilege DB roles, strict CSP
 
 ## Technology stack

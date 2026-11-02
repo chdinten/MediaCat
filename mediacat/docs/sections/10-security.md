@@ -43,14 +43,15 @@
 | SSRF | Artist-homepage fetches refuse private, loopback, link-local and reserved hosts | ✅ Implemented |
 | CSRF | Per-session HMAC-SHA256 tokens validated on every mutating form; `SameSite=Lax` | ✅ Implemented |
 | Prompt injection | `mediacat.llm.safety.sanitise()`: length limiting, XML-tag wrapping, injection pattern detection | ✅ Implemented (Section 7) |
-| Path traversal | Object-store keys are content hashes; no user-controlled path components | ✅ By design |
+| Path traversal | Object-store keys are content hashes; no user-controlled path components. The public background route only accepts `<sha256>.<ext>` names under `site/background/` | ✅ By design |
+| Malicious uploads | Images verified by Pillow; background videos parsed (MP4 boxes / WebM EBML) and limited by codec, size, dimensions and duration; type taken from content, not name | ✅ Implemented |
 | Command injection | Tesseract invoked via `subprocess.run` with list args (no shell); binary path validated | ✅ Implemented |
 
 #### Data plane
 | Surface | Mitigation | Status |
 |---------|-----------|--------|
 | DB privilege escalation | Three roles: `migrator` (DDL), `app` (DML), `readonly` (SELECT). App never runs DDL | ✅ Implemented (Section 2/3) |
-| MinIO access | Credentials from Docker secrets; buckets not publicly accessible | ✅ Implemented |
+| MinIO access | Credentials from Docker secrets; buckets not publicly accessible. Only the login/dashboard background files are served without sign-in, through the app (`/site-media/background/`) | ✅ Implemented |
 | Redis data leakage | Password-authenticated; dangerous commands (`FLUSHDB`, `FLUSHALL`, `DEBUG`) renamed | ✅ Implemented (Section 2) |
 | Backup exposure | Backup dir at `0750`; secrets dir at `0700 root:root` | ✅ Implemented |
 

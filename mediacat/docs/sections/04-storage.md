@@ -12,6 +12,11 @@
 - `src/mediacat/storage/pipeline.py` — `ImagePipeline` orchestrator:
   upload → OCR → translate in a single `process_image` call.
 
+Login/dashboard background uploads (`web/background.py`) use
+`ObjectStore.put_object`, which stores already-validated bytes under a key the
+caller builds: `site/background/<sha256>.<ext>`. The content check (image,
+MP4 or WebM structure, codec, size, dimensions, duration) runs before upload.
+
 ## Security properties
 
 - Image bytes are validated by Pillow before storage (decompression

@@ -1,6 +1,6 @@
 # MediaCat — Technical Reference
 
-**Version 0.4 · November 2026**
+**Version 0.5 · November 2026**
 
 > Cataloguing platform for vinyl records and compact discs.
 > Python 3.12 · FastAPI · PostgreSQL 16 · MinIO · Redis · OPA · Ollama
@@ -236,7 +236,7 @@ The UI uses the **Late Night Hi-Fi — Espresso Lounge** dark-first CSS custom p
 
 - **`static/theme.js`** — Runs synchronously before first paint (no `defer`) to prevent flash of wrong theme. Reads `localStorage['mc-theme']` and applies the `data-theme` attribute immediately.
 - **`static/style.css`** — Single stylesheet; all colours are CSS custom properties. `[data-theme="light"]` block overrides the dark defaults.
-- **`static/hero-turntable1.jpg`** — Full-bleed dashboard hero photograph; composited with lamp-wash, fade, and vignette CSS layers.
+- **Page background** — the login page and dashboard show an admin-chosen looping video or still image (see [2.7](#27-login-and-dashboard-background-webbackgroundpy)); the dashboard hero composites lamp-wash, fade, vignette and grain CSS layers over it.
 - Theme persists across sessions via `localStorage`.
 
 ### 2.4 Template Context
@@ -281,6 +281,34 @@ The 3panel layout has a global search box in the top bar (`templates/base_3panel
 - The chosen scope is remembered per browser (`localStorage['mc-search-scope']`); changing it re-runs the current search. Search history (last 10 terms) is kept the same way.
 - Outside the 3panel layout, or for a full-page request, `/search?q=&scope=` returns a flat list of pressings (track hits show the track title first).
 - The **Commands** button (Ctrl+K) next to the box opens the command palette (`static/command_palette.js`). Its slash commands include `/artist`, `/album` (`/al`) and `/track` (`/t`, `/song`), which open the search in that scope.
+
+### 2.7 Login and Dashboard Background (`web/background.py`)
+
+The login page and the dashboard share one fixed page background (`templates/partials/page_background.html`, `#dash-bg`, z-index 1 below the content): either a **looping video** or a **still image**, chosen by an admin in Admin → Layout → Background. Other pages have no background picture.
+
+- **Markup:** `<video autoplay muted loop playsinline preload="auto" poster="…">` with a WebM source first, then MP4. Under the video lies an `<img>` of the still, which is also the poster, so the still shows while the video loads or if the browser refuses to autoplay.
+- **`static/background.js`:** pauses the video while the tab is hidden and keeps it paused under `prefers-reduced-motion: reduce` (CSS hides the video there, so the still shows).
+- **Display (`fit`):**
+  - `width` (default) shows the whole picture across the window below the top bar. Its lower edge fades into the page colour (`mask-image`). On the login page the sign-in card starts in that faded edge (`.auth-wrap--below-bg`, `padding-top = --bg-ratio × 100vw × 0.85`), so the turntable stays visible. `--bg-ratio` is height ÷ width of the file shown.
+  - `cover` fills the window and crops the sides (`object-fit: cover`).
+- **Setting:** one `SiteSetting` row, `background`, holds JSON: `mode` (`video` | `image`), `fit` (`width` | `cover`), and per slot (`image`, `mp4`, `webm`) the stored file's name, size, format, codec, dimensions and duration, or `null`. It is cached in the process for 60 s and reset on every save. Without a row, the built-in files are used: `static/media-cat-hero-poster.webp`, `media-cat-hero.webm` and `media-cat-hero.mp4` (1668 × 470, 5.4 s seamless loop).
+- **Uploads:** checked by content, never by name or browser MIME type (`check_media`):
+
+| Kind | Accepted | Limits |
+|---|---|---|
+| Still image | JPEG, PNG, WebP (Pillow verify; animated images rejected) | ≥ 1200 × 300 px, ≤ 8192 px a side, ≤ 15 MB |
+| MP4 | H.264 (`avc1`/`avc3`) or AV1 (`av01`); HEVC is rejected because not every browser plays it. The box structure is parsed (`ftyp`, `moov`, `mvhd`, `tkhd`, `stsd`) | 640–3840 px wide, ≤ 60 s, ≤ 50 MB |
+| WebM | VP8, VP9 or AV1 (EBML: DocType `webm`, `CodecID`, `PixelWidth`/`PixelHeight`, `Duration`) | same as MP4 |
+
+  - Up to three files are uploaded at once, one per slot.
+  - A video switches to the animation mode; an image alone switches to the still.
+  - A new MP4 without a WebM clears the stored WebM, and the reverse, so every browser shows the same clip.
+  - An MP4 whose `moov` box follows `mdat` is accepted with a note: it only starts playing once it has fully loaded (`-movflags +faststart` fixes it).
+- **Storage and delivery:** files are stored in MinIO (`media-originals`) under `site/background/<sha256>.<ext>` and served by `GET /site-media/background/{name}`.
+  - This route is public (in `_PUBLIC_PATHS`) because the login page needs it before anyone signs in.
+  - It only serves names matching `<64 hex>.(jpg|png|webp|mp4|webm)` from that prefix, so no catalogue images are exposed.
+  - It answers single `Range` requests (206), as browsers fetch video with `Range: bytes=0-`.
+  - It sends `Cache-Control: immutable` (the name is the content hash) and keeps up to 150 MB of files in memory.
 
 ## 3 · Catalogue Feature
 
@@ -756,6 +784,7 @@ The `REVOKE UPDATE, DELETE ON audit_log FROM mediacat_app` restriction is enforc
 | `static/command_palette.js` | Ctrl+K command palette and slash commands |
 | `static/bio_research.js` | "Research in progress" banner with timer during artist-bio lookups |
 | `static/panel_resize.js` | 3panel layout switching and drag-resizable panels |
+| `static/background.js` | Login/dashboard background video: pauses in hidden tabs and under reduced motion |
 
 This means CSP can block all inline script execution without breaking any UI functionality.
 
@@ -782,7 +811,7 @@ HTMX `hx-on` attributes are inline script too and are blocked by the same policy
 
 | Bucket | Contents | Key pattern |
 |---|---|---|
-| `media-originals` | Raw images from Discogs, CoverArtArchive, upload | `<sha256>.<ext>` |
+| `media-originals` | Raw images from Discogs, CoverArtArchive, upload; login/dashboard background uploads | `<sha256>.<ext>`; backgrounds `site/background/<sha256>.<ext>` |
 | `ocr-artifacts` | OCR extraction results | `<sha256>.json` |
 | `backups` | Reserved; not written yet. Database dumps go to the host instead (see [18.6](#186-backup-and-restore)) | — |
 
@@ -989,6 +1018,7 @@ All mutating endpoints require a valid session cookie and an `X-CSRF-Token` head
 | `GET` | `/login` | Login form |
 | `POST` | `/login` | Authenticate — creates session cookie |
 | `GET` | `/logout` | Clear session cookie |
+| `GET` | `/site-media/background/{name}` | Uploaded login/dashboard background file (Range-aware, immutable cache) |
 
 ### 14.2 Dashboard (Auth Required)
 
@@ -1083,6 +1113,17 @@ Template context returned by `GET /`:
 | `POST` | `/users/new` | Create user |
 | `POST` | `/users/{user_id}/activate` | Activate user |
 | `POST` | `/users/{user_id}/deactivate` | Deactivate user |
+
+### 14.7 Background (Admin Role)
+
+Each answers with a redirect to `/admin?tab=layout` carrying `bg_msg=` or `bg_error=` (see [2.7](#27-login-and-dashboard-background-webbackgroundpy)).
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/admin/background/upload` | Multipart field `files` (1–3 files): check, store and activate |
+| `POST` | `/admin/background/mode` | `mode=video` (animation) or `mode=image` (still) |
+| `POST` | `/admin/background/fit` | `fit=width` (whole picture, page colour below) or `fit=cover` (fill the window, cropped) |
+| `POST` | `/admin/background/reset` | Back to the built-in files, animation, fit to width |
 
 
 ## 15 · Alembic Migrations
@@ -1344,5 +1385,18 @@ The `_build_full_runout_text()` helper reconstructs the display string from all 
 4. If a banner says a Discogs import is running, Discogs functions may fail or wait until it finishes.
 5. **Print sheet (PDF)** downloads the A4 album sheet.
 
+### 18.12 Changing the Login and Dashboard Background
 
-*MediaCat · Technical Reference · v0.4 · November 2026*
+1. Open **Admin → Layout** and scroll to **Background**.
+2. **Animation** and **Still image** show the current files with a live preview. Click **Activate** on the one you want.
+3. **Display**: **Fit to width** shows the whole picture with the page colour below it; **Fill screen** fills the window but crops the sides.
+4. To replace the files, choose up to three at once (a still image, an MP4 and/or a WebM of the same clip) and click **Upload**.
+   - A video activates the animation; an image alone activates the still.
+   - Upload the matching still with a new animation, so the first frame does not jump.
+   - Rejected files show the reason, e.g. an HEVC video, an image under 1200 px wide or a file over the size limit.
+5. **Restore the built-in background** brings back the original turntable animation.
+
+Good animations are short, silent, seamless loops with little motion, e.g. steam, a turning record, a flickering lamp. Users whose system asks for reduced motion always see the still.
+
+
+*MediaCat · Technical Reference · v0.5 · November 2026*

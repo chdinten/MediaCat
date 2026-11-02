@@ -13,11 +13,10 @@ three visual zones rendered by `templates/dashboard.html`:
 
 ### 1 · Hero
 
-A full-bleed photograph (`static/hero-turntable1.jpg`) occupies the upper
-portion of the viewport. The hero uses CSS `position: absolute; inset: 0`
-layers to composite:
+The page background (see [Login and dashboard background](#login-and-dashboard-background))
+stays fixed behind the page while the content scrolls over it. The hero box uses CSS
+`position: absolute; inset: 0` layers over a semi-transparent dark backdrop:
 
-- `hero-bg-img` — the photographic background (object-fit: cover)
 - `hero-lamp-wash` — radial amber gradient (animated flicker keyframe)
 - `hero-fade` — bottom-to-top dark fade that anchors the UI text
 - `hero-vignette` — left-edge vignette to create depth behind the headline
@@ -61,10 +60,26 @@ Below the hero, the dashboard renders up to three carousel rows:
 Each carousel card shows the sleeve image with a vinyl disc peeking behind it
 on hover (CSS transform).
 
+## Login and dashboard background
+
+`web/background.py` with `templates/partials/page_background.html` and
+`static/background.js`. The login page and the dashboard show either a
+**looping video** or a **still image**, chosen in Admin → Layout → Background.
+
+- **Markup:** a muted, looping, autoplaying `<video>` (WebM source first, then MP4) over an `<img>` of the still, which is also the video's poster.
+- **Pausing:** `background.js` pauses the video in hidden tabs. Under `prefers-reduced-motion` the video is hidden and paused, so the still shows.
+- **Display:** *Fit to width* (default) shows the whole picture below the top bar and fades into the page colour. The login card then starts in that faded edge, below the turntable. *Fill screen* covers the window and crops the sides.
+- **Setting:** SiteSetting `background` (JSON: `mode`, `fit`, and the uploaded `image` / `mp4` / `webm` with their format details). Without it, the built-in `static/media-cat-hero-poster.webp`, `media-cat-hero.webm` and `media-cat-hero.mp4` are used.
+- **Uploads:** 1–3 files at once, identified by their content:
+    - JPEG/PNG/WebP stills, at least 1200 × 300 px and up to 15 MB;
+    - MP4 in H.264 or AV1, or WebM in VP8, VP9 or AV1, up to 50 MB and 60 s.
+- **Delivery:** uploads are stored in MinIO under `site/background/<sha256>.<ext>` and served publicly (Range-aware) by `GET /site-media/background/{name}`.
+
 ## Template context variables
 
 | Variable | Type | Description |
 |---|---|---|
+| `background` | `dict` | `mode`, `fit`, `ratio`, `image_url`, `videos` (from `background.page_background`) |
 | `stats` | `dict` | `total`, `vinyl`, `cd`, `artists`, `oldest_year` |
 | `genre_stats` | `list[dict]` | `[{"genre": str, "count": int}, …]` — top 5 |
 | `recent` | `list[Token]` | 8 most-recently added tokens (with `label` and `media_objects` loaded) |
@@ -83,7 +98,8 @@ prevent flash of wrong theme.
 
 | File | Purpose |
 |---|---|
-| `static/hero-turntable1.jpg` | Hero background photograph |
+| `static/media-cat-hero-poster.webp`, `media-cat-hero.webm`, `media-cat-hero.mp4` | Built-in background (still + animation) |
+| `static/background.js` | Pauses the background video in hidden tabs and under reduced motion |
 | `static/style.css` | All styles — design tokens, hero layout, stat cards, carousels |
 | `static/theme.js` | Theme persistence via `localStorage['mc-theme']` |
 
@@ -176,6 +192,7 @@ The CSP `script-src 'self'` blocks every inline script, including HTMX
 | `static/bio_research.js` | "Research in progress" banner with timer |
 | `static/pressing.js` | Pressing page: uploads, variant pick-and-copy, lightbox |
 | `static/panel_resize.js` | 3panel layout switching and resizable panels |
+| `static/background.js` | Login/dashboard background video: pause when hidden or reduced motion |
 
 ## Full API reference
 

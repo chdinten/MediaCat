@@ -28,6 +28,7 @@ comparison, anomaly detection, translation (British English), and text generatio
 - **Admin panel** — Tabbed interface for user management (create/edit/role/timeout), bulk Discogs collection import, catalogue ZIP backup/restore, and debug info
 - **3panel-style layout** — Optional 3-column UI (selectable in Admin → Layout): persistent left panel (artist/search list), wide centre (detail), narrow right (pressing brief); panel widths drag-resizable and memorised per-page in localStorage; global top-bar search switches to artist-panel view; classic single-column layout retained as alternative
 - **Late Night Hi-Fi UI** — Dark-first theme with hero dashboard, stats overlay, genre counts, and oldest-year badge; `[data-theme="light"]` override available
+- **Animated background** — Login page and dashboard show a looping turntable video (still image under reduced motion); in Admin → Layout switch between animation and still, fit to width or fill the screen, and upload replacements (JPEG/PNG/WebP, MP4 H.264, WebM VP9) with a content-based format check
 - **Security hardened** — Argon2id passwords, Redis-backed login rate limiter, CSRF protection with dedicated secret, trusted-proxy IP validation, RBAC on all mutating routes, non-root containers, least-privilege DB roles, strict `script-src 'self'` CSP with no inline event handlers
 
 ## Technology stack

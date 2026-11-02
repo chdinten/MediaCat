@@ -448,6 +448,15 @@ Compose v2 looks for `.env` in the directory of the compose file (`deploy/`), no
 4. Test TCP connectivity from PowerShell: `Test-NetConnection 127.0.0.1 -Port 8443` (HTTPS) or `-Port 8080` (HTTP).
 5. Make sure the address includes the port: `https://mediacat.localhost:8443/`.
 
+### Background video does not move
+
+The login page and the dashboard show the still image instead of the animation when:
+
+- the system asks for reduced motion (Windows: Settings → Accessibility → Visual effects → *Animation effects* off), which is intended;
+- the browser blocks autoplay for the site, in which case the poster (the same still) stays;
+- the browser still runs old CSS/JS after a deploy (press Ctrl+F5);
+- **Still image** is selected in Admin → Layout → Background.
+
 ### Browser shows another product's login page (e.g. Kasm Workspaces)
 The address is missing `:8443`. Without a port the browser uses 443, where a different program answers (on this machine, Kasm Workspaces' `kasm_proxy` container). Check what owns the port with `docker ps --format '{{.Names}} {{.Ports}}' | grep ':443->'`. Use `https://mediacat.localhost:8443/`, or move MediaCat to 443 with `HTTPS_BIND=127.0.0.1:443` if nothing else needs it.
 
