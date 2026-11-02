@@ -113,6 +113,14 @@ def _client_ip(request: Request) -> str:
     return connecting or "unknown"
 
 
+def _same_user_id(a: str, b: str) -> bool:
+    """Compare user ids however they are spelt (the memory store keeps ``.hex``, URLs dashes)."""
+    try:
+        return uuid.UUID(str(a)) == uuid.UUID(str(b))
+    except ValueError:
+        return a == b
+
+
 def _require_role(request: Request, *roles: str) -> None:
     """Raise 403 if the current user's role is not in the allowed set."""
     user_role = getattr(request.state, "user_role", None)
@@ -936,7 +944,7 @@ async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
         logger.warning("user_edit_form DB lookup failed: %s", _exc)
 
     if target is None:
-        target = next((u for u in _users_store.values() if u["id"] == user_id), None)
+        target = next((u for u in _users_store.values() if _same_user_id(u["id"], user_id)), None)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     context = _ctx(
@@ -1021,7 +1029,7 @@ async def user_edit_submit(
         logger.warning("user_edit DB lookup failed: %s", _exc)
 
     if target is None:
-        target = next((u for u in _users_store.values() if u["id"] == user_id), None)
+        target = next((u for u in _users_store.values() if _same_user_id(u["id"], user_id)), None)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -1076,7 +1084,7 @@ async def user_edit_submit(
         logger.warning("user_edit DB update failed: %s", _exc)
 
     # Mirror to in-memory store if the user is there
-    mem_target = next((u for u in _users_store.values() if u["id"] == user_id), None)
+    mem_target = next((u for u in _users_store.values() if _same_user_id(u["id"], user_id)), None)
     if mem_target:
         mem_target["role"] = new_role
         mem_target["session_timeout_seconds"] = new_timeout
@@ -1118,7 +1126,7 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
 
     if not target_username:
         for u in _users_store.values():
-            if u["id"] == user_id:
+            if _same_user_id(u["id"], user_id):
                 target_role = u.get("role", "")
                 target_username = u.get("username", "")
                 break
@@ -1145,7 +1153,7 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
         logger.warning("user_deactivate DB update failed: %s", _exc)
 
     for u in _users_store.values():
-        if u["id"] == user_id:
+        if _same_user_id(u["id"], user_id):
             u["is_active"] = False
             break
 
@@ -1174,7 +1182,7 @@ async def user_activate(request: Request, user_id: str) -> RedirectResponse:
         logger.warning("user_activate DB update failed: %s", _exc)
 
     for u in _users_store.values():
-        if u["id"] == user_id:
+        if _same_user_id(u["id"], user_id):
             u["is_active"] = True
             logger.info("User activated: %s by=%s", u["username"], request.state.user_id)
             break
