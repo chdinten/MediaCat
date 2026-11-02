@@ -164,14 +164,18 @@ filterwarnings = ["error"]
 # ---------- Coverage --------------------------------------------------------
 [tool.coverage.run]
 branch = true
+# SQLAlchemy's asyncio layer runs code inside greenlets; without this, lines
+# after an awaited query are not recorded.
+concurrency = ["greenlet", "thread"]
 source = ["src/mediacat"]
 omit = ["src/mediacat/__main__.py"]
 
 [tool.coverage.report]
 skip_covered = false
 show_missing = true
-# Ratchet: only ever raise this, to just below the measured total. Target 55.
-fail_under = 42
+# Ratchet: only ever raise this, to just below the measured total (76.3 %
+# with the integration tests; without Docker use `make test-unit`).
+fail_under = 76
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",

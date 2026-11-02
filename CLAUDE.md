@@ -44,7 +44,7 @@ PostgreSQL 16, MinIO, Redis, OPA. Docker Compose deployment on WSL2.
 - `.bat` files keep CRLF (`/.gitattributes`); everything else LF
 
 ## Open items
-- Test coverage is ~43%; `fail_under` in `[tool.coverage.report]` (pyproject.toml) is a ratchet at 42 — only raise it, target 55
+- Strict `xfail(reason="BUG: …")` tests in `tests/integration/` pin known open bugs (backup import restores nothing, audit_log never written, `User.locked_until` unused, …): fixing one makes its test XPASS → remove the marker
 
 ## Documentation
 - MediaCat_Technical_Reference.md — architecture, schema, API, configuration
