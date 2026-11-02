@@ -25,7 +25,9 @@ import logging
 import re
 import uuid
 import zipfile
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
@@ -607,15 +609,17 @@ async def import_imported_releases(request: Request, page: int = 1) -> HTMLRespo
 async def import_status(request: Request, job_id: str) -> JSONResponse:
     _require_role(request, "admin")
     try:
+        jid = uuid.UUID(job_id)
+    except ValueError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
         from sqlalchemy import select as _sel
 
         from mediacat.db.models import CollectionImportJob
 
         async with _sf(request)() as db:
             job = (
-                await db.execute(
-                    _sel(CollectionImportJob).where(CollectionImportJob.id == uuid.UUID(job_id))
-                )
+                await db.execute(_sel(CollectionImportJob).where(CollectionImportJob.id == jid))
             ).scalar_one_or_none()
             if not job:
                 return JSONResponse({"error": "not found"}, status_code=404)
@@ -633,7 +637,8 @@ async def import_status(request: Request, job_id: str) -> JSONResponse:
                 }
             )
     except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        logger.warning("import_status failed for %s: %s", job_id, exc)
+        return JSONResponse({"error": "status unavailable"}, status_code=500)
 
 
 @admin_router.post("/import/{job_id}/pause", response_model=None)
@@ -984,6 +989,9 @@ async def _run_import(
             imported = job.imported_count if job else 0
             skipped = job.skipped_count if job else 0
             failed = job.failed_count if job else 0
+        # On resume, the releases before this position were already counted.
+        resume_done = imported + skipped + failed
+        per_page = 50
 
         page = start_page
         pages_total = None
@@ -994,7 +1002,9 @@ async def _run_import(
                 await _mark(ImportJobStatus.PAUSED)
                 return
 
-            coll = await connector.fetch_user_collection(discogs_username, page=page, per_page=50)
+            coll = await connector.fetch_user_collection(
+                discogs_username, page=page, per_page=per_page
+            )
             if coll.get("error") or not coll.get("releases"):
                 error_msg = coll.get("error") or f"No releases returned on page {page}"
                 if "403" in str(error_msg):
@@ -1026,7 +1036,9 @@ async def _run_import(
                 )
 
             consecutive_failures = 0
-            for rel in coll["releases"]:
+            for pos, rel in enumerate(coll["releases"]):
+                if (page - 1) * per_page + pos < resume_done:
+                    continue  # handled before the pause
                 if stop_event.is_set():
                     await _mark(
                         ImportJobStatus.PAUSED,
@@ -1274,6 +1286,46 @@ _BACKUP_TABLES = [
 
 _JSON_DEFAULT = str  # fallback serialiser for uuid / datetime / Decimal
 
+# Columns pointing at a table restored later (tokens ↔ token_revisions):
+# inserted as NULL, then set once every table is back.
+_RESTORE_LATER: dict[str, tuple[str, ...]] = {"tokens": ("current_revision_id",)}
+
+
+async def _column_types(db: Any, table: str) -> dict[str, str]:
+    """``{column: data_type}`` of *table* from information_schema."""
+    from sqlalchemy import text as _text
+
+    rows = await db.execute(
+        _text(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = :t"
+        ),
+        {"t": table},
+    )
+    return {r.column_name: r.data_type for r in rows}
+
+
+# Column types the export wrote as text (besides timestamps).
+_FROM_TEXT: dict[str, Callable[[str], Any]] = {
+    "date": date.fromisoformat,
+    "uuid": uuid.UUID,
+    "numeric": Decimal,
+}
+
+
+def _restore_value(value: Any, data_type: str) -> Any:
+    """Undo the export's text encoding so asyncpg gets the column's Python type."""
+    if value is None:
+        return None
+    if data_type in ("json", "jsonb"):
+        return json.dumps(value)  # asyncpg takes JSON parameters as text
+    if not isinstance(value, str):
+        return value
+    if data_type.startswith("timestamp"):
+        return datetime.fromisoformat(value)
+    convert = _FROM_TEXT.get(data_type)
+    return convert(value) if convert else value
+
 
 @admin_router.get("/backup/export")
 async def backup_export(request: Request) -> StreamingResponse:
@@ -1344,6 +1396,7 @@ async def backup_import(
 
     results: dict[str, int] = {}
     errors: list[str] = []
+    later: list[tuple[str, str, Any, Any]] = []  # (table, column, row id, value)
 
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
         # Validate manifest
@@ -1365,13 +1418,21 @@ async def backup_import(
                 results[table] = 0
                 continue
 
-            raw_cols = list(records[0].keys())
+            # Union of keys, first-seen order: a key missing from the first record still counts.
+            raw_cols = list(dict.fromkeys(k for rec in records for k in rec))
             invalid = [c for c in raw_cols if not ident_re.match(c)]
             if invalid:
                 logger.warning(
                     "backup_import: rejected %s — invalid column names: %s", table, invalid
                 )
                 errors.append(f"{table}: invalid column names in backup")
+                continue
+
+            async with _sf(request)() as db:
+                col_types = await _column_types(db, table)
+            unknown = [c for c in raw_cols if c not in col_types]
+            if unknown:
+                errors.append(f"{table}: columns not in this schema: {', '.join(unknown)}")
                 continue
 
             cols = raw_cols
@@ -1383,14 +1444,30 @@ async def backup_import(
             inserted = 0
             for rec in records:
                 try:
+                    params = {c: _restore_value(rec.get(c), col_types[c]) for c in cols}
+                    for col in _RESTORE_LATER.get(table, ()):
+                        if params.get(col) is not None:
+                            later.append((table, col, params["id"], params[col]))
+                            params[col] = None
                     async with _sf(request)() as db:
-                        await db.execute(sql, rec)
+                        result = await db.execute(sql, params)
                         await db.commit()
-                    inserted += 1
+                    inserted += result.rowcount or 0  # 0 when the row already exists
                 except Exception as exc:
                     errors.append(f"{table}: {exc}")
             results[table] = inserted
             logger.info("backup_import: %s — %d/%d rows inserted", table, inserted, len(records))
+
+    for table, col, row_id, value in later:
+        try:
+            async with _sf(request)() as db:
+                await db.execute(
+                    _text(f"UPDATE {table} SET {col} = :v WHERE id = :id AND {col} IS NULL"),  # noqa: S608  # names from _RESTORE_LATER  # nosec B608
+                    {"v": value, "id": row_id},
+                )
+                await db.commit()
+        except Exception as exc:
+            errors.append(f"{table}.{col}: {exc}")
 
     total = sum(results.values())
     logger.info(
@@ -1484,6 +1561,14 @@ async def housekeeping_search(
     )
 
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
 @admin_router.post("/housekeeping/bulk-delete", response_model=None)
 async def housekeeping_bulk_delete(
     request: Request,
@@ -1496,7 +1581,7 @@ async def housekeeping_bulk_delete(
 
     from mediacat.db.models import Token
 
-    ids = [i.strip() for i in token_ids if i.strip()]
+    ids = [i.strip() for i in token_ids if _is_uuid(i.strip())]
     if not ids:
         return RedirectResponse(url="/admin?tab=housekeeping&msg=no_selection", status_code=303)
 

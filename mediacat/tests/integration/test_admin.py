@@ -752,10 +752,6 @@ async def test_backup_export_contains_manifest_and_tables(
     assert len(json.loads(zf.read("countries.json"))) > 50  # migration seed
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: export writes timestamps as ISO strings; import binds them as str and asyncpg rejects every row",
-)
 async def test_backup_round_trip_restores_deleted_rows(
     admin_client: httpx.AsyncClient, db: AsyncSession
 ) -> None:
@@ -1244,10 +1240,6 @@ async def test_pause_and_resume_finish_without_duplicates(
     assert ids == [101, 102, 103]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: resuming re-reads last_page and counts already-imported releases again as skipped",
-)
 async def test_resumed_import_progress_does_not_exceed_total(
     admin_client: httpx.AsyncClient,
     db: AsyncSession,
@@ -1272,7 +1264,8 @@ async def test_resumed_import_progress_does_not_exceed_total(
     job = await _job(db, job_id)
     assert job.status == ImportJobStatus.COMPLETED
     done = job.imported_count + job.skipped_count + job.failed_count
-    assert done == job.total_releases == 3  # actual: 3 imported + 2 skipped = 5 / 3
+    assert done == job.total_releases == 3
+    assert (job.imported_count, job.skipped_count) == (3, 0)
 
 
 async def test_pause_without_running_task_still_marks_paused(
@@ -1379,3 +1372,99 @@ async def test_imported_releases_escapes_html(
     r = await admin_client.get("/admin/import/imported-releases")
     assert "<img src=x" not in r.text
     assert "&lt;img src=x" in r.text
+
+
+async def test_backup_full_round_trip_restores_every_table_exactly(
+    admin_client: httpx.AsyncClient, db: AsyncSession
+) -> None:
+    """Export → wipe every backed-up table → import gives back identical rows."""
+    from decimal import Decimal
+
+    from sqlalchemy import text
+
+    from mediacat.db.models import TokenPriceHistory
+
+    from .fakes import png_bytes
+
+    r = await admin_client.post(
+        "/catalogue/new",
+        data={"artist": "Can", "title": "Ege Bamyasi", "year": "1972", "country_name": "Germany"},
+    )
+    tid = uuid.UUID(r.headers["location"].rsplit("/", 1)[1])
+    await admin_client.post(
+        f"/catalogue/{tid}/images", files={"file": ("c.png", png_bytes(), "image/png")}
+    )
+    await admin_client.post(f"/catalogue/{tid}/flag-review")
+    db.add(
+        TokenPriceHistory(
+            token_id=tid,
+            source="discogs_marketplace_stats",
+            fetched_at=datetime(2025, 1, 2, 3, 4, 5, 678901, tzinfo=UTC),
+            lowest_price=Decimal("12.50"),
+            num_for_sale=3,
+            currency="EUR",
+            condition_prices={"_median": 20.0},
+        )
+    )
+    await db.commit()
+
+    async def snapshot() -> dict[str, list[dict[str, Any]]]:
+        out = {}
+        for table in admin._BACKUP_TABLES:
+            rows = (await db.execute(text(f"SELECT * FROM {table} ORDER BY 1"))).mappings()  # noqa: S608
+            out[table] = [dict(r) for r in rows]
+        return out
+
+    before = await snapshot()
+    token_row = before["tokens"][0]
+    assert token_row["current_revision_id"] is not None  # the revision pointer has to survive
+    assert all(
+        before[t]
+        for t in (
+            "users",
+            "tokens",
+            "token_revisions",
+            "media_objects",
+            "review_items",
+            "token_price_history",
+        )
+    )
+
+    archive = await _export(admin_client)
+    for table in reversed(admin._BACKUP_TABLES):
+        await db.execute(text(f"DELETE FROM {table}"))  # noqa: S608
+    await db.commit()
+
+    r = await admin_client.post(
+        "/admin/backup/import", files={"file": ("backup.zip", archive, "application/zip")}
+    )
+    total = sum(len(rows) for rows in before.values())
+    assert r.headers["location"] == f"/admin?tab=backup&msg=import_done&rows={total}"
+    assert await snapshot() == before
+
+
+async def test_import_status_of_malformed_id_is_404_without_details(
+    admin_client: httpx.AsyncClient,
+) -> None:
+    r = await admin_client.get("/admin/import/status/not-a-uuid")
+    assert r.status_code == 404
+    assert r.json() == {"error": "not found"}
+
+
+async def test_bulk_delete_ignores_malformed_ids(
+    admin_client: httpx.AsyncClient, db: AsyncSession
+) -> None:
+    t = await _add_token(db, artist="Kept")
+    r = await admin_client.post(
+        "/admin/housekeeping/bulk-delete", data={"token_ids": ['"><script>x</script>']}
+    )
+    assert r.headers["location"] == "/admin?tab=housekeeping&msg=no_selection"
+    r = await admin_client.post(
+        "/admin/housekeeping/bulk-delete", data={"token_ids": [str(t.id), "<b>"]}
+    )
+    assert r.status_code == 200
+    assert "<b>" not in r.text
+    assert f'value="{t.id}"' in r.text
+    restored = await _get_token(db, t.id)
+    assert restored is not None
+    assert restored.deleted_at is None  # first step only asks for confirmation
