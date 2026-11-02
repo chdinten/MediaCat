@@ -1,0 +1,164 @@
+{% extends layout_base %}
+{% block title %}Artists — MediaCat{% endblock %}
+
+{# ══════════════════════════════════════════════════════════════
+   3PANEL LAYOUT — 3 columns
+   Left:   scrollable artist list
+   Center: selected artist detail (bio + collection + discography)
+   Right:  album/pressing brief when clicked from collection
+   ══════════════════════════════════════════════════════════════ #}
+{% if layout_base == "base_3panel.html" %}
+
+{% block sp_layout_class %}sp-layout--three{% endblock %}
+
+{# ── LEFT: artist list ── #}
+{% block sp_left %}
+<div class="sp-artist-list-header">
+    <form action="/artists" method="get" class="sp-artist-search-form">
+        <input type="text" name="q" value="{{ query }}"
+               placeholder="Filter artists…"
+               class="sp-artist-filter-input"
+               autocomplete="off">
+        <input type="hidden" name="sort" value="{{ sort }}">
+    </form>
+</div>
+
+{% if artists %}
+<div class="sp-artist-list" id="sp-artist-list">
+    {% for a in artists %}
+    <div class="sp-artist-item {% if loop.first %}sp-artist-item--active{% endif %}"
+         id="sp-aitem-{{ loop.index }}"
+         hx-get="/artists/detail?artist={{ a.enc }}"
+         hx-target="#sp-center"
+         hx-swap="innerHTML"
+         data-mc-active="sp-artist-item">
+        <div class="sp-artist-item-img">
+            {% if a.portrait_url %}
+            <img src="{{ a.portrait_url }}" alt="" loading="lazy">
+            {% elif a.cover_url %}
+            <img src="{{ a.cover_url }}" alt="" loading="lazy">
+            {% else %}
+            <span class="sp-artist-item-initial">{{ (a.name or '?')[0] | upper }}</span>
+            {% endif %}
+        </div>
+        <div class="sp-artist-item-body">
+            <div class="sp-artist-item-name">{{ a.name }}</div>
+            <div class="sp-artist-item-meta">
+                {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
+                {% if a.year_range %} · {{ a.year_range }}{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="sp-artist-list-empty text-muted">
+    {% if query %}No artists match "{{ query }}".{% else %}No artists yet.{% endif %}
+</p>
+{% endif %}
+{% endblock %}
+
+{# ── CENTER: first artist auto-loads; replaced on click ── #}
+{% block sp_center %}
+{% if artists %}
+<div id="sp-artist-detail-init"
+     hx-get="/artists/detail?artist={{ artists[0].enc }}"
+     hx-trigger="load"
+     hx-swap="outerHTML"
+     hx-target="#sp-artist-detail-init">
+    <div class="sp-empty">
+        <span class="sp-empty-icon">🎵</span>
+        <span class="sp-empty-text">Loading {{ artists[0].name }}…</span>
+    </div>
+</div>
+{% else %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">🎸</span>
+    <span class="sp-empty-text">No artists in the catalogue yet.<br>
+        <a href="/catalogue/new" class="btn btn-primary" style="margin-top:0.75rem">Add the first pressing</a>
+    </span>
+</div>
+{% endif %}
+{% endblock %}
+
+{# ── RIGHT: empty until album clicked in center ── #}
+{% block sp_right %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">💿</span>
+    <span class="sp-empty-text">Click an album to see details</span>
+</div>
+{% endblock %}
+
+{# ══════════════════════════════════════════════════════════════
+   CLASSIC LAYOUT — original single-column design
+   ══════════════════════════════════════════════════════════════ #}
+{% else %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Artists</h1>
+</div>
+
+<div class="search-bar">
+    <form action="/artists" method="get" class="search-form">
+        <input type="text" name="q" value="{{ query }}" placeholder="Search artist…"
+               class="search-input" autocomplete="off">
+        <select name="sort" class="filter-select">
+            <option value="name"          {% if sort == 'name'          %}selected{% endif %}>Sort: Name A–Z</option>
+            <option value="count"         {% if sort == 'count'         %}selected{% endif %}>Sort: Most pressings</option>
+            <option value="rating"        {% if sort == 'rating'        %}selected{% endif %}>Sort: My rating</option>
+            <option value="discogs_rating"{% if sort == 'discogs_rating'%}selected{% endif %}>Sort: Discogs rating</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if query %}<a href="/artists" class="btn btn-ghost">Clear</a>{% endif %}
+    </form>
+</div>
+
+{% if artists %}
+<div class="artists-layout">
+    <div class="artists-grid" id="artists-grid">
+        {% for a in artists %}
+        <div class="artist-card-lg {% if loop.first %}artist-card-lg--active{% endif %}"
+             id="acard-{{ loop.index }}"
+             hx-get="/artists/detail?artist={{ a.enc }}"
+             hx-target="#artist-detail-panel"
+             hx-swap="innerHTML"
+             data-mc-active="artist-card-lg"
+             style="cursor:pointer">
+            <div class="artist-card-img">
+                {% if a.portrait_url %}
+                <img src="{{ a.portrait_url }}" alt="{{ a.name }}" loading="lazy">
+                {% elif a.cover_url %}
+                <img src="{{ a.cover_url }}" alt="{{ a.name }}" loading="lazy">
+                {% else %}
+                <div class="artist-card-no-img"><span>{{ a.name[0] | upper }}</span></div>
+                {% endif %}
+            </div>
+            <div class="artist-card-body">
+                <div class="artist-card-name">{{ a.name }}</div>
+                <div class="artist-card-meta text-muted">
+                    {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
+                    {% if a.year_range %}&nbsp;·&nbsp;{{ a.year_range }}{% endif %}
+                    {% if a.max_rating %}&nbsp;·&nbsp;★ {{ "%.1f"|format(a.max_rating / 2) }}{% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div id="artist-detail-panel" class="artist-detail-panel"
+         hx-get="/artists/detail?artist={{ artists[0].enc }}"
+         hx-trigger="load"
+         hx-swap="innerHTML"></div>
+</div>
+{% else %}
+<div class="empty-state">
+    <p class="text-muted">
+        {% if query %}No artists found for "{{ query }}".{% else %}No artists in the catalogue yet.{% endif %}
+    </p>
+    <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% endif %}

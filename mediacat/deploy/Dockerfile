@@ -47,7 +47,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     # Prevent pip from running as root warning; we have no pip at runtime.
     PIP_NO_CACHE_DIR=1
 
-# Runtime system deps only (libpq for psycopg, tesseract for OCR)
+# Runtime system deps only (libpq for psycopg, tesseract for OCR, DejaVu for PDF runout symbols)
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         libpq5 \
@@ -56,6 +56,7 @@ RUN apt-get update -qq && \
         tesseract-ocr-ita tesseract-ocr-jpn tesseract-ocr-kor \
         tesseract-ocr-chi-sim tesseract-ocr-chi-tra tesseract-ocr-rus \
         libzbar0 \
+        fonts-dejavu-core \
         curl ca-certificates tini && \
     rm -rf /var/lib/apt/lists/*
 

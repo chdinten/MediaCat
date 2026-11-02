@@ -13,6 +13,8 @@ Tables
 * **ingestion_jobs** — background connector job tracking.
 * **review_items** — human-review queue.
 * **audit_log** — append-only action log for compliance / debugging.
+* **artist_bios** — cached Wikipedia biography per artist name.
+* **site_settings** — key/value store for admin-managed settings (API tokens, etc.).
 
 Relationships
 -------------
@@ -30,11 +32,13 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -55,6 +59,7 @@ from mediacat.db.base import (
 )
 from mediacat.db.enums import (
     ImageRegion,
+    ImportJobStatus,
     IngestionJobStatus,
     MediaFormat,
     OcrEngine,
@@ -91,6 +96,9 @@ _user_role_enum = ENUM(UserRole, name="user_role", create_type=False, values_cal
 _symbol_category_enum = ENUM(
     SymbolCategory, name="symbol_category", create_type=False, values_callable=_ev
 )
+_import_job_status_enum = ENUM(
+    ImportJobStatus, name="import_job_status", create_type=False, values_callable=_ev
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -113,6 +121,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    session_timeout_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=86400, server_default="86400"
+    )
 
     # Relationships
     revisions: Mapped[list[TokenRevision]] = relationship(
@@ -302,14 +313,15 @@ class Token(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, SoftDeleteMixin, Ba
     matrix_runout_b: Mapped[str | None] = mapped_column(Text)
     # Structured parts arrays — authoritative form once symbols are resolved.
     # Each element is {"t":"text","v":"…"} or {"t":"sym","slug":"…","id":"uuid"}.
-    matrix_runout_parts: Mapped[list[dict] | None] = mapped_column(JSONB)
-    matrix_runout_b_parts: Mapped[list[dict] | None] = mapped_column(JSONB)
+    matrix_runout_parts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    matrix_runout_b_parts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     # Structured parsed breakdown — each key maps to {"value", "confidence", "source"}.
     # source: "vision" | "human" | "import" | "rule" | null
-    matrix_runout_parsed: Mapped[dict | None] = mapped_column(JSONB)
-    matrix_runout_b_parsed: Mapped[dict | None] = mapped_column(JSONB)
+    matrix_runout_parsed: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    matrix_runout_b_parsed: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     media_format: Mapped[MediaFormat] = mapped_column(_media_format_enum, nullable=False)
+    vinyl_material: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[TokenStatus] = mapped_column(
         _token_status_enum, nullable=False, default=TokenStatus.DRAFT
     )
@@ -332,6 +344,20 @@ class Token(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, SoftDeleteMixin, Ba
     discogs_release_id: Mapped[int | None] = mapped_column(Integer, index=True)
     discogs_master_id: Mapped[int | None] = mapped_column(Integer)
     musicbrainz_release_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    musicbrainz_release_url: Mapped[str | None] = mapped_column(String(200))
+    spotify_url: Mapped[str | None] = mapped_column(String(500))
+    wikipedia_artist_url: Mapped[str | None] = mapped_column(String(500))
+
+    # Genres — list of genre/style strings e.g. ["Rock", "Psychedelic Rock"]
+    genres: Mapped[list[str] | None] = mapped_column(JSONB)
+
+    # Tracklist — [{disc, position, title, artists, duration_ms}, …]
+    tracklist: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+
+    # Ratings
+    personal_rating: Mapped[float | None] = mapped_column(Float)
+    discogs_community_rating: Mapped[float | None] = mapped_column(Float)
+    discogs_community_votes: Mapped[int | None] = mapped_column(Integer)
 
     # Current revision pointer (denormalised for quick access)
     current_revision_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -353,6 +379,18 @@ class Token(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, SoftDeleteMixin, Ba
     media_objects: Mapped[list[MediaObject]] = relationship(back_populates="token")
     review_items: Mapped[list[ReviewItem]] = relationship(back_populates="token")
     token_symbols: Mapped[list[TokenSymbol]] = relationship(back_populates="token")
+    price_history: Mapped[list[TokenPriceHistory]] = relationship(
+        "TokenPriceHistory",
+        primaryjoin="Token.id == foreign(TokenPriceHistory.token_id)",
+        order_by="TokenPriceHistory.fetched_at.desc()",
+        viewonly=True,
+    )
+    sales_imports: Mapped[list[DiscogsSalesImport]] = relationship(
+        "DiscogsSalesImport",
+        primaryjoin="Token.id == foreign(DiscogsSalesImport.token_id)",
+        order_by="DiscogsSalesImport.captured_at.desc()",
+        viewonly=True,
+    )
 
     __table_args__ = (
         Index(
@@ -449,7 +487,9 @@ class MediaObject(UUIDPrimaryKeyMixin, TimestampMixin, AuditMixin, Base):
     token: Mapped[Token] = relationship(back_populates="media_objects")
     ocr_artifacts: Mapped[list[OcrArtifact]] = relationship(back_populates="media_object")
 
-    __table_args__ = (UniqueConstraint("bucket", "object_key", name="uq_media_bucket_key"),)
+    __table_args__ = (
+        UniqueConstraint("token_id", "content_hash", name="uq_media_token_content_hash"),
+    )
 
     def __repr__(self) -> str:
         return f"<MediaObject {self.content_hash[:12]}… {self.mime_type}>"
@@ -475,7 +515,7 @@ class OcrArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     confidence: Mapped[float | None] = mapped_column(Float)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
     # Vision-proposed symbol matches: [{"slug":"…","confidence":0.9,"bbox":[…]}]
-    symbol_candidates: Mapped[list[dict] | None] = mapped_column(JSONB)
+    symbol_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
     media_object: Mapped[MediaObject] = relationship(back_populates="ocr_artifacts")
 
@@ -599,6 +639,35 @@ class AuditLog(Base):
         return f"<AuditLog {self.action} {self.entity_type}:{self.entity_id}>"
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Artist biography cache
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class ArtistBio(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Cached Wikipedia biography for an artist name.
+
+    Keyed by the canonical artist name string (case-sensitive, as stored in
+    tokens.artist).  Populated lazily on first visit and refreshed on demand.
+    """
+
+    __tablename__ = "artist_bios"
+
+    artist_name: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
+    extract: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    wiki_url: Mapped[str | None] = mapped_column(String(500))
+    thumbnail_url: Mapped[str | None] = mapped_column(String(500))
+    bio_source: Mapped[str | None] = mapped_column(String(100))
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disco_data: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    disco_source: Mapped[str | None] = mapped_column(String(100))
+    disco_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<ArtistBio {self.artist_name!r}>"
+
+
 # DEF-003: ORM-level guard — audit_log rows are immutable.
 # The DB already REVOKEs UPDATE/DELETE from mediacat_app (migration 0001).
 # These listeners provide defence in depth at the application layer so any
@@ -662,4 +731,214 @@ class TokenSymbol(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         return (
             f"<TokenSymbol token={self.token_id} symbol={self.symbol_id}"
             f" side={self.side} pos={self.position}>"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Price history & collection import jobs
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TokenPriceHistory(Base):
+    """A point-in-time market price snapshot for a token (from Discogs)."""
+
+    __tablename__ = "token_price_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=func.uuid_generate_v4()
+    )
+    token_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("tokens.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="discogs")
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    lowest_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    num_for_sale: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # {condition_name: price_float}, e.g. {"Near Mint (NM or M-)": 18.5}
+    condition_prices: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<TokenPriceHistory token={self.token_id} fetched={self.fetched_at}>"
+
+
+class CollectionImportJob(Base):
+    """Tracks a background Discogs collection import job with resume support."""
+
+    __tablename__ = "collection_import_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=func.uuid_generate_v4()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    discogs_username: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[ImportJobStatus] = mapped_column(
+        _import_job_status_enum,
+        nullable=False,
+        default=ImportJobStatus.PENDING,
+    )
+    # Set once the total collection size is known
+    total_releases: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    imported_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    skipped_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    failed_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # For resume: which Discogs collection page we last completed
+    last_page: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<CollectionImportJob user={self.discogs_username!r} status={self.status.value}>"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Site settings — admin-managed key/value store
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class SiteSetting(Base):
+    """Admin-managed site-wide settings including API credentials.
+
+    Values are stored as plain text (same security posture as Docker secrets
+    on disk).  The admin UI masks token values, showing only the last 4 chars.
+    """
+
+    __tablename__ = "site_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<SiteSetting key={self.key!r}>"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Discogs user-assisted sales-history imports
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class DiscogsSalesImport(Base):
+    """A user-assisted import of Discogs sales-history data.
+
+    The application opens the Discogs sales-history page in the user's own
+    browser.  The user logs in on Discogs, reviews the visible table, copies
+    it, and pastes it here.  The server parses and validates the submitted
+    text — it never fetches the Discogs page itself.
+
+    Separation from TokenPriceHistory
+    ----------------------------------
+    TokenPriceHistory stores point-in-time marketplace statistics retrieved
+    via the official Discogs API (source "discogs" legacy, or
+    "discogs_marketplace_stats" for new rows).  This table stores
+    user-confirmed sales transactions captured by copy-and-paste.
+    They must never be mixed.
+
+    Monetary values
+    ---------------
+    All price columns use Numeric(12, 4) — not Float — to avoid
+    floating-point representation errors.  sold_price values in
+    parsed_sales_rows are stored as numeric strings (e.g. "24.0000")
+    for the same reason.
+
+    Raw text retention
+    ------------------
+    raw_import_text is nullable and is only stored when raw_storage_consented
+    is True (set by the user via a per-import opt-in checkbox).
+    """
+
+    __tablename__ = "discogs_sales_imports"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=func.uuid_generate_v4()
+    )
+
+    # ── provenance ────────────────────────────────────────────────────────────
+
+    token_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("tokens.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    imported_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Copied from Token.discogs_release_id at import time so the record
+    # is self-contained even if the token is later re-linked.
+    discogs_release_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # User-supplied URL of the Discogs page they were viewing.
+    # Lightly validated (must start with https://www.discogs.com/sell/history/).
+    # The server never fetches it.
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="manual_discogs_browser_import"
+    )
+
+    # ── raw text (optional, consent-gated) ────────────────────────────────────
+
+    raw_import_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_storage_consented: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # ── parser output ─────────────────────────────────────────────────────────
+
+    # Always stored so old imports can be re-parsed if the parser improves.
+    # Shape: {rows_found, rows_valid, rows_discarded,
+    #         discard_reasons: [{row_index, reason}],
+    #         outlier_count, parser_version}
+    parser_diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # List of validated row objects.  Each entry:
+    # {sold_date, sold_price (str Decimal), currency,
+    #  media_condition, sleeve_condition, is_outlier}
+    parsed_sales_rows: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+
+    # ── aggregates — Numeric, not Float ───────────────────────────────────────
+
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Aggregates exclude rows where is_outlier=True.
+    low_sold_price: Mapped[Any | None] = mapped_column(Numeric(12, 4), nullable=True)
+    median_sold_price: Mapped[Any | None] = mapped_column(Numeric(12, 4), nullable=True)
+    high_sold_price: Mapped[Any | None] = mapped_column(Numeric(12, 4), nullable=True)
+    newest_sold_date: Mapped[Any | None] = mapped_column(Date, nullable=True)
+    oldest_sold_date: Mapped[Any | None] = mapped_column(Date, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Rows flagged as outliers by IQR method; present in parsed_sales_rows
+    # with is_outlier=True but excluded from the aggregate columns above.
+    outlier_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # ── confidence ────────────────────────────────────────────────────────────
+
+    # Always "high" for user-assisted imports: the data was directly viewed
+    # and submitted by the authenticated user.
+    source_confidence: Mapped[str] = mapped_column(String(20), nullable=False, default="high")
+    # Derived from row count and data recency — NOT automatically "high"
+    # because the user confirmed the import.
+    # Values: "high" | "medium" | "low"
+    valuation_confidence: Mapped[str] = mapped_column(String(20), nullable=False, default="low")
+    # Human-readable list of strings explaining the valuation_confidence rating.
+    valuation_confidence_notes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<DiscogsSalesImport token={self.token_id}"
+            f" rows={self.row_count} conf={self.valuation_confidence}>"
         )

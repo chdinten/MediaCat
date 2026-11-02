@@ -1,0 +1,71 @@
+{# Compact pressing overview for the right panel in 3panel layout #}
+<div class="sp-pressing-brief">
+
+    {% if cover_url %}
+    <img src="{{ cover_url }}" alt="{{ token.title }}" class="sp-panel-img">
+    {% else %}
+    <div class="sp-panel-img-placeholder">💿</div>
+    {% endif %}
+
+    <div class="sp-brief-meta">
+        <div class="sp-brief-artist">{{ token.artist or '—' }}</div>
+        <div class="sp-brief-title">{{ token.title or 'Untitled' }}</div>
+        {% if token.year %}
+        <div class="sp-brief-year text-muted">{{ token.year }}</div>
+        {% endif %}
+    </div>
+
+    <div class="sp-brief-details">
+        {% if token.label %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">Label</span>
+            <span class="sp-brief-value">{{ token.label.name }}</span>
+        </div>
+        {% endif %}
+        {% if token.catalog_number %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">Cat. no.</span>
+            <span class="sp-brief-value" style="font-family:var(--font-mono);font-size:0.8rem">{{ token.catalog_number }}</span>
+        </div>
+        {% endif %}
+        {% if token.media_format %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">Format</span>
+            <span class="sp-brief-value">{{ token.media_format.value }}</span>
+        </div>
+        {% endif %}
+        {% if token.country %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">Country</span>
+            <span class="sp-brief-value">{{ token.country.name }}</span>
+        </div>
+        {% endif %}
+        {% if token.genres %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">Genres</span>
+            <span class="sp-brief-value">{{ token.genres | join(', ') }}</span>
+        </div>
+        {% endif %}
+        {% if collection.signed %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">Signed by</span>
+            <span class="sp-brief-value dc-signed">✍ {{ collection.signed_by or 'Yes' }}</span>
+        </div>
+        {% endif %}
+        {% for f in collection.fields if f.value and f.key not in ('autographed', 'signed_by', 'notes') %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">{{ f.name }}</span>
+            <span class="sp-brief-value{% if f.key and f.key.startswith('runout_') %} dc-code{% endif %}">{{ f.value }}</span>
+        </div>
+        {% endfor %}
+        {% if token.personal_rating %}
+        <div class="sp-brief-row">
+            <span class="sp-brief-label">My rating</span>
+            <span class="sp-brief-value">★ {{ "%.1f"|format(token.personal_rating / 2) }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <a href="/catalogue/{{ token.id }}" class="btn btn-primary sp-brief-cta">View full details</a>
+
+</div>

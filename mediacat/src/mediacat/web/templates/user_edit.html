@@ -1,0 +1,42 @@
+{% extends layout_base %}
+{% block title %}Edit user — MediaCat{% endblock %}
+
+{% block content %}
+<div class="auth-card" style="max-width:480px">
+    <h1>Edit user: {{ target.username }}</h1>
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/users/{{ target.id }}/edit">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label for="role">Role</label>
+        <select id="role" name="role">
+            {% for r in roles %}
+            <option value="{{ r }}" {% if target.role == r %}selected{% endif %}>{{ r | capitalize }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="session_timeout_seconds">Session timeout</label>
+        <select id="session_timeout_seconds" name="session_timeout_seconds">
+            {% for secs, label in timeout_options %}
+            <option value="{{ secs }}"
+                    {% if target.get('session_timeout_seconds', 86400) == secs %}selected{% endif %}>
+                {{ label }}
+            </option>
+            {% endfor %}
+        </select>
+
+        <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem">
+            <input type="checkbox" name="is_active" value="on"
+                   {% if target.is_active %}checked{% endif %}>
+            Active account
+        </label>
+
+        <div style="display:flex;gap:0.75rem;margin-top:1rem">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a href="/users" class="btn btn-ghost">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

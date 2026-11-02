@@ -1,0 +1,19 @@
+{# Fixed page background of the login page and the dashboard (z-index:1, below
+   the content).  The still image is always there: it is the poster while the
+   video loads, and what "reduce motion" users and the "Still image" mode see.
+   background = web/background.py page_background(); background.js pauses the
+   video in hidden tabs and under prefers-reduced-motion.
+   dash-bg--width: whole picture across the window, page colour below;
+   dash-bg--cover: fills the window, cropped at the sides. #}
+<div id="dash-bg" class="dash-bg--{{ background.fit }}" style="--bg-ratio: {{ background.ratio }}"
+     aria-hidden="true">
+    <img src="{{ background.image_url }}" alt="" class="dash-bg-img-fixed">
+    {% if background.mode == 'video' %}
+    <video class="dash-bg-img-fixed dash-bg-video js-bg-video" autoplay muted loop playsinline
+           disablepictureinpicture preload="auto" poster="{{ background.image_url }}">
+        {% for v in background.videos %}
+        <source src="{{ v.url }}" type="{{ v.type }}">
+        {% endfor %}
+    </video>
+    {% endif %}
+</div>

@@ -1,0 +1,25 @@
+{# Stored albums grid for a given artist (HTMX partial) #}
+{% if albums %}
+<div class="artist-albums-grid">
+    {% for album in albums %}
+    <a href="/catalogue/{{ album.id }}" class="artist-album-card">
+        {% if album.cover_image_id %}
+        <img src="/catalogue/{{ album.id }}/images/{{ album.cover_image_id }}"
+             alt="{{ album.title }}" loading="lazy" class="artist-album-cover">
+        {% else %}
+        <div class="artist-album-no-cover">
+            <span>{{ (album.title or '?')[0] | upper }}</span>
+        </div>
+        {% endif %}
+        <div class="artist-album-info">
+            <div class="artist-album-title">{{ album.title or 'Untitled' }}</div>
+            {% if album.year %}<div class="artist-album-year text-muted">{{ album.year }}</div>{% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-muted" style="font-style:italic">
+    You have no albums by {{ artist }} in the database.
+</p>
+{% endif %}

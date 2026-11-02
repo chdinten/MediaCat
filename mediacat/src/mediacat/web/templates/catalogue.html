@@ -1,30 +1,137 @@
-{% extends "base.html" %}
+{% extends layout_base %}
 {% block title %}Catalogue — MediaCat{% endblock %}
+
+{% block sp_layout_class %}sp-layout--three{% endblock %}
+
+{# ── 3panel only: artist scroll list in left panel ── #}
+{% block sp_left %}
+{% if artists %}
+<div class="artist-list sp-catalogue-artist-list" id="artist-grid">
+    {% include 'partials/artist_rows.html' %}
+</div>
+{% elif not db_error %}
+<p class="text-muted" style="padding:1rem;font-size:0.85em">No artists yet.</p>
+{% endif %}
+{% endblock %}
+
+{% block sp_right %}
+<div class="peek-empty">
+    <span class="peek-empty-icon">💿</span>
+    <span class="peek-empty-text">Hover a pressing to preview</span>
+    <details class="peek-debug-panel">
+        <summary>Debug info</summary>
+        <dl class="peek-debug-dl">
+            <dt>Layout</dt><dd><code>{{ layout_base }}</code></dd>
+            <dt>Right panel</dt><dd style="color:var(--accent-light)">active ✓</dd>
+            <dt>Trigger</dt><dd>mouseenter delay:180ms</dd>
+            <dt>Target</dt><dd><code>#sp-right</code></dd>
+            <dt>Route</dt><dd><code>GET /catalogue/{id}/peek</code></dd>
+        </dl>
+    </details>
+</div>
+{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <h1>Catalogue</h1>
     <div class="page-actions">
         <a href="/catalogue/new" class="btn btn-primary">+ Add pressing</a>
-        <a href="/catalogue/merge" class="btn btn-ghost">Merge duplicates</a>
+        <a href="/catalogue/merge" class="btn btn-ghost" id="merge-dup-btn">Merge duplicates</a>
     </div>
 </div>
 
 <div class="search-bar">
-    <form action="/catalogue" method="get" class="search-form">
-        <input type="text" name="q" value="{{ query }}" placeholder="Search artist or title…"
-               class="search-input" autocomplete="off">
-        <select name="fmt" class="filter-select">
-            <option value="">All formats</option>
-            <option value="vinyl" {% if fmt_filter == 'vinyl' %}selected{% endif %}>Vinyl</option>
-            <option value="cd" {% if fmt_filter == 'cd' %}selected{% endif %}>CD</option>
-        </select>
-        <button type="submit" class="btn btn-primary">Search</button>
-        {% if query or fmt_filter %}
-        <a href="/catalogue" class="btn btn-ghost">Clear</a>
+    <form action="/catalogue" method="get" class="search-form" id="catalogue-search-form">
+        {# Hidden inputs carry active pill-filter values when the text search is submitted #}
+        <input type="hidden" name="fmt"    value="{{ fmt_filter }}">
+        <input type="hidden" name="genres" value="{{ genres_filter }}">
+        <div class="search-row">
+            <input type="text" name="q" value="{{ query }}" placeholder="Search artist or title…"
+                   class="search-input" autocomplete="off">
+            <button type="submit" class="btn btn-primary">Search</button>
+            {% if query or fmt_filter or genres_filter or year_from or year_to or country_q %}
+            <a href="/catalogue" class="btn btn-ghost">Clear</a>
+            {% endif %}
+        </div>
+        {# ── Format pills ── #}
+        {% if facets_formats %}
+        <div class="filter-pills-row">
+            <span class="filter-pills-label">Format</span>
+            <div class="filter-pills" aria-label="Format filter">
+                {% for f in facets_formats %}
+                <a href="{{ f.url }}"
+                   class="filter-pill{% if f.active %} filter-pill--active{% endif %}"{% if f.active %} aria-current="true"{% endif %}>
+                    {{ f.name | upper }}
+                    <span class="filter-pill-count">{{ f.count }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
         {% endif %}
-    </form>
 
+        {# ── Genre pills ── #}
+        {% if facets_genres %}
+        <div class="filter-pills-row">
+            <span class="filter-pills-label">Genre</span>
+            <div class="filter-pills" aria-label="Genre filter">
+                {% for g in facets_genres %}
+                <a href="{{ g.url }}"
+                   class="filter-pill{% if g.active %} filter-pill--active{% endif %}"{% if g.active %} aria-current="true"{% endif %}>
+                    {{ g.name }}
+                    <span class="filter-pill-count">{{ g.count }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% elif not db_error %}
+        <div class="filter-pills-row">
+            <span class="filter-pills-label">Genre</span>
+            <span class="text-muted" style="font-size:.8em">No genre data yet — import genres via pressing detail pages.</span>
+        </div>
+        {% endif %}
+
+        {# ── Decade pills ── #}
+        {% if facets_decades %}
+        <div class="filter-pills-row">
+            <span class="filter-pills-label">Decade</span>
+            <div class="filter-pills" aria-label="Decade filter">
+                {% for d in facets_decades %}
+                <a href="{{ d.url }}"
+                   class="filter-pill{% if d.active %} filter-pill--active{% endif %}"{% if d.active %} aria-current="true"{% endif %}>
+                    {{ d.label }}
+                    <span class="filter-pill-count">{{ d.count }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ── Year + Country text inputs (kept for precise ranges) ── #}
+        <div class="search-row search-row--filters">
+            <div class="filter-group filter-group--year">
+                <span class="filter-label" aria-hidden="true">Year range</span>
+                <input type="number" name="year_from" value="{{ year_from }}" placeholder="From" aria-label="Year from"
+                       class="filter-input-sm" min="1900" max="2100">
+                <span class="filter-sep">–</span>
+                <input type="number" name="year_to" value="{{ year_to }}" placeholder="To"
+                       class="filter-input-sm" min="1900" max="2100">
+            </div>
+            <div class="filter-group">
+                <label class="filter-label" for="cat-country">Country</label>
+                <input type="text" name="country_q" id="cat-country" value="{{ country_q }}"
+                       placeholder="e.g. Germany" class="filter-input-md" maxlength="100"
+                       autocomplete="off"
+                       list="cat-country-list"
+                       hx-get="/catalogue/autocomplete/countries"
+                       hx-trigger="input changed delay:250ms"
+                       hx-target="#cat-country-list"
+                       hx-swap="innerHTML"
+                       hx-include="this"
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('catalogue-search-form').requestSubmit();}">
+                <datalist id="cat-country-list"></datalist>
+            </div>
+        </div>
+    </form>
     <details class="external-search">
         <summary>Search Discogs / MusicBrainz</summary>
         <div id="ext-search-wrap" class="ext-search-row">
@@ -54,6 +161,9 @@
     </details>
 </div>
 
+{# pagination_qs is computed in Python: URL-encoded, empty params omitted #}
+{% set _sep = "&" if pagination_qs else "" %}
+
 {% if db_error %}
 <div class="alert alert-danger">
     <strong>Database not ready.</strong>
@@ -61,65 +171,150 @@
     <pre class="alert-cmd">make db-migrate</pre>
     <p class="text-muted" style="font-size:0.85em">Or directly: <code>docker compose --env-file .env -f deploy/docker-compose.yaml exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat app python -m alembic -c alembic.ini upgrade head</code></p>
 </div>
-{% elif artists %}
-<div class="artist-grid" id="artist-grid">
-    {% for a in artists %}
-    <div class="artist-card" id="artist-{{ loop.index }}">
-        <div class="artist-card-header"
-             data-artist="{{ a.name }}"
-             hx-get="/catalogue/artists/{{ a.enc }}/albums"
-             hx-target="#album-panel"
-             hx-swap="innerHTML"
-             hx-on:htmx:before-request="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.artist-card').forEach(c=>c.classList.remove('artist-card--active'));this.closest('.artist-card').classList.add('artist-card--active')"
-             style="cursor:pointer">
-            <div class="artist-name">{{ a.name }}</div>
-            <div class="artist-meta">
-                {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
-                {% if a.year_range %}&nbsp;·&nbsp;{{ a.year_range }}{% endif %}
-            </div>
-        </div>
-    </div>
-    {% endfor %}
+
+{% elif genre_pressings %}
+
+{# ── Genre filter active: flat pressing list ── #}
+{% if total_pages > 1 %}
+<div class="pagination pagination--top">
+    {% if page > 1 %}<a href="?{{ pagination_qs }}{{ _sep }}page={{ page - 1 }}" class="btn btn-ghost">← Prev</a>{% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}<a href="?{{ pagination_qs }}{{ _sep }}page={{ page + 1 }}" class="btn btn-ghost">Next →</a>{% endif %}
 </div>
-
-{# Full-width album panel — loaded via HTMX when an artist card is clicked #}
-<div id="album-panel" class="album-panel"></div>
-
-{# Full-width pressing panel — loaded via HTMX when an album card is clicked #}
-<div id="pressing-panel" class="pressing-panel"></div>
-
-{% if open_artist %}
-<script>
-(function () {
-    var target = {{ open_artist | tojson }};
-    var card = Array.from(document.querySelectorAll('.artist-card-header'))
-        .find(function (el) { return el.dataset.artist === target; });
-    if (!card) return;
-    card.closest('.artist-card').classList.add('artist-card--active');
-    htmx.ajax('GET', '/catalogue/artists/{{ open_artist_enc }}/albums',
-              {target: '#album-panel', swap: 'innerHTML'});
-}());
-</script>
 {% endif %}
+
+<table class="genre-results-table">
+    <thead>
+        <tr>
+            <th>Artist</th>
+            <th>Title</th>
+            <th>Year</th>
+            <th>Format</th>
+            <th>Cat. No.</th>
+            <th>Genres</th>
+            <th title="Data completeness"></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in genre_pressings %}
+        <tr class="genre-results-row" onclick="location.href='/catalogue/{{ p.id }}'" onkeydown="if(event.key==='Enter'||event.key===' ')location.href='/catalogue/{{ p.id }}'" tabindex="0">
+            <td>{{ p.artist }}</td>
+            <td><a class="genre-result-link" href="/catalogue/{{ p.id }}">{{ p.title }}</a></td>
+            <td>{{ p.year or '—' }}</td>
+            <td>{{ p.fmt }}</td>
+            <td class="text-muted" style="font-size:.85em">{{ p.catalog_number }}</td>
+            <td class="text-muted" style="font-size:.85em">{{ p.genres }}</td>
+            <td>
+                <div class="completeness-dots" title="{{ p.completeness }}/4 fields complete">
+                    {% for i in range(4) %}<span class="dot {% if i < p.completeness %}dot--filled{% endif %}"></span>{% endfor %}
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
 
 {% if total_pages > 1 %}
 <div class="pagination">
-    {% if page > 1 %}
-    <a href="?q={{ query }}&fmt={{ fmt_filter }}&page={{ page - 1 }}" class="btn btn-ghost">← Prev</a>
-    {% endif %}
+    {% if page > 1 %}<a href="?{{ pagination_qs }}{{ _sep }}page={{ page - 1 }}" class="btn btn-ghost">← Prev</a>{% endif %}
     <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
-    {% if page < total_pages %}
-    <a href="?q={{ query }}&fmt={{ fmt_filter }}&page={{ page + 1 }}" class="btn btn-ghost">Next →</a>
+    {% if page < total_pages %}<a href="?{{ pagination_qs }}{{ _sep }}page={{ page + 1 }}" class="btn btn-ghost">Next →</a>{% endif %}
+</div>
+{% endif %}
+
+{% elif artists %}
+
+{% if layout_base == "base_3panel.html" %}
+{# ── 3panel: artist list lives in sp-left; center shows album/pressing drill-down ── #}
+{# ROLLBACK: remove this {% if %} branch and the {% else %} / {% endif %} below       #}
+<div class="sp-catalogue-drill" id="sp-catalogue-drill">
+    <div id="album-panel" class="album-panel-side"></div>
+    <div id="pressing-panel" class="pressing-panel"></div>
+    <div class="sp-catalogue-empty" id="sp-catalogue-empty">
+        <span class="sp-empty-icon">🎵</span>
+        <span class="sp-empty-text">Select an artist from the left to browse albums</span>
+    </div>
+</div>
+
+{% else %}
+{# ── Classic layout: original catalogue-split unchanged ── #}
+<div class="catalogue-split">
+    <div class="artist-column">
+        <div class="artist-list" id="artist-grid">
+            {% include 'partials/artist_rows.html' %}
+        </div>
+    </div>
+
+    {# Middle: album list — loaded via HTMX when an artist card is clicked #}
+    <div id="album-panel" class="album-panel-side"></div>
+
+    {# Right: pressing list — loaded via HTMX when an album row is clicked #}
+    <div id="pressing-panel" class="pressing-panel"></div>
+</div>
+{% endif %}
+
+<div class="pressing-merge-bar" id="pressing-merge-bar">
+    <span class="pressing-merge-bar-label">Merge selected pressings:</span>
+    <button type="button" class="btn btn-primary btn-sm" id="catalogue-merge-open-btn">Open merge form →</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="catalogue-merge-clear-btn">Clear</button>
+</div>
+
+{% elif not db_error %}
+{% set _any_filter = query or fmt_filter or genres_filter or year_from or year_to or country_q %}
+<div class="empty-state">
+    {% if _any_filter %}
+    <p class="text-muted">No pressings match the current filters.</p>
+    <a href="/catalogue" class="btn btn-ghost">Clear all filters</a>
+    {% else %}
+    <p class="text-muted">No pressings catalogued yet.</p>
+    <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
     {% endif %}
 </div>
 {% endif %}
 
-{% elif not db_error %}
-<div class="empty-state">
-    <p class="text-muted">
-        {% if query %}No pressings found for "{{ query }}".{% else %}No pressings catalogued yet.{% endif %}
-    </p>
-    <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
-</div>
+{# ── Debug: Facets structure + lookup results ── #}
+{% if not db_error %}
+<details class="debug-facets-panel" style="margin-top:2rem">
+    <summary class="debug-facets-summary">
+        <span class="debug-facets-icon">🔬</span>
+        Debug: Facets structure &amp; lookup
+        <span class="debug-facets-hint">click to expand</span>
+    </summary>
+    <div class="debug-facets-body"
+         hx-get="/catalogue/debug/facets?q={{ query | urlencode }}&fmt={{ fmt_filter | urlencode }}&genres={{ genres_filter | urlencode }}&year_from={{ year_from | urlencode }}&year_to={{ year_to | urlencode }}&country_q={{ country_q | urlencode }}"
+         hx-trigger="toggle[this.closest('details').open] once"
+         hx-swap="innerHTML"
+         hx-indicator="#debug-facets-spinner">
+        <span id="debug-facets-spinner" class="htmx-indicator text-muted" style="font-size:.8em">Loading…</span>
+    </div>
+</details>
 {% endif %}
+
 {% endblock %}
+
+{% block head %}<script src="/static/catalogue.js" defer></script>{% endblock head %}
+{% block scripts %}
+<style>
+.genre-results-table { width:100%; border-collapse:collapse; margin-top:.5rem }
+.genre-results-table th { text-align:left; padding:.4rem .6rem; border-bottom:1px solid var(--border,#333); font-size:.8em; text-transform:uppercase; letter-spacing:.04em; opacity:.7 }
+.genre-results-table td { padding:.45rem .6rem; border-bottom:1px solid var(--border,#222); vertical-align:top }
+.genre-results-row { cursor:pointer }
+.genre-results-row:hover { background:var(--surface-2,#1e1e2e) }
+.genre-results-row:focus { outline:2px solid var(--accent,#7c6af7); outline-offset:-2px }
+.genre-result-link { color:var(--accent,#7c6af7); text-decoration:none; font-weight:500 }
+.genre-result-link:hover { text-decoration:underline }
+/* Pressing list merge controls */
+.pressing-item-wrap { display:flex; align-items:stretch; border-bottom:1px solid var(--border,#2a2a3a) }
+.pressing-item-wrap:last-child { border-bottom:none }
+.pressing-merge-label { display:flex; align-items:center; padding:0 0.4rem 0 0.6rem; cursor:pointer; flex-shrink:0 }
+.pressing-merge-check { width:1rem; height:1rem; accent-color:var(--accent,#7c6af7); cursor:pointer }
+.pressing-item-wrap .pressing-item { flex:1; border-bottom:none }
+/* Merge bar: hidden by default, shown via :has() when any checkbox is checked */
+#pressing-merge-bar { display:none; align-items:center; gap:0.6rem; padding:0.5rem 0.75rem;
+    background:var(--surface-2,#1e1e2e); border:1px solid var(--accent,#7c6af7);
+    border-radius:var(--radius,6px); font-size:0.85rem; margin-top:0.5rem }
+.pressing-merge-bar-label { color:var(--text-muted,#888); margin-right:0.25rem }
+/* Show the bar whenever a checkbox inside the pressing panel is checked */
+.catalogue-split:has(.pressing-merge-check:checked) + #pressing-merge-bar { display:flex }
+</style>
+{% endblock scripts %}

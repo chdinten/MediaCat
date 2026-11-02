@@ -1,0 +1,184 @@
+{# Partial: sales history import preview
+   Returned by POST /catalogue/{token_id}/import-sales-history
+   Injected into #sales-preview via HTMX.
+   No full-page wrapper — fragment only.
+#}
+
+{# ── Hard errors ── #}
+{% if result.empty_input %}
+<div class="alert alert-warning">Nothing to preview — paste text from the Discogs sales table first.</div>
+
+{% elif result.input_too_large %}
+<div class="alert alert-warning">The pasted text is too large (limit 200 KB). Try pasting fewer rows.</div>
+
+{% elif result.too_many_rows %}
+<div class="alert alert-warning">Too many rows (limit 500). Try pasting a smaller selection.</div>
+
+{% elif result.release_id_mismatch is not none %}
+<div class="alert alert-warning">
+    Release ID mismatch: the pasted text contains Discogs release #{{ result.release_id_mismatch }},
+    but this pressing is linked to #{{ token.discogs_release_id }}.
+    Make sure you copied from the correct Discogs page.
+</div>
+
+{% elif result.mixed_currencies %}
+<div class="alert alert-warning">
+    Mixed currencies detected: {{ result.mixed_currencies | join(', ') }}.
+    All rows must be in the same currency. Filter the Discogs page by currency before copying.
+</div>
+
+{% elif source_url_error %}
+<div class="alert alert-warning">{{ source_url_error }}</div>
+
+{% elif result.valid_rows | length == 0 %}
+<div class="alert alert-warning">
+    No valid rows found. Check that you copied the full table including date, condition, and price columns.
+    {% if result.discarded_rows %}
+    {{ result.discarded_rows | length }} row(s) were discarded — see details below.
+    {% endif %}
+</div>
+
+{% else %}
+
+{# ── Parse summary ── #}
+<div class="sales-preview-summary">
+    <span class="sales-preview-badge sales-preview-badge--ok">
+        {{ result.valid_rows | length }} valid row(s)
+    </span>
+    {% if result.discarded_rows %}
+    <span class="sales-preview-badge sales-preview-badge--warn">
+        {{ result.discarded_rows | length }} discarded
+    </span>
+    {% endif %}
+    {% if result.outlier_count %}
+    <span class="sales-preview-badge sales-preview-badge--info">
+        {{ result.outlier_count }} outlier(s) detected
+    </span>
+    {% endif %}
+</div>
+
+{# ── Statistics ── #}
+{% if stats.row_count %}
+<div class="price-snapshot" style="margin-top:0.75rem">
+    <div class="price-stat">
+        <span class="price-stat-label">Low (sold)</span>
+        <span class="price-stat-value">
+            {% if stats.low %}{{ "%.2f" | format(stats.low) }} {{ result.valid_rows[0].currency }}{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="price-stat">
+        <span class="price-stat-label">Median (sold)</span>
+        <span class="price-stat-value">
+            {% if stats.median %}{{ "%.2f" | format(stats.median) }} {{ result.valid_rows[0].currency }}{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="price-stat">
+        <span class="price-stat-label">High (sold)</span>
+        <span class="price-stat-value">
+            {% if stats.high %}{{ "%.2f" | format(stats.high) }} {{ result.valid_rows[0].currency }}{% else %}—{% endif %}
+        </span>
+    </div>
+    <div class="price-stat price-stat--muted">
+        <span class="price-stat-label">Rows (non-outlier)</span>
+        <span class="price-stat-value">{{ stats.row_count }}</span>
+    </div>
+</div>
+{% endif %}
+
+{# ── Confidence ── #}
+<div class="sales-confidence-row">
+    <span class="text-muted" style="font-size:0.82rem">
+        Source: User-confirmed import
+        &nbsp;·&nbsp;
+        Valuation confidence:
+        <strong class="valuation-conf valuation-conf--{{ confidence.valuation_confidence }}">
+            {{ confidence.valuation_confidence | capitalize }}
+        </strong>
+    </span>
+    {% if confidence.notes %}
+    <details class="sales-conf-notes">
+        <summary class="price-history-summary">Why?</summary>
+        <ul class="sales-conf-note-list">
+            {% for note in confidence.notes %}<li>{{ note }}</li>{% endfor %}
+        </ul>
+    </details>
+    {% endif %}
+</div>
+
+{# ── Outlier warning ── #}
+{% if result.outlier_count %}
+<p class="text-muted" style="font-size:0.82rem;margin:0.4rem 0">
+    {{ result.outlier_count }} outlier row(s) detected via IQR×3 and excluded from the statistics above.
+    They are stored in the import record with <code>is_outlier=true</code>.
+</p>
+{% endif %}
+
+{# ── Row preview (first 10) ── #}
+<details class="sales-preview-rows-details">
+    <summary class="price-history-summary">
+        Preview rows ({{ result.valid_rows | length }} valid)
+    </summary>
+    <table class="price-history-table" style="margin-top:0.4rem">
+        <thead>
+            <tr><th>Date</th><th>Condition</th><th>Sleeve</th><th>Price</th><th>Outlier</th></tr>
+        </thead>
+        <tbody>
+            {% for row in result.valid_rows[:10] %}
+            <tr {% if row.is_outlier %}class="sales-row--outlier"{% endif %}>
+                <td>{{ row.sold_date }}</td>
+                <td>{{ row.media_condition }}</td>
+                <td>{{ row.sleeve_condition or '—' }}</td>
+                <td>{{ "%.2f" | format(row.sold_price) }} {{ row.currency }}</td>
+                <td>{{ '⚠ yes' if row.is_outlier else '' }}</td>
+            </tr>
+            {% endfor %}
+            {% if result.valid_rows | length > 10 %}
+            <tr>
+                <td colspan="5" class="text-dim" style="font-size:0.8rem">
+                    … and {{ result.valid_rows | length - 10 }} more rows
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</details>
+
+{# ── Discarded rows ── #}
+{% if result.discarded_rows %}
+<details class="sales-preview-rows-details">
+    <summary class="price-history-summary">
+        Discarded rows ({{ result.discarded_rows | length }})
+    </summary>
+    <table class="price-history-table" style="margin-top:0.4rem">
+        <thead><tr><th>#</th><th>Reason</th><th>Raw text</th></tr></thead>
+        <tbody>
+            {% for dr in result.discarded_rows %}
+            <tr>
+                <td>{{ dr.row_index }}</td>
+                <td>{{ dr.reason }}</td>
+                <td class="text-dim" style="font-size:0.75rem;word-break:break-all">{{ dr.raw_row[:80] }}{% if dr.raw_row | length > 80 %}…{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</details>
+{% endif %}
+
+{# ── Confirm form ── #}
+<div class="sales-confirm-row">
+    <form method="post" action="/catalogue/{{ token.id }}/import-sales-history/confirm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="raw_text" value="{{ raw_text }}">
+        <input type="hidden" name="source_url" value="{{ source_url or '' }}">
+        <input type="hidden" name="store_raw_text" value="{{ 'true' if store_raw_text else 'false' }}">
+        <button type="submit" class="btn btn-primary btn-sm">
+            Confirm and save import
+        </button>
+        <span class="text-dim" style="font-size:0.8rem;margin-left:0.5rem">
+            {{ result.valid_rows | length }} row(s) will be stored.
+            {% if result.outlier_count %}{{ result.outlier_count }} outlier(s) included but excluded from aggregates.{% endif %}
+        </span>
+    </form>
+</div>
+
+{% endif %}{# end no-hard-error branch #}

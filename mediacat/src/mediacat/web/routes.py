@@ -44,6 +44,7 @@ dashboard_router = APIRouter(tags=["dashboard"])
 review_router = APIRouter(tags=["review"])
 token_router = APIRouter(tags=["tokens"])
 user_router = APIRouter(prefix="/users", tags=["users"])
+search_router = APIRouter(tags=["search"])
 
 _templates: Jinja2Templates | None = None
 
@@ -66,8 +67,20 @@ def _tmpl() -> Jinja2Templates:
 # ---------------------------------------------------------------------------
 
 
+_LAYOUT_COOKIE = "mc_layout"
+_VALID_LAYOUTS = {"classic", "3panel"}
+
+
+def _layout_base(request: Request) -> str:
+    """Return the base template name based on the mc_layout cookie."""
+    layout = request.cookies.get(_LAYOUT_COOKIE, "classic")
+    if layout not in _VALID_LAYOUTS:
+        layout = "classic"
+    return "base_3panel.html" if layout == "3panel" else "base.html"
+
+
 def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
-    """Build the Jinja2 template context with CSRF and user info."""
+    """Build the Jinja2 template context with CSRF, user info, and layout selection."""
     session = getattr(request.state, "session", None) or {}
     csrf_token = getattr(request.state, "csrf_token", "")
     return {
@@ -75,6 +88,7 @@ def _ctx(request: Request, **extra: Any) -> dict[str, Any]:
         "user": session,
         "csrf_token": csrf_token,
         "is_htmx": request.headers.get("hx-request") == "true",
+        "layout_base": _layout_base(request),
         **extra,
     }
 
@@ -169,15 +183,24 @@ if os.environ.get("MEDIACAT_ENV", "dev") == "dev":
 @auth_router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request) -> HTMLResponse:
     """Render the login form."""
+    return await _login_response(request)
+
+
+async def _login_response(
+    request: Request, error: str | None = None, status_code: int = 200
+) -> HTMLResponse:
+    from mediacat.web.background import page_background
+
     return _tmpl().TemplateResponse(
         request=request,
         name="login.html",
-        context=_ctx(request, error=None),
+        context=_ctx(request, error=error, background=await page_background(request)),
+        status_code=status_code,
     )
 
 
 @auth_router.post("/login", response_model=None)
-async def login_submit(
+async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout, audit)
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -189,29 +212,27 @@ async def login_submit(
 
     # Rate limiting by username and IP
     if await rate_limiter.is_locked(username) or await rate_limiter.is_locked(ip):
-        return _tmpl().TemplateResponse(
-            request=request,
-            name="login.html",
-            context=_ctx(request, error="Account temporarily locked. Try again later."),
-            status_code=429,
-        )
+        return await _login_response(request, "Account temporarily locked. Try again later.", 429)
 
     # Lookup user — check in-memory bootstrap store first, then DB
     user: dict[str, Any] | None = _users_store.get(username)
     if user is None:
         try:
             from sqlalchemy import select as _sel
+
             from mediacat.db.models import User as _UModel
 
             sf = getattr(request.app.state, "db_session_factory", None)
             if sf:
                 async with sf() as _db:
-                    _row = (await _db.execute(
-                        _sel(_UModel).where(
-                            _UModel.username == username,
-                            _UModel.deleted_at.is_(None),
+                    _row = (
+                        await _db.execute(
+                            _sel(_UModel).where(
+                                _UModel.username == username,
+                                _UModel.deleted_at.is_(None),
+                            )
                         )
-                    )).scalar_one_or_none()
+                    ).scalar_one_or_none()
                     if _row:
                         user = {
                             "id": str(_row.id),
@@ -220,7 +241,9 @@ async def login_submit(
                             "password_hash": _row.password_hash,
                             "role": str(_row.role),
                             "is_active": _row.is_active,
-                            "session_timeout_seconds": getattr(_row, "session_timeout_seconds", 86400),
+                            "session_timeout_seconds": getattr(
+                                _row, "session_timeout_seconds", 86400
+                            ),
                             "failed_login_count": _row.failed_login_count or 0,
                             "locked_until": _row.locked_until,
                             "_db_id": str(_row.id),
@@ -231,12 +254,7 @@ async def login_submit(
     if not user or not user.get("is_active", False):
         await rate_limiter.record_failure(username)
         await rate_limiter.record_failure(ip)
-        return _tmpl().TemplateResponse(
-            request=request,
-            name="login.html",
-            context=_ctx(request, error="Invalid username or password."),
-            status_code=401,
-        )
+        return await _login_response(request, "Invalid username or password.", 401)
 
     # Verify password
     if not verify_password(password, user["password_hash"]):
@@ -244,12 +262,7 @@ async def login_submit(
         await rate_limiter.record_failure(ip)
         user["failed_login_count"] = user.get("failed_login_count", 0) + 1
         logger.warning("Failed login for user=%s from ip=%s", username, ip)
-        return _tmpl().TemplateResponse(
-            request=request,
-            name="login.html",
-            context=_ctx(request, error="Invalid username or password."),
-            status_code=401,
-        )
+        return await _login_response(request, "Invalid username or password.", 401)
 
     # Check if password needs rehash (params changed)
     new_hash = hash_password(password) if needs_rehash(user["password_hash"]) else None
@@ -264,18 +277,21 @@ async def login_submit(
 
     # Persist last_login_at (and optional rehash) to DB
     try:
-        from sqlalchemy import select as _sel, update as _upd
+        from sqlalchemy import select as _sel
+        from sqlalchemy import update as _upd
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _vals: dict[str, Any] = {"last_login_at": datetime.now(UTC), "failed_login_count": 0}
+                _vals: dict[str, Any] = {
+                    "last_login_at": datetime.now(UTC),
+                    "failed_login_count": 0,
+                }
                 if new_hash:
                     _vals["password_hash"] = new_hash
-                await _db.execute(
-                    _upd(_UModel).where(_UModel.username == username).values(**_vals)
-                )
+                await _db.execute(_upd(_UModel).where(_UModel.username == username).values(**_vals))
                 await _db.commit()
     except Exception as _exc:
         logger.debug("DB last_login_at update skipped: %s", _exc)
@@ -314,6 +330,8 @@ async def logout(request: Request) -> RedirectResponse:
 @dashboard_router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request) -> HTMLResponse:
     """Main dashboard."""
+    from mediacat.web.background import page_background
+
     stats: dict[str, Any] = {"total": 0, "vinyl": 0, "cd": 0, "artists": 0, "oldest_year": None}
     recent: list[Any] = []
     top_rated: list[Any] = []
@@ -374,6 +392,7 @@ async def dashboard(request: Request) -> HTMLResponse:
                     .scalars()
                     .all()
                 )
+                _recent_ids = {t.id for t in recent}
                 top_rated = list(
                     (
                         await db.execute(
@@ -382,7 +401,11 @@ async def dashboard(request: Request) -> HTMLResponse:
                                 selectinload(Token.label),
                                 selectinload(Token.media_objects),
                             )
-                            .where(*base_filter, Token.personal_rating.isnot(None))
+                            .where(
+                                *base_filter,
+                                Token.personal_rating.isnot(None),
+                                Token.id.notin_(_recent_ids),
+                            )
                             .order_by(Token.personal_rating.desc())
                             .limit(8)
                         )
@@ -415,26 +438,19 @@ async def dashboard(request: Request) -> HTMLResponse:
                 from collections import defaultdict
 
                 _by_genre: dict[str, list[Any]] = defaultdict(list)
+                _dedup_ids = {t.id for t in recent} | {t.id for t in top_rated}
                 for t in tagged:
-                    if t.genres:
+                    if t.genres and t.id not in _dedup_ids:
                         _by_genre[t.genres[0]].append(t)
                 # Sort genres by album count descending; cap at 12 carousels
                 _sorted_genres = sorted(_by_genre.items(), key=lambda kv: -len(kv[1]))
                 genre_carousels = [
-                    {"genre": g, "tokens": ts[:8]}
-                    for g, ts in _sorted_genres
-                    if ts
+                    {"genre": g, "tokens": ts[:8]} for g, ts in _sorted_genres if ts
                 ][:12]
-                genre_stats = [
-                    {"genre": g, "count": len(ts)}
-                    for g, ts in _sorted_genres
-                    if ts
-                ][:5]
+                genre_stats = [{"genre": g, "count": len(ts)} for g, ts in _sorted_genres if ts][:5]
                 stats["oldest_year"] = (
                     await db.execute(
-                        select(func.min(Token.year)).where(
-                            *base_filter, Token.year.isnot(None)
-                        )
+                        select(func.min(Token.year)).where(*base_filter, Token.year.isnot(None))
                     )
                 ).scalar_one()
 
@@ -448,6 +464,7 @@ async def dashboard(request: Request) -> HTMLResponse:
         top_rated=top_rated,
         genre_carousels=genre_carousels,
         genre_stats=genre_stats,
+        background=await page_background(request),
     )
     return _tmpl().TemplateResponse(request=request, name="dashboard.html", context=context)
 
@@ -519,11 +536,15 @@ async def review_detail(request: Request, review_id: str) -> HTMLResponse:
 
     from mediacat.db.models import ReviewItem, Token
 
+    try:
+        rid = uuid.UUID(review_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Review not found") from None
+
     review = None
     token = None
     revisions: list[Any] = []
     try:
-        rid = uuid.UUID(review_id)
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as db:
@@ -742,9 +763,7 @@ def _user_row_to_dict(u: Any) -> dict[str, Any]:
         "role": str(u.role),
         "is_active": u.is_active,
         "session_timeout_seconds": getattr(u, "session_timeout_seconds", 86400),
-        "last_login_at": (
-            u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else None
-        ),
+        "last_login_at": (u.last_login_at.strftime("%Y-%m-%d %H:%M") if u.last_login_at else None),
         "failed_login_count": u.failed_login_count or 0,
     }
 
@@ -755,21 +774,27 @@ async def user_list(request: Request) -> HTMLResponse:
     _require_role(request, "admin")
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if not sf:
             raise RuntimeError("no db")
         async with sf() as _db:
-            rows = (await _db.execute(
-                _sel(_UModel)
-                .where(_UModel.deleted_at.is_(None))
-                .order_by(_UModel.username)
-            )).scalars().all()
+            rows = (
+                (
+                    await _db.execute(
+                        _sel(_UModel).where(_UModel.deleted_at.is_(None)).order_by(_UModel.username)
+                    )
+                )
+                .scalars()
+                .all()
+            )
             users: list[dict[str, Any]] = [_user_row_to_dict(r) for r in rows]
     except Exception as _exc:
         logger.warning("user_list DB query failed, using memory store: %s", _exc)
-        users = [{**u, "password_hash": "***"} for u in _users_store.values()]
+        mask = "***"  # display mask, not a password  # nosec B105
+        users = [{**u, "password_hash": mask} for u in _users_store.values()]
     context = _ctx(request, users=users)
     return _tmpl().TemplateResponse(request=request, name="users.html", context=context)
 
@@ -798,17 +823,18 @@ async def user_create_submit(
     if not _taken:
         try:
             from sqlalchemy import select as _sel
+
             from mediacat.db.models import User as _UModel
 
             sf = getattr(request.app.state, "db_session_factory", None)
             if sf:
                 async with sf() as _db:
-                    _existing = (await _db.execute(
-                        _sel(_UModel.id).where(_UModel.username == username)
-                    )).scalar_one_or_none()
+                    _existing = (
+                        await _db.execute(_sel(_UModel.id).where(_UModel.username == username))
+                    ).scalar_one_or_none()
                     _taken = _existing is not None
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("username availability check failed: %s", exc)
 
     if _taken:
         context = _ctx(
@@ -843,8 +869,9 @@ async def user_create_submit(
     # Persist to DB
     try:
         from sqlalchemy.dialects.postgresql import insert as _pg_ins
-        from mediacat.db.models import User as _UModel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
@@ -889,17 +916,20 @@ async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
     target: dict[str, Any] | None = None
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _row = (await _db.execute(
-                    _sel(_UModel).where(
-                        _UModel.id == uuid.UUID(user_id),
-                        _UModel.deleted_at.is_(None),
+                _row = (
+                    await _db.execute(
+                        _sel(_UModel).where(
+                            _UModel.id == uuid.UUID(user_id),
+                            _UModel.deleted_at.is_(None),
+                        )
                     )
-                )).scalar_one_or_none()
+                ).scalar_one_or_none()
                 if _row:
                     target = _user_row_to_dict(_row)
     except Exception as _exc:
@@ -930,15 +960,19 @@ async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
 async def _active_admin_count(request: Request) -> int:
     """Return the number of active admin accounts (DB-backed with in-memory fallback)."""
     try:
-        from sqlalchemy import func, select as _sel
-        from mediacat.db.models import User as _UModel
+        from sqlalchemy import func
+        from sqlalchemy import select as _sel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
                 result = await _db.execute(
-                    _sel(func.count()).select_from(_UModel).where(
+                    _sel(func.count())
+                    .select_from(_UModel)
+                    .where(
                         _UModel.role == _UR.ADMIN,
                         _UModel.is_active.is_(True),
                         _UModel.deleted_at.is_(None),
@@ -948,8 +982,7 @@ async def _active_admin_count(request: Request) -> int:
     except Exception as _exc:
         logger.warning("_active_admin_count DB query failed: %s", _exc)
     return sum(
-        1 for u in _users_store.values()
-        if u.get("role") == "admin" and u.get("is_active", False)
+        1 for u in _users_store.values() if u.get("role") == "admin" and u.get("is_active", False)
     )
 
 
@@ -968,17 +1001,20 @@ async def user_edit_submit(
     target: dict[str, Any] | None = None
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _row = (await _db.execute(
-                    _sel(_UModel).where(
-                        _UModel.id == uuid.UUID(user_id),
-                        _UModel.deleted_at.is_(None),
+                _row = (
+                    await _db.execute(
+                        _sel(_UModel).where(
+                            _UModel.id == uuid.UUID(user_id),
+                            _UModel.deleted_at.is_(None),
+                        )
                     )
-                )).scalar_one_or_none()
+                ).scalar_one_or_none()
                 if _row:
                     target = _user_row_to_dict(_row)
     except Exception as _exc:
@@ -1002,8 +1038,13 @@ async def user_edit_submit(
                 target=target,
                 roles=["admin", "contributor", "reviewer", "viewer"],
                 timeout_options=[
-                    (900, "15 minutes"), (1800, "30 minutes"), (3600, "1 hour"),
-                    (14400, "4 hours"), (28800, "8 hours"), (86400, "24 hours"), (604800, "7 days"),
+                    (900, "15 minutes"),
+                    (1800, "30 minutes"),
+                    (3600, "1 hour"),
+                    (14400, "4 hours"),
+                    (28800, "8 hours"),
+                    (86400, "24 hours"),
+                    (604800, "7 days"),
                 ],
                 error="Cannot demote or deactivate the last active admin account.",
             )
@@ -1014,8 +1055,9 @@ async def user_edit_submit(
     # Persist changes to DB
     try:
         from sqlalchemy import update as _upd
-        from mediacat.db.models import User as _UModel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
@@ -1054,17 +1096,20 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
     target_username: str = ""
     try:
         from sqlalchemy import select as _sel
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
             async with sf() as _db:
-                _row = (await _db.execute(
-                    _sel(_UModel).where(
-                        _UModel.id == uuid.UUID(user_id),
-                        _UModel.deleted_at.is_(None),
+                _row = (
+                    await _db.execute(
+                        _sel(_UModel).where(
+                            _UModel.id == uuid.UUID(user_id),
+                            _UModel.deleted_at.is_(None),
+                        )
                     )
-                )).scalar_one_or_none()
+                ).scalar_one_or_none()
                 if _row:
                     target_role = str(_row.role)
                     target_username = _row.username
@@ -1079,11 +1124,14 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
                 break
 
     if target_role == "admin" and await _active_admin_count(request) <= 1:
-        logger.warning("Blocked deactivation of last admin %s by=%s", target_username, request.state.user_id)
+        logger.warning(
+            "Blocked deactivation of last admin %s by=%s", target_username, request.state.user_id
+        )
         return RedirectResponse(url="/users?error=last_admin", status_code=303)
 
     try:
         from sqlalchemy import update as _upd
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
@@ -1112,6 +1160,7 @@ async def user_activate(request: Request, user_id: str) -> RedirectResponse:
 
     try:
         from sqlalchemy import update as _upd
+
         from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
@@ -1169,7 +1218,10 @@ async def register_submit(
             status_code=400,
         )
 
-    if len(username) < 3 or not username.replace("_", "").replace("-", "").replace(".", "").isalnum():
+    if (
+        len(username) < 3
+        or not username.replace("_", "").replace("-", "").replace(".", "").isalnum()
+    ):
         return _err("Username must be at least 3 characters (letters, numbers, ._- only).")
 
     # Check uniqueness in both DB and in-memory store
@@ -1177,17 +1229,18 @@ async def register_submit(
     if not _username_taken:
         try:
             from sqlalchemy import select as _sel
+
             from mediacat.db.models import User as _UModel
 
             sf = getattr(request.app.state, "db_session_factory", None)
             if sf:
                 async with sf() as _db:
-                    _existing = (await _db.execute(
-                        _sel(_UModel.id).where(_UModel.username == username)
-                    )).scalar_one_or_none()
+                    _existing = (
+                        await _db.execute(_sel(_UModel.id).where(_UModel.username == username))
+                    ).scalar_one_or_none()
                     _username_taken = _existing is not None
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("username availability check failed: %s", exc)
     if _username_taken:
         return _err(f"Username '{username}' is already taken.")
     if len(password) < 8:
@@ -1201,8 +1254,9 @@ async def register_submit(
     # Persist to DB
     try:
         from sqlalchemy.dialects.postgresql import insert as _pg_ins
-        from mediacat.db.models import User as _UModel
+
         from mediacat.db.enums import UserRole as _UR
+        from mediacat.db.models import User as _UModel
 
         sf = getattr(request.app.state, "db_session_factory", None)
         if sf:
@@ -1237,3 +1291,339 @@ async def register_submit(
     }
     logger.info("Self-registration: user=%s email=%s", username, email)
     return RedirectResponse(url="/login?registered=1", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Global search  (3panel layout top-bar)
+# ---------------------------------------------------------------------------
+
+#: Top-bar search scopes.  "all" covers artists and albums; track titles have
+#: their own scope so a song search is not drowned in artist/album hits.
+SEARCH_SCOPES = ("all", "artists", "albums", "tracks")
+_SEARCH_LIMIT = 100
+
+
+def _like_pattern(q: str) -> str:
+    """ILIKE pattern matching *q* literally anywhere (``%``/``_`` match themselves)."""
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _live_tokens(stmt: Any) -> Any:
+    """Restrict a token query to live (not deleted, not merged) pressings."""
+    from mediacat.db.enums import TokenStatus
+    from mediacat.db.models import Token
+
+    return stmt.where(Token.deleted_at.is_(None)).where(Token.status != TokenStatus.MERGED)
+
+
+async def _search_artists(db: Any, pattern: str) -> list[dict[str, Any]]:
+    """Artists whose name matches, with pressing count, years and an image."""
+    import urllib.parse
+
+    from sqlalchemy import func, select
+
+    from mediacat.db.models import ArtistBio, MediaObject, Token
+
+    artist_rows = (
+        await db.execute(
+            _live_tokens(
+                select(
+                    Token.artist,
+                    func.count(Token.id).label("cnt"),
+                    func.min(Token.year).label("yr_min"),
+                    func.max(Token.year).label("yr_max"),
+                )
+            )
+            .where(Token.artist.ilike(pattern, escape="\\"))
+            .group_by(Token.artist)
+            .order_by(Token.artist.asc())
+            .limit(50)
+        )
+    ).all()
+
+    artist_names = [r.artist for r in artist_rows]
+    cover_by_artist: dict[str, str] = {}
+    portrait_by_artist: dict[str, str] = {}
+    if artist_names:
+        cover_rows = (
+            await db.execute(
+                _live_tokens(
+                    select(Token.artist, MediaObject.id, MediaObject.token_id).join(
+                        MediaObject, MediaObject.token_id == Token.id
+                    )
+                )
+                .where(Token.artist.in_(artist_names))
+                .order_by(
+                    Token.artist.asc(),
+                    MediaObject.is_primary_cover.desc().nulls_last(),
+                    Token.year.asc().nulls_last(),
+                )
+            )
+        ).all()
+        for row in cover_rows:
+            if row.artist not in cover_by_artist:
+                cover_by_artist[row.artist] = f"/catalogue/{row.token_id}/images/{row.id}"
+
+        bio_rows = (
+            await db.execute(
+                select(ArtistBio.artist_name, ArtistBio.thumbnail_url)
+                .where(ArtistBio.artist_name.in_(artist_names))
+                .where(ArtistBio.thumbnail_url.isnot(None))
+            )
+        ).all()
+        portrait_by_artist = {r.artist_name: r.thumbnail_url for r in bio_rows}
+
+    return [
+        {
+            "name": r.artist,
+            "pressing_count": r.cnt,
+            "year_range": (
+                str(r.yr_min) + (f"–{r.yr_max}" if r.yr_max != r.yr_min else "") if r.yr_min else ""
+            ),
+            "enc": urllib.parse.quote(r.artist or "", safe=""),
+            "portrait_url": portrait_by_artist.get(r.artist),
+            "cover_url": cover_by_artist.get(r.artist),
+        }
+        for r in artist_rows
+    ]
+
+
+async def _cover_urls(db: Any, token_ids: list[Any]) -> dict[str, str]:
+    """Cover image URL per token id (primary cover first)."""
+    from sqlalchemy import select
+
+    from mediacat.db.models import MediaObject
+
+    if not token_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(MediaObject.id, MediaObject.token_id)
+            .where(MediaObject.token_id.in_(token_ids))
+            .order_by(MediaObject.is_primary_cover.desc().nulls_last(), MediaObject.id.asc())
+        )
+    ).all()
+    covers: dict[str, str] = {}
+    for row in rows:
+        covers.setdefault(str(row.token_id), f"/catalogue/{row.token_id}/images/{row.id}")
+    return covers
+
+
+def _hit_row(r: Any, covers: dict[str, str]) -> dict[str, Any]:
+    """Common fields of an album or track hit."""
+    import urllib.parse
+
+    return {
+        "id": str(r.id),
+        "artist": r.artist or "",
+        "enc_artist": urllib.parse.quote(r.artist or "", safe=""),
+        "title": r.title or "",
+        "year": r.year,
+        "media_format": r.media_format,
+        "cover_url": covers.get(str(r.id)),
+    }
+
+
+async def _search_pressings(
+    db: Any, pattern: str, *, by_artist: bool, by_album: bool
+) -> list[dict[str, Any]]:
+    """Pressings whose artist and/or album title / catalogue number matches."""
+    from sqlalchemy import or_, select
+
+    from mediacat.db.models import Token
+
+    fields = ([Token.artist] if by_artist else []) + (
+        [Token.title, Token.catalog_number] if by_album else []
+    )
+    rows = (
+        await db.execute(
+            _live_tokens(
+                select(
+                    Token.id,
+                    Token.artist,
+                    Token.title,
+                    Token.year,
+                    Token.media_format,
+                    Token.catalog_number,
+                )
+            )
+            .where(or_(*(f.ilike(pattern, escape="\\") for f in fields)))
+            .order_by(Token.title.asc(), Token.artist.asc(), Token.year.asc().nulls_last())
+            .limit(_SEARCH_LIMIT + 1)
+        )
+    ).all()
+    covers = await _cover_urls(db, [r.id for r in rows])
+    return [_hit_row(r, covers) | {"catalog_number": r.catalog_number} for r in rows]
+
+
+async def _search_tracks(db: Any, pattern: str) -> list[dict[str, Any]]:
+    """Tracks (from each pressing's ``tracklist``) whose title matches."""
+    from sqlalchemy import case, cast, func, literal, select, true
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    from mediacat.db.models import Token
+
+    # Guard against a non-array tracklist: jsonb_array_elements raises on one.
+    tracks_array = case(
+        (func.jsonb_typeof(Token.tracklist) == "array", Token.tracklist),
+        else_=cast(literal("[]"), JSONB),
+    )
+    track = func.jsonb_array_elements(tracks_array).table_valued("value").lateral("track")
+    track_title = track.c.value.op("->>")("title")
+    rows = (
+        await db.execute(
+            _live_tokens(
+                select(
+                    Token.id,
+                    Token.artist,
+                    Token.title,
+                    Token.year,
+                    Token.media_format,
+                    track_title.label("track_title"),
+                    track.c.value.op("->>")("position").label("position"),
+                )
+                .select_from(Token)
+                .join(track, true())
+            )
+            .where(track_title.ilike(pattern, escape="\\"))
+            .order_by(func.lower(track_title), Token.artist.asc(), Token.year.asc().nulls_last())
+            .limit(_SEARCH_LIMIT + 1)
+        )
+    ).all()
+    covers = await _cover_urls(db, list({r.id for r in rows}))
+    return [
+        _hit_row(r, covers) | {"track_title": r.track_title or "", "position": r.position or ""}
+        for r in rows
+    ]
+
+
+def _first_artist(
+    artists: list[dict[str, Any]], albums: list[dict[str, Any]], tracks: list[dict[str, Any]]
+) -> dict[str, str]:
+    """The artist the centre panel opens with: the first artist hit, else the
+    artist of the first album or track hit."""
+    if artists:
+        return {"enc": artists[0]["enc"], "name": artists[0]["name"]}
+    for hit in (albums or tracks)[:1]:
+        return {"enc": hit["enc_artist"], "name": hit["artist"]}
+    return {"enc": "", "name": ""}
+
+
+def _single_pressing_hit(
+    artists: list[dict[str, Any]], albums: list[dict[str, Any]], tracks: list[dict[str, Any]]
+) -> str | None:
+    """Pressing id when the search found exactly one album or track and no artist."""
+    hits = albums + tracks
+    if not artists and len(hits) == 1:
+        return str(hits[0]["id"])
+    return None
+
+
+@search_router.get("/search", response_class=HTMLResponse)
+async def global_search(
+    request: Request, q: str = Query(default=""), scope: str = Query(default="all")
+) -> HTMLResponse:
+    """Search artists, album titles / catalogue numbers, or track titles.
+
+    ``scope`` is one of :data:`SEARCH_SCOPES`: ``all`` (artists and albums),
+    ``artists``, ``albums`` or ``tracks``.  Returns an HTMX partial or full page.
+    """
+    q = q.strip()[:200]  # cap query length
+    if scope not in SEARCH_SCOPES:
+        scope = "all"
+    pattern = _like_pattern(q)
+    sf = getattr(request.app.state, "db_session_factory", None)
+
+    # ── 3panel layout: grouped hit list in the left panel ───────────────────
+    if _is_htmx(request) and _layout_base(request) == "base_3panel.html" and q and sf:
+        try:
+            artists: list[dict[str, Any]] = []
+            albums: list[dict[str, Any]] = []
+            tracks: list[dict[str, Any]] = []
+            async with sf() as db:
+                if scope in ("all", "artists"):
+                    artists = await _search_artists(db, pattern)
+                if scope in ("all", "albums"):
+                    albums = await _search_pressings(db, pattern, by_artist=False, by_album=True)
+                if scope == "tracks":
+                    tracks = await _search_tracks(db, pattern)
+            # One album/track and nothing else: open its detail page directly
+            single = _single_pressing_hit(artists, albums, tracks)
+            if single:
+                return HTMLResponse("", headers={"HX-Redirect": f"/catalogue/{single}"})
+            ctx = _ctx(
+                request,
+                q=q,
+                scope=scope,
+                artists=artists,
+                albums=albums[:_SEARCH_LIMIT],
+                tracks=tracks[:_SEARCH_LIMIT],
+                albums_more=len(albums) > _SEARCH_LIMIT,
+                tracks_more=len(tracks) > _SEARCH_LIMIT,
+                first=_first_artist(artists, albums, tracks),
+            )
+            return _tmpl().TemplateResponse(
+                request=request,
+                name="partials/search_3panel.html",
+                context=ctx,
+            )
+        except Exception as exc:
+            logger.warning("global_search (3panel) error: %s", exc)
+
+    # ── Classic layout or empty query: flat pressing list ───────────────────
+    results: list[dict[str, Any]] = []
+    if q and sf:
+        try:
+            async with sf() as db:
+                if scope == "tracks":
+                    results = await _search_tracks(db, pattern)
+                else:
+                    results = await _search_pressings(
+                        db,
+                        pattern,
+                        by_artist=scope in ("all", "artists"),
+                        by_album=scope in ("all", "albums"),
+                    )
+                    results.sort(key=lambda r: (r["artist"].casefold(), r["title"].casefold()))
+                results = results[:_SEARCH_LIMIT]
+        except Exception as exc:
+            logger.warning("global_search error: %s", exc)
+
+    ctx = _ctx(request, q=q, scope=scope, results=results)
+
+    if _is_htmx(request):
+        return _tmpl().TemplateResponse(
+            request=request,
+            name="partials/global_search_results.html",
+            context=ctx,
+        )
+    # Full-page fallback (non-HTMX)
+    return _tmpl().TemplateResponse(
+        request=request,
+        name="search.html",
+        context=ctx,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layout switcher  (sets mc_layout cookie; used by admin Layout tab)
+# ---------------------------------------------------------------------------
+
+
+@search_router.post("/layout/set", response_model=None)
+async def layout_set(request: Request, layout: str = Form("classic")) -> RedirectResponse:
+    """Set the UI layout preference cookie. Admin-only."""
+    _require_role(request, "admin")
+    if layout not in _VALID_LAYOUTS:
+        layout = "classic"
+    response = RedirectResponse(url="/admin?tab=layout&msg=layout_saved", status_code=303)
+    response.set_cookie(
+        _LAYOUT_COOKIE,
+        layout,
+        max_age=60 * 60 * 24 * 365,  # 1 year
+        httponly=False,  # JS must NOT read it, but it's non-sensitive
+        samesite="lax",
+    )
+    logger.info("Layout switched to %r by %s", layout, getattr(request.state, "user_id", "?"))
+    return response

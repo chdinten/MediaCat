@@ -1,0 +1,127 @@
+{# 3panel search response:
+   - sentinel triggers layout switch to three-column
+   - OOB swap replaces left panel with the hit list (artists / albums / tracks)
+   - main content (into #sp-center) auto-loads the first hit's artist
+   Album and track rows are plain links to the album's full detail page.  A
+   search with exactly one album/track hit and no artist never gets here: the
+   route answers with HX-Redirect to that page.
+#}
+{% set scope_labels = {'all': 'Artists & albums', 'artists': 'Artists', 'albums': 'Albums', 'tracks': 'Tracks'} %}
+
+{# sentinel — panel_resize.js switches layout to three #}
+<div data-sp-layout="three" style="display:none"></div>
+
+{% macro hit_cover(hit, initial) -%}
+<div class="sp-artist-item-img sp-artist-item-img--square">
+    {% if hit.cover_url %}<img src="{{ hit.cover_url }}" alt="" loading="lazy">
+    {% else %}<span class="sp-artist-item-initial">{{ (initial or '?')[0] | upper }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{# OOB: replace left panel with the hit list #}
+<aside id="sp-left" hx-swap-oob="innerHTML">
+<div class="sp-artist-list-header">
+    <div class="sp-artist-search-form" style="display:flex;align-items:center;gap:0.4rem">
+        <span style="color:var(--text-dim);font-size:0.9rem">&#x1F50D;</span>
+        <span style="font-size:0.8rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ q }}</span>
+        <span class="sp-search-scope-tag">{{ scope_labels[scope] }}</span>
+    </div>
+</div>
+
+{% if artists or albums or tracks %}
+<div class="sp-artist-list" id="sp-artist-list">
+
+    {% if artists %}
+    {% if scope == 'all' %}<div class="sp-hit-group">Artists <span>{{ artists | length }}</span></div>{% endif %}
+    {% for a in artists %}
+    <div class="sp-artist-item {% if loop.first %}sp-artist-item--active{% endif %}"
+         hx-get="/artists/detail?artist={{ a.enc }}"
+         hx-target="#sp-center"
+         hx-swap="innerHTML"
+         data-mc-active="sp-artist-item">
+        <div class="sp-artist-item-img">
+            {% if a.portrait_url %}
+            <img src="{{ a.portrait_url }}" alt="" loading="lazy">
+            {% elif a.cover_url %}
+            <img src="{{ a.cover_url }}" alt="" loading="lazy">
+            {% else %}
+            <span class="sp-artist-item-initial">{{ (a.name or '?')[0] | upper }}</span>
+            {% endif %}
+        </div>
+        <div class="sp-artist-item-body">
+            <div class="sp-artist-item-name">{{ a.name }}</div>
+            <div class="sp-artist-item-meta">
+                {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
+                {% if a.year_range %} · {{ a.year_range }}{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if albums %}
+    {% if scope == 'all' %}<div class="sp-hit-group">Albums <span>{{ albums | length }}{% if albums_more %}+{% endif %}</span></div>{% endif %}
+    {% for h in albums %}
+    <a class="sp-artist-item" href="/catalogue/{{ h.id }}" title="Open the album page">
+        {{ hit_cover(h, h.title) }}
+        <div class="sp-artist-item-body">
+            <div class="sp-artist-item-name">{{ h.title or 'Untitled' }}</div>
+            <div class="sp-artist-item-meta">
+                {{ h.artist or '—' }}{% if h.year %} · {{ h.year }}{% endif %}{% if h.media_format %} · {{ h.media_format }}{% endif %}
+                {% if h.catalog_number %} · {{ h.catalog_number }}{% endif %}
+            </div>
+        </div>
+    </a>
+    {% endfor %}
+    {% if albums_more %}<p class="sp-hit-more text-muted">Showing the first {{ albums | length }} albums. Refine the search to see more.</p>{% endif %}
+    {% endif %}
+
+    {% if tracks %}
+    {% for h in tracks %}
+    <a class="sp-artist-item" href="/catalogue/{{ h.id }}" title="Open the album page">
+        {{ hit_cover(h, h.track_title) }}
+        <div class="sp-artist-item-body">
+            <div class="sp-artist-item-name">
+                {% if h.position %}<span class="sp-hit-pos">{{ h.position }}</span>{% endif %}{{ h.track_title }}
+            </div>
+            <div class="sp-artist-item-meta">
+                {{ h.artist or '—' }} — {{ h.title or 'Untitled' }}{% if h.year %} · {{ h.year }}{% endif %}
+            </div>
+        </div>
+    </a>
+    {% endfor %}
+    {% if tracks_more %}<p class="sp-hit-more text-muted">Showing the first {{ tracks | length }} tracks. Refine the search to see more.</p>{% endif %}
+    {% endif %}
+
+</div>
+{% else %}
+<p class="sp-artist-list-empty text-muted">
+    No {{ {'all': 'artists or albums', 'artists': 'artists', 'albums': 'albums', 'tracks': 'tracks'}[scope] }} match &ldquo;{{ q }}&rdquo;.
+    {% if scope != 'tracks' %}Try the <strong>Tracks</strong> search for song titles.{% endif %}
+</p>
+{% endif %}
+</aside>
+
+{# Center: auto-load the first hit's artist, or empty state #}
+{% if first.enc %}
+<div id="sp-search-artist-init"
+     hx-get="/artists/detail?artist={{ first.enc }}"
+     hx-trigger="load"
+     hx-swap="outerHTML"
+     hx-target="#sp-search-artist-init">
+    <div class="sp-empty">
+        <span class="sp-empty-icon">&#x1F3B5;</span>
+        <span class="sp-empty-text">Loading {{ first.name }}&hellip;</span>
+    </div>
+</div>
+{% elif artists or albums or tracks %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">&#x1F3B5;</span>
+    <span class="sp-empty-text">Pick a result on the left.</span>
+</div>
+{% else %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">&#x1F50D;</span>
+    <span class="sp-empty-text">No results for &ldquo;{{ q }}&rdquo;.</span>
+</div>
+{% endif %}

@@ -203,6 +203,33 @@ class ObjectStore:
             height_px=height,
         )
 
+    async def put_object(
+        self,
+        object_key: str,
+        data: bytes,
+        mime_type: str,
+        *,
+        bucket: str | None = None,
+    ) -> None:
+        """Store already-validated bytes under a caller-chosen key (overwrites).
+
+        Unlike :meth:`put_image` this does no content check: the caller
+        validates the data and builds the key without user-controlled parts.
+        """
+        bucket = bucket or self.default_bucket
+        try:
+            await asyncio.to_thread(
+                self._client.put_object,
+                bucket,
+                object_key,
+                io.BytesIO(data),
+                length=len(data),
+                content_type=mime_type,
+            )
+        except S3Error as exc:
+            raise ObjectStoreError(str(exc)) from exc
+        logger.info("Stored %s/%s (%d bytes)", bucket, object_key, len(data))
+
     # ------------------------------------------------------------------
     # Retrieval
     # ------------------------------------------------------------------

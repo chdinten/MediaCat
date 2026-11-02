@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}MediaCat Control{% endblock %}</title>
+<link rel="stylesheet" href="/static/portal.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/"><span class="logo" aria-hidden="true">◉</span> MediaCat Control</a>
+  <span class="dim small hide-narrow">Docker stack manager · same actions as <code>mediacat-ctl.sh</code></span>
+  <span class="spacer"></span>
+  {% if busy %}<a class="pill busy" href="/job/{{ busy.id }}">[{{ busy.num }}] {{ busy.title }}…</a>{% endif %}
+  <a class="small" href="{{ urls.app }}" target="_blank" rel="noopener">MediaCat ↗</a>
+  <a class="small" href="{{ urls.docs }}" target="_blank" rel="noopener">Docs ↗</a>
+</header>
+<main>{% block main %}{% endblock %}</main>
+</body>
+</html>

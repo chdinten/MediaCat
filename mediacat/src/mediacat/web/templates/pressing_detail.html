@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends layout_base %}
 {% block title %}{{ token.artist or 'Unknown' }} — {{ token.title or 'Untitled' }} — MediaCat{% endblock %}
 
 {% block content %}
@@ -28,6 +28,53 @@
 {% endif %}
 {% if request.query_params.get('msg') == 'cover_set' %}
 <div class="alert alert-success">Primary cover updated.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'genres_saved' %}
+<div class="alert alert-success">Genres saved.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'genres_imported' %}
+<div class="alert alert-success">Genres imported from Discogs / MusicBrainz.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'no_genres_found' %}
+<div class="alert alert-warning">No genres found on Discogs or MusicBrainz for this release.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'sales_imported' %}
+<div class="alert alert-success">Sales history import saved.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'sales_import_parse_error' %}
+<div class="alert alert-warning">Import failed: the submitted text could not be parsed. Re-paste and preview again.</div>
+{% endif %}
+{% if discogs_import %}
+<div class="alert alert-warning import-banner" role="status">
+    <strong>A Discogs collection import is running</strong>
+    {%- if discogs_import.total %} ({{ discogs_import.done }} of {{ discogs_import.total }} releases){% endif %}.
+    It uses the whole Discogs API allowance, so Discogs actions on this page
+    (<em>Refresh from Discogs</em>, <em>Refresh</em> / <em>Load variants</em>, <em>Save &amp; write back to Discogs</em>)
+    may be slow or fail with a rate-limit error until it finishes.
+    Editing and saving in MediaCat, and MusicBrainz lookups, are not affected.
+    <a href="/admin?tab=import">Import progress</a>
+</div>
+{% endif %}
+{% set _msg = request.query_params.get('msg') %}
+{% set _err = request.query_params.get('err', '') %}
+{% if _msg == 'discogs_details_refreshed' %}
+<div class="alert alert-success">Runout variants and collection fields refreshed from Discogs.</div>
+{% elif _msg == 'discogs_details_partial' %}
+<div class="alert alert-warning">Refreshed from Discogs, but some parts failed: {{ _err }}.</div>
+{% elif _msg == 'collection_saved' %}
+<div class="alert alert-success">Collection fields saved in MediaCat.</div>
+{% elif _msg == 'collection_not_loaded' %}
+<div class="alert alert-warning">Load the collection fields from Discogs first.</div>
+{% elif _msg == 'writeback_ok' %}
+<div class="alert alert-success">Saved and written back to Discogs ({{ request.query_params.get('n', '0') }} field(s) updated).</div>
+{% elif _msg == 'writeback_nothing' %}
+<div class="alert alert-success">Saved. Discogs already had these values, so nothing needed writing back.</div>
+{% elif _msg == 'writeback_not_in_collection' %}
+<div class="alert alert-warning">Saved in MediaCat only. This release is not in your Discogs collection, so there is nothing to write back to.</div>
+{% elif _msg == 'writeback_failed' %}
+<div class="alert alert-danger">Saved in MediaCat, but writing back to Discogs failed ({{ _err }}){% if request.query_params.get('n', '0') != '0' %} after {{ request.query_params.get('n') }} field(s){% endif %}. Check the Discogs token under Admin → API Tokens.</div>
+{% elif _msg == 'no_discogs_id' %}
+<div class="alert alert-warning">This pressing has no Discogs release ID.</div>
 {% endif %}
 
 <nav class="breadcrumb">
@@ -59,6 +106,10 @@
         {% endif %}
         <div class="sidebar-actions">
             <a href="/catalogue/{{ token.id }}/edit" class="btn btn-primary btn-block">Edit</a>
+            <button type="button" class="btn btn-ghost btn-block js-print-sheet"
+                    data-url="/catalogue/{{ token.id }}/print.pdf"
+                    data-filename="{{ ((token.artist or '') ~ ' - ' ~ (token.title or 'album')) | replace('/', '_') | trim(' -') }}.pdf"
+                    title="Create an A4 album sheet (cover, tracks, runouts) and save it as PDF">🖨 Print sheet (PDF)</button>
             {% if token.status.value != 'archived' %}
             <form method="post" action="/catalogue/{{ token.id }}/archive">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -113,6 +164,13 @@
             {% if token.barcode %}
             <dt>Barcode</dt><dd>{{ token.barcode }}</dd>
             {% endif %}
+            {% if collection.signed %}
+            <dt>Signed by</dt><dd class="dc-signed">✍ {{ collection.signed_by or 'Yes (name not recorded)' }}{% if collection.signed_on %} <span class="text-muted">({{ collection.signed_on }})</span>{% endif %}</dd>
+            {% endif %}
+            {% if collection.known.get('media_condition') or collection.known.get('sleeve_condition') %}
+            <dt>Condition</dt>
+            <dd>{% if collection.known.get('media_condition') %}Media: {{ collection.known.media_condition }}{% endif %}{% if collection.known.get('media_condition') and collection.known.get('sleeve_condition') %} · {% endif %}{% if collection.known.get('sleeve_condition') %}Sleeve: {{ collection.known.sleeve_condition }}{% endif %}</dd>
+            {% endif %}
             {% if token.matrix_runout %}
             <dt>Matrix A</dt><dd class="matrix-text">{{ token.matrix_runout }}</dd>
             {% endif %}
@@ -129,6 +187,17 @@
             <dd><a href="https://musicbrainz.org/release/{{ token.musicbrainz_release_id }}"
                    target="_blank" rel="noopener noreferrer">{{ token.musicbrainz_release_id[:8] }}…</a></dd>
             {% endif %}
+            {% if token.spotify_url %}
+            <dt>Spotify</dt>
+            <dd>
+                <a href="{{ token.spotify_url }}" target="_blank" rel="noopener noreferrer"
+                   class="spotify-link spotify-link--detail">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true" style="vertical-align:-2px;margin-right:0.3em">
+                        <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+                    </svg>Listen on Spotify
+                </a>
+            </dd>
+            {% endif %}
             <dt>Token ID</dt>
             <dd class="token-id-row">
                 <span class="text-muted monospace" id="token-uuid">{{ token.id }}</span>
@@ -137,23 +206,383 @@
                         title="Copy Token ID to clipboard">Copy</button>
             </dd>
         </dl>
+
+        {# ── Genres ── #}
+        <div class="genre-section" style="margin-top:1.25rem">
+            <div class="genre-row">
+                <span class="form-label" style="margin-right:0.5rem">Genres</span>
+                {% if token.genres %}
+                <span class="genre-pills">
+                    {% for g in token.genres %}
+                    <span class="badge badge-genre">{{ g }}</span>
+                    {% endfor %}
+                </span>
+                {% else %}
+                <span class="text-muted" style="font-size:0.85rem">None set</span>
+                {% endif %}
+                {% if user.role in ('admin', 'reviewer', 'contributor') %}
+                <button type="button" class="btn btn-ghost btn-sm genre-edit-toggle"
+                        style="margin-left:0.5rem" title="Edit genres">✎ Edit</button>
+                {% endif %}
+            </div>
+
+            {% if user.role in ('admin', 'reviewer', 'contributor') %}
+            <div class="genre-edit-form" style="display:none;margin-top:0.75rem">
+                <form method="post" action="/catalogue/{{ token.id }}/genres" class="genre-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="genres" value="">
+
+                    <div class="genre-tag-input">
+                        {% for g in (token.genres or []) %}
+                        <span class="genre-chip" data-value="{{ g }}">{{ g }}<button type="button" class="genre-chip-remove" aria-label="Remove">×</button></span>
+                        {% endfor %}
+                        <input type="text" class="genre-typeahead" placeholder="Type a genre…"
+                               list="genre-datalist" autocomplete="off">
+                    </div>
+                    <datalist id="genre-datalist">
+                        {% for g in all_genres %}<option value="{{ g }}">{% endfor %}
+                    </datalist>
+
+                    {% if all_genres %}
+                    <div class="genre-available">
+                        <span class="genre-available-label">All genres</span>
+                        {% set active_lower = (token.genres or []) | map('lower') | list %}
+                        {% for g in all_genres %}
+                        <button type="button" class="genre-available-btn{% if g.lower() in active_lower %} genre-available-btn--active{% endif %}"
+                                data-genre="{{ g }}">{{ g }}</button>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <div class="genre-form-actions">
+                        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                        <button type="button" class="btn btn-ghost btn-sm genre-edit-cancel">Cancel</button>
+                        {% if token.discogs_release_id or token.musicbrainz_release_id %}
+                        <span class="text-dim" style="font-size:0.8rem">·</span>
+                        <button type="button" class="btn btn-ghost btn-sm genre-import-btn">
+                            ↓ Import from Discogs{% if not token.discogs_release_id and token.musicbrainz_release_id %} / MusicBrainz{% endif %}
+                        </button>
+                        {% endif %}
+                    </div>
+                </form>
+                {% if token.discogs_release_id or token.musicbrainz_release_id %}
+                <form method="post" action="/catalogue/{{ token.id }}/import-genres" class="import-genres-form" style="display:none">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                </form>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
     </div>
 </div>
 
-{# ══════════════════════════════════════════════════════
-   MANUFACTURING / STAMPING DETAILS
-   ══════════════════════════════════════════════════════ #}
-{% if token.matrix_runout or token.matrix_runout_b or runout_images %}
-<details class="runout-section">
-    <summary class="runout-summary">
-        <span>Manufacturing &amp; stamping details</span>
-        <span class="runout-summary-meta">
-            {% if token.matrix_runout %}Matrix A · {% endif %}
-            {% if token.matrix_runout_b %}Matrix B · {% endif %}
-            {% if runout_images %}{{ runout_images|length }} image{% if runout_images|length != 1 %}s{% endif %}{% endif %}
-        </span>
-    </summary>
+{% set can_edit_coll = user.role in ('admin', 'reviewer', 'contributor') %}
+{% set can_writeback = user.role in ('admin', 'reviewer') %}
 
+{# ══════════════════════════════════════════════════════
+   DETAIL CARDS — My copy · Pressing variants · Manufacturing · Sales history
+   Responsive grid (as many per row as fit). A closed card shows the key
+   details; clicking it opens it across the full width (pressing.js).
+   ══════════════════════════════════════════════════════ #}
+<div class="dc-cards" id="detail-cards">
+
+{# ── My copy — Discogs collection custom fields ── #}
+{% if token.discogs_release_id or collection.present %}
+<article class="dc-card dc-card--copy" id="discogs-copy">
+    <header class="dc-card-head">
+        <button type="button" class="dc-card-toggle js-card-toggle" aria-expanded="false">
+            <span class="dc-card-title">My copy</span>
+            <span class="dc-section-sub">Discogs collection</span>
+            <span class="dc-card-chevron" aria-hidden="true"></span>
+        </button>
+        <div class="dc-head-meta">
+            {% if collection.pending %}
+            <span class="dc-pending-badge" title="Edited in MediaCat but not yet written back to Discogs">{{ collection.pending }} not on Discogs</span>
+            {% endif %}
+            {% if token.discogs_release_id and can_edit_coll %}
+            <form method="post" action="/catalogue/{{ token.id }}/discogs-details/refresh" class="dc-inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-xs"
+                        title="Fetch collection fields and runout variants from Discogs{% if collection.fetched_at %} (last fetched {{ collection.fetched_at[:10] }}){% endif %}">↻ {% if collection.present %}Refresh{% else %}Load{% endif %}</button>
+            </form>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="dc-card-summary dc-card-summary--keep">
+        {% if not collection.present %}
+        <p class="text-muted dc-empty">
+            Your Discogs collection fields (runouts, Autographed, Signed by, …) aren't loaded yet.
+            Use <strong>↻ Load</strong>; it needs the Discogs token under Admin → API Tokens.
+        </p>
+        {% else %}
+        {% if not collection.in_collection %}
+        <p class="dc-note dc-note--warn">Not in your Discogs collection: values stay in MediaCat and can't be written back.</p>
+        {% endif %}
+        <dl class="dc-fields">
+            {% for f in collection.fields if f.value %}
+            <dt>{{ f.name }}{% if f.pending %} <span class="dc-dot" title="Not yet written back to Discogs">●</span>{% endif %}</dt>
+            <dd class="{% if f.key and f.key.startswith('runout_') %}dc-code{% endif %}">{{ f.value }}</dd>
+            {% else %}
+            <dt class="text-dim">—</dt><dd class="text-dim">No values set on this copy yet.</dd>
+            {% endfor %}
+        </dl>
+        {% endif %}
+    </div>
+
+    {% if collection.present and can_edit_coll %}
+    <div class="dc-card-full" id="dc-edit">
+        <form method="post" action="/catalogue/{{ token.id }}/discogs-collection" class="dc-edit-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="dc-edit-grid">
+            {% for f in collection.fields %}
+                <label class="form-label" for="dcf-{{ f.id }}">{{ f.name }}</label>
+                {% if f.type == 'dropdown' and f.options %}
+                <select id="dcf-{{ f.id }}" name="f_{{ f.id }}" class="form-input" data-key="{{ f.key or '' }}">
+                    <option value=""></option>
+                    {% for o in f.options %}
+                    <option value="{{ o }}" {% if o == f.value %}selected{% endif %}>{{ o }}</option>
+                    {% endfor %}
+                    {% if f.value and f.value not in f.options %}
+                    <option value="{{ f.value }}" selected>{{ f.value }}</option>
+                    {% endif %}
+                </select>
+                {% elif f.key == 'notes' %}
+                <textarea id="dcf-{{ f.id }}" name="f_{{ f.id }}" class="form-input" rows="3" data-key="notes">{{ f.value }}</textarea>
+                {% else %}
+                <input type="text" id="dcf-{{ f.id }}" name="f_{{ f.id }}" value="{{ f.value }}"
+                       class="form-input{% if f.key and f.key.startswith('runout_') %} dc-code-input{% endif %}"
+                       data-key="{{ f.key or '' }}" autocomplete="off" spellcheck="false">
+                {% endif %}
+            {% endfor %}
+            </div>
+            <div class="dc-edit-actions">
+                <button type="submit" name="op" value="save" class="btn btn-primary btn-sm">Save in MediaCat</button>
+                {% if can_writeback and collection.in_collection %}
+                <button type="submit" name="op" value="writeback" class="btn btn-ghost btn-sm dc-writeback-btn"
+                        data-confirm="Write the changed fields to your Discogs collection entry?"
+                        title="Save here and update the fields on your Discogs collection entry">⇪ Save &amp; write back to Discogs</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+    <p class="dc-card-more">✎ Click to edit</p>
+    {% endif %}
+</article>
+{% endif %}
+
+{# ── Macro: one Discogs runout variant (codes per LP / side; tick-boxes when
+      its codes can be copied into My copy). Used by Pressing variants and
+      Manufacturing & stamping. ── #}
+{% macro load_variants_form() %}
+<form method="post" action="/catalogue/{{ token.id }}/discogs-details/refresh" class="dc-inline-form dc-load-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="btn btn-secondary btn-sm"
+            title="Fetch the Matrix / Runout identifiers and your collection fields from Discogs">↻ Load variants from Discogs</button>
+</form>
+{% endmacro %}
+
+{# A variant with more than two LPs (box sets) spans the full width, shows its
+   LPs as blocks side by side and keeps its header (All / Copy to My copy)
+   pinned while scrolling. #}
+{% macro variant_article(v, can_pick, extra_class="", attrs="") %}
+    {% set wide = v.lps | length > 2 %}
+    <article class="dc-variant{% if v.matches %} is-match{% endif %}{% if can_pick %} dc-variant--pick{% endif %}{% if wide %} dc-variant--wide{% endif %}{{ extra_class }}"{{ attrs | safe }}>
+        <header class="dc-variant-head">
+            <span class="dc-variant-label">{{ v.label }}{% if v.matches %} · ★ your copy{% endif %}</span>
+            {% if can_pick %}
+            <span class="dc-pick-tools">
+                <label class="dc-pick-all" title="Tick every side of this variant">
+                    <input type="checkbox" class="js-dc-pick-all"> All
+                </label>
+                <button type="button" class="btn btn-ghost btn-xs js-dc-apply-variant" disabled
+                        title="Copy the ticked codes into the matching My copy runout fields (you still need to save)">Copy to My copy</button>
+            </span>
+            {% endif %}
+            {% if wide %}<span class="dc-variant-count text-dim">{{ v.lps | length }} LPs</span>{% endif %}
+        </header>
+        <div class="dc-lp-grid">
+        {% for lp in v.lps %}
+        <div class="dc-lp">
+            <div class="dc-lp-label">LP {{ lp.lp }}</div>
+            {% for s in lp.sides %}
+            <div class="dc-side-row">
+                {% if can_pick %}
+                {% if lp.lp <= 2 %}
+                <input type="checkbox" class="dc-pick js-dc-pick"
+                       data-key="runout_lp{{ lp.lp }}_{{ s.lp_side | lower }}" data-value="{{ s.value }}"
+                       aria-label="Select side {{ s.side }} for Runout / Matrix LP{{ lp.lp }} - {{ s.lp_side }}"
+                       title="Select for Runout / Matrix LP{{ lp.lp }} - {{ s.lp_side }}">
+                {% else %}
+                <span class="dc-pick dc-pick--none" title="My copy has runout fields for LP 1 and LP 2 only"></span>
+                {% endif %}
+                {% endif %}
+                <span class="dc-side-badge" title="Side {{ s.side }}">{{ s.side }}</span>
+                <code class="dc-code-value">{{ s.value }}</code>
+                <button type="button" class="btn btn-ghost btn-xs js-dc-copy" data-copy="{{ s.value }}"
+                        title="Copy to clipboard">Copy</button>
+                {% if s.note %}<span class="dc-side-note">{{ s.note }}</span>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+        {% if v.unsided %}
+        <div class="dc-lp">
+            <div class="dc-lp-label">Side not specified</div>
+            {% for u in v.unsided %}
+            <div class="dc-side-row">
+                {% if can_pick %}<span class="dc-pick dc-pick--none" title="Side unknown: no matching My copy field"></span>{% endif %}
+                <span class="dc-side-badge dc-side-badge--unknown">?</span>
+                <code class="dc-code-value">{{ u.value }}</code>
+                <button type="button" class="btn btn-ghost btn-xs js-dc-copy" data-copy="{{ u.value }}"
+                        title="Copy to clipboard">Copy</button>
+                {% if u.note %}<span class="dc-side-note">{{ u.note }}</span>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        </div>
+    </article>
+{% endmacro %}
+
+{# ── Pressing variants — Discogs Matrix / Runout identifiers ── #}
+{% if token.discogs_release_id %}
+<article class="dc-card dc-card--variants" id="discogs-runouts">
+    <header class="dc-card-head">
+        <button type="button" class="dc-card-toggle js-card-toggle" aria-expanded="false">
+            <span class="dc-card-title">Pressing variants</span>
+            <span class="dc-section-sub">Discogs matrix / runout</span>
+            <span class="dc-card-chevron" aria-hidden="true"></span>
+        </button>
+        {% if runout_groups.runout_count %}
+        <div class="dc-head-meta text-dim">
+            {{ runout_groups.variants | length }} variant{% if runout_groups.variants | length != 1 %}s{% endif %}
+            · {{ runout_groups.runout_count }} code{% if runout_groups.runout_count != 1 %}s{% endif %}
+        </div>
+        {% endif %}
+    </header>
+
+    <div class="dc-card-summary">
+        {% if not discogs_details_loaded %}
+        <p class="text-muted dc-empty">The runout variants for this release have not been fetched from Discogs yet.</p>
+        {% if can_edit_coll %}{{ load_variants_form() }}{% endif %}
+        {% elif not runout_groups.runout_count %}
+        <p class="text-muted dc-empty">Discogs lists no Matrix / Runout entries for this release.</p>
+        {% else %}
+        {# Up to 3 variants with full codes (differences are often at the end); ★ first #}
+        {% set ordered = (runout_groups.variants | selectattr('matches') | list) + (runout_groups.variants | rejectattr('matches') | list) %}
+        <ul class="dc-variant-lines">
+            {% for v in ordered[:3] %}
+            <li class="dc-vl{% if v.matches %} is-match{% endif %}">
+                <span class="dc-vl-label">{% if v.matches %}★ {% endif %}{{ v.label | replace('Variant ', 'V') }}</span>
+                <span class="dc-vl-codes">
+                    {% for lp in v.lps %}{% for s in lp.sides %}<span class="dc-vl-side"><b>{{ s.side }}</b>{{ s.value }}</span>{% endfor %}{% endfor %}
+                    {% for u in v.unsided %}<span class="dc-vl-side"><b>?</b>{{ u.value }}</span>{% endfor %}
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% if ordered | length > 3 %}
+        <p class="dc-card-more dc-card-more--static">+ {{ ordered | length - 3 }} more variant{% if ordered | length - 3 != 1 %}s{% endif %}</p>
+        {% endif %}
+        {% if runout_groups.any_match %}
+        <p class="dc-match-note">★ matches the runout fields of your copy</p>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    {% if runout_groups.runout_count or runout_groups.other %}
+    <div class="dc-card-full">
+        {% if runout_groups.runout_count %}
+        <p class="text-dim dc-hint">
+            Shown exactly as entered on Discogs, grouped by variant. Each variant is one known combination of
+            dead-wax codes. Copy a code, or tick codes of one variant (<em>All</em> ticks every side) and
+            copy them into the matching <em>My copy</em> fields.
+        </p>
+        <div class="dc-variant-grid">
+            {% for v in runout_groups.variants %}
+            {{ variant_article(v, variant_runout_fill(v) and collection.present and can_edit_coll) }}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if runout_groups.other %}
+        <details class="dc-other">
+            <summary>Other identifiers ({{ runout_groups.other | length }})</summary>
+            <table class="dc-other-table">
+                <tbody>
+                {% for o in runout_groups.other %}
+                <tr>
+                    <th scope="row">{{ o.type }}</th>
+                    <td><code class="dc-code-value">{{ o.value }}</code></td>
+                    <td class="text-dim">{{ o.description }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </details>
+        {% endif %}
+    </div>
+    <p class="dc-card-more">Click for all codes, Copy and “Use for my copy”</p>
+    {% endif %}
+</article>
+{% endif %}
+
+{# ── Manufacturing & stamping details ── #}
+<article class="dc-card dc-card--mfg" id="manufacturing">
+    <header class="dc-card-head">
+        <button type="button" class="dc-card-toggle js-card-toggle" aria-expanded="false">
+            <span class="dc-card-title">Manufacturing &amp; stamping</span>
+            <span class="dc-section-sub">Matrix · symbols · AI</span>
+            <span class="dc-card-chevron" aria-hidden="true"></span>
+        </button>
+    </header>
+
+    <div class="dc-card-summary">
+        {% if token.matrix_runout or token.matrix_runout_b %}
+        <dl class="dc-fields">
+            {% if token.matrix_runout %}<dt>Matrix A</dt><dd class="dc-code">{{ matrix_runout_display or token.matrix_runout }}</dd>{% endif %}
+            {% if token.matrix_runout_b %}<dt>Matrix B</dt><dd class="dc-code">{{ matrix_runout_b_display or token.matrix_runout_b }}</dd>{% endif %}
+        </dl>
+        {% else %}
+        <p class="text-muted dc-empty">No matrix / runout text recorded yet.</p>
+        {% endif %}
+        <p class="dc-card-stat">
+            {{ runout_images | length }} runout/label image{% if runout_images | length != 1 %}s{% endif %}
+            · {{ ocr_artifacts_by_image | length }} analysed by AI
+            {% if runout_groups.runout_count %}· {{ runout_groups.variants | length }} Discogs variant{% if runout_groups.variants | length != 1 %}s{% endif %}{% endif %}
+        </p>
+    </div>
+
+    <div class="dc-card-full">
+    {% if token.discogs_release_id %}
+    <section class="dc-mfg-variants">
+        <h4 class="runout-images-title">Discogs pressing variants</h4>
+        {% if not discogs_details_loaded %}
+        <p class="text-muted dc-empty">Not fetched from Discogs yet.</p>
+        {% if can_edit_coll %}{{ load_variants_form() }}{% endif %}
+        {% elif not runout_groups.runout_count %}
+        <p class="text-muted dc-empty">Discogs lists no Matrix / Runout entries for this release.</p>
+        {% else %}
+        {% set choices = (runout_groups.variants | selectattr('matches') | list) + (runout_groups.variants | rejectattr('matches') | list) %}
+        {% set coll_ok = collection.present and can_edit_coll %}
+        <div class="dc-variant-choose">
+            <label for="dc-variant-select">Variant</label>
+            <select id="dc-variant-select" class="form-input js-dc-variant-select">
+                {% for v in choices %}
+                <option value="{{ loop.index0 }}">{{ v.label }}{% if v.matches %} — ★ matches my copy{% endif %}</option>
+                {% endfor %}
+            </select>
+            {% if coll_ok %}<span class="text-dim dc-hint">Tick codes (or <em>All</em>) and copy them into <em>My copy</em>.</span>{% endif %}
+        </div>
+        {% for v in choices %}
+        {{ variant_article(v, variant_runout_fill(v) and coll_ok, " dc-variant--choice",
+                           (' data-choice="%d"' % loop.index0) ~ ('' if loop.first else ' hidden')) }}
+        {% endfor %}
+        {% endif %}
+    </section>
+    {% endif %}
+    {% if token.matrix_runout or token.matrix_runout_b or runout_images %}
     <div class="runout-body">
 
     {# ── Macro: confidence badge ── #}
@@ -402,63 +831,202 @@
     {% endif %}
 
     </div>{# end runout-body #}
-</details>
-{% endif %}
+    {% else %}
+    <p class="text-muted dc-empty">
+        Upload a photo of the dead wax below (Image type “Runout A” / “Runout B”), then use
+        <strong>Analyse with AI</strong> on it to read the matrix and symbols.
+    </p>
+    {% endif %}
+    </div>
+    <p class="dc-card-more">Click for the breakdown, symbols, images and AI analysis</p>
+</article>
 
-{# ══════════════════════════════════════════════════════
-   IMAGE UPLOAD — drag-and-drop zone
-   ══════════════════════════════════════════════════════ #}
-{% if user.role in ('admin', 'reviewer') %}
-<section class="upload-section">
-    <h3>Add images</h3>
-    <div class="drop-zone" id="drop-zone" data-token-id="{{ token.id }}">
-        <div class="drop-zone-inner">
-            <span class="drop-zone-icon">⊕</span>
-            <span class="drop-zone-label">Drop images here or <label for="img-file" class="drop-zone-browse">browse</label></span>
-            <span class="drop-zone-hint">JPEG, PNG, TIFF, WebP · up to 30 MB each · multiple files OK</span>
+{# ── Sales history (user-assisted import) ── #}
+<article class="dc-card dc-card--sales" id="sales-history">
+    <header class="dc-card-head">
+        <button type="button" class="dc-card-toggle js-card-toggle" aria-expanded="false">
+            <span class="dc-card-title">Sales history</span>
+            <span class="dc-section-sub">Discogs sold prices</span>
+            <span class="dc-card-chevron" aria-hidden="true"></span>
+        </button>
+        {% if sales_imports %}
+        <div class="dc-head-meta text-dim">{{ sales_imports | length }} import{% if sales_imports | length != 1 %}s{% endif %}</div>
+        {% endif %}
+    </header>
+
+    <div class="dc-card-summary">
+        {% if sales_imports %}
+        <table class="dc-mini-table">
+            <thead><tr><th>Date</th><th>Median</th><th>Range</th><th>Confidence</th></tr></thead>
+            <tbody>
+            {% for imp in sales_imports[:5] %}
+            <tr>
+                <td>{{ imp.captured_at.strftime('%Y-%m-%d') }}</td>
+                <td>{{ "%.2f" | format(imp.median_sold_price) if imp.median_sold_price else '—' }} {{ imp.currency or '' }}</td>
+                <td>{% if imp.low_sold_price and imp.high_sold_price %}{{ "%.0f" | format(imp.low_sold_price) }}–{{ "%.0f" | format(imp.high_sold_price) }}{% else %}—{% endif %}</td>
+                <td><span class="valuation-conf valuation-conf--{{ imp.valuation_confidence }}">{{ imp.valuation_confidence | capitalize }}</span></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted dc-empty">No sales history imports yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="dc-card-full">
+    {# ── Existing imports ── #}
+    {% if sales_imports %}
+    <table class="price-history-table sales-imports-table">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Rows</th>
+                <th>Low</th>
+                <th>Median</th>
+                <th>High</th>
+                <th>Currency</th>
+                <th>Valuation confidence</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for imp in sales_imports %}
+            <tr>
+                <td>{{ imp.captured_at.strftime('%Y-%m-%d') }}</td>
+                <td>{{ imp.row_count }}</td>
+                <td>{{ "%.2f" | format(imp.low_sold_price) if imp.low_sold_price else '—' }}</td>
+                <td>{{ "%.2f" | format(imp.median_sold_price) if imp.median_sold_price else '—' }}</td>
+                <td>{{ "%.2f" | format(imp.high_sold_price) if imp.high_sold_price else '—' }}</td>
+                <td>{{ imp.currency or '—' }}</td>
+                <td>
+                    <span class="valuation-conf valuation-conf--{{ imp.valuation_confidence }}">
+                        {{ imp.valuation_confidence | capitalize }}
+                    </span>
+                    <span class="text-dim" style="font-size:0.75rem">
+                        (source: {{ imp.source_confidence }})
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="text-dim" style="font-size:0.8rem;margin-top:0.25rem">
+        Source: User-confirmed import. Outliers excluded from aggregates.
+    </p>
+    {% else %}
+    <div class="price-history-empty">
+        <p class="text-muted">No sales history imports yet.</p>
+    </div>
+    {% endif %}
+
+    {# ── Import form ── #}
+    {% if user.role in ('admin', 'reviewer', 'contributor') %}
+    <details class="sales-import-details">
+        <summary class="sales-import-summary">Import sales history from Discogs</summary>
+        <div class="sales-import-body">
+            <p class="text-muted" style="font-size:0.85rem;margin:0.5rem 0 0.75rem">
+                Open the
+                {% if token.discogs_release_id %}
+                <a href="https://www.discogs.com/sell/history/{{ token.discogs_release_id }}"
+                   target="_blank" rel="noopener noreferrer">Discogs sales-history page</a>
+                {% else %}
+                Discogs sales-history page (link a Discogs release ID first)
+                {% endif %}
+                in your browser, log in, then select and copy the sales table and paste it below.
+                Your browser session is never accessed by MediaCat.
+            </p>
+
+            <form hx-post="/catalogue/{{ token.id }}/import-sales-history"
+                  hx-target="#sales-preview"
+                  hx-swap="innerHTML"
+                  hx-indicator="#sales-import-spinner">
+                <div class="form-group">
+                    <label class="form-label" for="sales-source-url">
+                        Discogs page URL <span class="text-dim">(optional — for audit trail)</span>
+                    </label>
+                    <input type="url" id="sales-source-url" name="source_url"
+                           class="form-input"
+                           placeholder="https://www.discogs.com/sell/history/{{ token.discogs_release_id or '' }}"
+                           autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <div class="sales-paste-label-row">
+                        <label class="form-label" for="sales-raw-text">Paste sales table here</label>
+                        <button type="button" class="btn btn-primary btn-sm sales-help-btn"
+                                id="sales-help-open">? How to copy</button>
+                    </div>
+                    <textarea id="sales-raw-text" name="raw_text"
+                              class="form-input sales-paste-area"
+                              rows="8"
+                              placeholder="Select all rows in the Discogs sales table, copy, and paste here…"
+                              autocomplete="off"></textarea>
+                </div>
+                <div class="form-group" style="flex-direction:row;align-items:center;gap:0.5rem">
+                    <input type="checkbox" id="sales-store-raw" name="store_raw_text" value="true">
+                    <label for="sales-store-raw" class="form-label" style="margin:0;cursor:pointer">
+                        Store the raw pasted text with this import
+                        <span class="text-dim">(optional; useful for audit)</span>
+                    </label>
+                </div>
+                <div class="sales-import-actions">
+                    <button type="submit" class="btn btn-primary btn-sm">Preview import</button>
+                    <span id="sales-import-spinner" class="htmx-indicator text-muted"
+                          style="font-size:0.85rem">Parsing…</span>
+                </div>
+            </form>
+
+            <div id="sales-preview" class="sales-preview-area"></div>
         </div>
-        <form method="post" action="/catalogue/{{ token.id }}/images"
-              enctype="multipart/form-data" id="upload-form" style="display:none">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <select id="region-select" name="region">
-                <option value="cover_front">Cover (front)</option>
-                <option value="cover_back">Cover (back)</option>
-                <option value="label_a">Label – Side A</option>
-                <option value="label_b">Label – Side B</option>
-                <option value="runout_a">Runout / WAX – Side A ✦</option>
-                <option value="runout_b">Runout / WAX – Side B ✦</option>
-                <option value="matrix">Matrix / dead wax ✦</option>
-                <option value="obi_front">OBI strip (front)</option>
-                <option value="obi_back">OBI strip (back)</option>
-                <option value="sleeve_inner">Inner sleeve</option>
-                <option value="disc_surface">Disc surface</option>
-                <option value="other">Other</option>
-            </select>
-            <input type="file" id="img-file" name="file"
-                   accept="image/jpeg,image/png,image/tiff,image/webp" multiple>
-        </form>
+    </details>
+    {% endif %}
     </div>
-    <div class="drop-zone-controls">
-        <label for="region-select-visible" class="form-label">Image type</label>
-        <select id="region-select-visible" class="filter-select">
-            <option value="cover_front">Cover (front)</option>
-            <option value="cover_back">Cover (back)</option>
-            <option value="label_a">Label – Side A</option>
-            <option value="label_b">Label – Side B</option>
-            <option value="runout_a">Runout / WAX – Side A ✦</option>
-            <option value="runout_b">Runout / WAX – Side B ✦</option>
-            <option value="matrix">Matrix / dead wax ✦</option>
-            <option value="obi_front">OBI strip (front)</option>
-            <option value="obi_back">OBI strip (back)</option>
-            <option value="sleeve_inner">Inner sleeve</option>
-            <option value="disc_surface">Disc surface</option>
-            <option value="other">Other</option>
-        </select>
-        <span class="text-muted" style="font-size:0.8rem">✦ Vision pipeline analyses these automatically</span>
+    <p class="dc-card-more">Click for the full table and the import form</p>
+</article>
+
+</div>{# end dc-cards #}
+
+
+{# ── Sales history help dialog ── #}
+<dialog id="sales-help-dialog" class="sales-help-dialog" aria-label="How to copy the Discogs sales table">
+    <div class="sales-help-dialog-box">
+        <div class="sales-help-dialog-header">
+            <span class="sales-help-dialog-title">How to copy the Discogs sales table</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="sales-help-close">✕ Close</button>
+        </div>
+        <div class="sales-help-dialog-body">
+            <ol class="sales-help-steps">
+                <li>Open the Discogs sales-history page in your browser and log in if prompted.</li>
+                <li>Find the sales table. It looks like this:</li>
+            </ol>
+            <div class="sales-help-mock-table" aria-hidden="true">
+                <div class="sales-help-mock-header">
+                    <span>Date</span><span>Condition</span><span>Sleeve</span><span>Ships From</span><span>Price</span>
+                </div>
+                <div class="sales-help-mock-row sales-help-mock-row--select-start">
+                    <span>May 14, 2026</span><span>Very Good Plus (VG+)</span><span>Very Good Plus (VG+)</span><span>Germany</span><span>€ 24.00</span>
+                </div>
+                <div class="sales-help-mock-row">
+                    <span>May 10, 2026</span><span>Near Mint (NM or M-)</span><span>Very Good Plus (VG+)</span><span>France</span><span>€ 32.50</span>
+                </div>
+                <div class="sales-help-mock-row sales-help-mock-row--select-end">
+                    <span>Apr 28, 2026</span><span>Very Good (VG)</span><span>Good Plus (G+)</span><span>Netherlands</span><span>€ 16.00</span>
+                </div>
+            </div>
+            <ol class="sales-help-steps" start="3">
+                <li>Click just <strong>before</strong> the first date in the top-left of the table.</li>
+                <li>Hold <kbd>Shift</kbd> and click after the last price in the bottom-right — or drag across all rows.</li>
+                <li>Press <kbd>Ctrl+C</kbd> (Windows / Linux) or <kbd>⌘C</kbd> (Mac) to copy.</li>
+                <li>Click in the <em>Paste sales table here</em> field above and press <kbd>Ctrl+V</kbd> / <kbd>⌘V</kbd>.</li>
+                <li>Click <strong>Preview import</strong> to check the result before saving.</li>
+            </ol>
+            <p class="text-dim" style="font-size:0.8rem;margin-top:0.5rem">
+                MediaCat only reads what you paste here. It never accesses your Discogs session, credentials, or browser.
+            </p>
+        </div>
     </div>
-    <div id="upload-status" class="upload-status" style="display:none"></div>
-</section>
-{% endif %}
+</dialog>
+
+<hr class="detail-divider">
 
 {# ══════════════════════════════════════════════════════
    IMAGE GALLERY
@@ -536,6 +1104,61 @@
         </div>
         {% endfor %}
     </div>
+</section>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════
+   IMAGE UPLOAD — drag-and-drop zone
+   ══════════════════════════════════════════════════════ #}
+{% if user.role in ('admin', 'reviewer') %}
+<section class="upload-section">
+    <h3>Add images</h3>
+    <div class="drop-zone" id="drop-zone" data-token-id="{{ token.id }}">
+        <div class="drop-zone-inner">
+            <span class="drop-zone-icon">⊕</span>
+            <span class="drop-zone-label">Drop images here or <label for="img-file" class="drop-zone-browse">browse</label></span>
+            <span class="drop-zone-hint">JPEG, PNG, TIFF, WebP · up to 30 MB each · multiple files OK</span>
+        </div>
+        <form method="post" action="/catalogue/{{ token.id }}/images"
+              enctype="multipart/form-data" id="upload-form" style="display:none">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select id="region-select" name="region">
+                <option value="cover_front">Cover (front)</option>
+                <option value="cover_back">Cover (back)</option>
+                <option value="label_a">Label – Side A</option>
+                <option value="label_b">Label – Side B</option>
+                <option value="runout_a">Runout / WAX – Side A ✦</option>
+                <option value="runout_b">Runout / WAX – Side B ✦</option>
+                <option value="matrix">Matrix / dead wax ✦</option>
+                <option value="obi_front">OBI strip (front)</option>
+                <option value="obi_back">OBI strip (back)</option>
+                <option value="sleeve_inner">Inner sleeve</option>
+                <option value="disc_surface">Disc surface</option>
+                <option value="other">Other</option>
+            </select>
+            <input type="file" id="img-file" name="file"
+                   accept="image/jpeg,image/png,image/tiff,image/webp" multiple>
+        </form>
+    </div>
+    <div class="drop-zone-controls">
+        <label for="region-select-visible" class="form-label">Image type</label>
+        <select id="region-select-visible" class="filter-select">
+            <option value="cover_front">Cover (front)</option>
+            <option value="cover_back">Cover (back)</option>
+            <option value="label_a">Label – Side A</option>
+            <option value="label_b">Label – Side B</option>
+            <option value="runout_a">Runout / WAX – Side A ✦</option>
+            <option value="runout_b">Runout / WAX – Side B ✦</option>
+            <option value="matrix">Matrix / dead wax ✦</option>
+            <option value="obi_front">OBI strip (front)</option>
+            <option value="obi_back">OBI strip (back)</option>
+            <option value="sleeve_inner">Inner sleeve</option>
+            <option value="disc_surface">Disc surface</option>
+            <option value="other">Other</option>
+        </select>
+        <span class="text-muted" style="font-size:0.8rem">✦ Use the Analyse button on the image to run vision analysis</span>
+    </div>
+    <div id="upload-status" class="upload-status" style="display:none"></div>
 </section>
 {% endif %}
 
@@ -639,7 +1262,7 @@
         </div>
         <div id="crop-status" class="upload-status" style="display:none"></div>
     </div>
-</div>
+</dialog>
 
 <script src="/static/pressing.js"></script>
 {% endblock %}

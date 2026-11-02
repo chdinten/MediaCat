@@ -112,7 +112,7 @@ def _defaults() -> dict[str, Any]:
     return {
         "app": {"name": "mediacat", "environment": "dev", "log_level": "INFO"},
         "server": {
-            "host": "0.0.0.0",
+            "host": "0.0.0.0",  # inside the container; only Caddy is published  # nosec B104
             "port": 8000,
             "trusted_proxies": ["127.0.0.1/32", "::1/128", "172.16.0.0/12", "10.0.0.0/8"],
         },
@@ -121,7 +121,7 @@ def _defaults() -> dict[str, Any]:
             "host": "localhost",
             "port": 5432,
             "user": "mediacat_app",
-            "password": "",
+            "password": "",  # empty default; the real value comes from the secret file  # nosec B105
             "database": "mediacat",
         },
         "object_store": {"endpoint": "http://localhost:9000"},

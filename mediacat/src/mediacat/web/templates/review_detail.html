@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends layout_base %}
 {% block title %}Review — {{ token.title if token else review.id|string|truncate(8, end='…') }} — MediaCat{% endblock %}
 
 {% block content %}

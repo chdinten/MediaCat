@@ -1,0 +1,58 @@
+{# Global search results — loaded into #sp-center via HTMX or rendered standalone #}
+<div class="page-header" style="padding-bottom:0.5rem">
+    <h2 style="font-size:1.1rem;color:var(--text-muted)">
+        Search results
+        {% if q %}<span style="color:var(--text)"> for &ldquo;{{ q }}&rdquo;</span>{% endif %}
+    </h2>
+</div>
+
+{% if not q %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">🔍</span>
+    <span class="sp-empty-text">Enter a term to search artists, albums, catalogue numbers or (Tracks) song titles.</span>
+</div>
+
+{% elif not results %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">🪗</span>
+    <span class="sp-empty-text">No results found for &ldquo;{{ q }}&rdquo;</span>
+</div>
+
+{% else %}
+<div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:1rem">
+    {{ results | length }} result{% if results | length != 1 %}s{% endif %}
+</div>
+
+<div id="sp-search-result-list">
+    {% for r in results %}
+    <a href="/catalogue/{{ r.id }}"
+       class="search-result-row"
+       hx-get="/catalogue/{{ r.id }}/brief"
+       hx-target="#sp-right"
+       hx-swap="innerHTML"
+       hx-push-url="false">
+
+        <span class="search-result-badge">{{ r.media_format or '?' }}</span>
+
+        <span class="search-result-title">
+            {% if r.track_title %}
+            <strong>{% if r.position %}{{ r.position }} {% endif %}{{ r.track_title }}</strong>
+            <span style="color:var(--text-muted)"> — {{ r.artist or '—' }} — {{ r.title or '—' }}</span>
+            {% else %}
+            <strong>{{ r.artist or '—' }}</strong>
+            <span style="color:var(--text-muted)"> — {{ r.title or '—' }}</span>
+            {% endif %}
+        </span>
+
+        {% if r.year %}
+        <span class="search-result-year">{{ r.year }}</span>
+        {% endif %}
+
+        {% if r.catalog_number %}
+        <span class="search-result-catno">{{ r.catalog_number }}</span>
+        {% endif %}
+
+    </a>
+    {% endfor %}
+</div>
+{% endif %}

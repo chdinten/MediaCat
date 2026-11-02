@@ -1,0 +1,53 @@
+{# Hover-peek panel: shown in #sp-right when a pressing row is hovered #}
+<div class="peek-panel">
+
+    {% if cover_url %}
+    <img src="{{ cover_url }}" alt="{{ token.title }}" class="peek-cover">
+    {% else %}
+    <div class="peek-cover peek-cover--placeholder">
+        <span>{{ (token.title or '?')[0] | upper }}</span>
+    </div>
+    {% endif %}
+
+    <div class="peek-meta">
+        <div class="peek-artist">{{ token.artist or '—' }}</div>
+        <div class="peek-title">{{ token.title or 'Untitled' }}</div>
+        {% if token.media_format %}
+        <span class="peek-format-badge">{{ token.media_format.value }}</span>
+        {% endif %}
+    </div>
+
+    <dl class="peek-details">
+        {% if token.year %}
+        <dt>Year</dt><dd>{{ token.year }}</dd>
+        {% endif %}
+        {% if token.country %}
+        <dt>Country</dt><dd>{{ token.country.name }}</dd>
+        {% endif %}
+        {% if token.genres %}
+        <dt>Genres</dt><dd>{{ token.genres[:3] | join(', ') }}</dd>
+        {% endif %}
+        {% if tracklist_count %}
+        <dt>Tracks</dt><dd>{{ tracklist_count }}</dd>
+        {% endif %}
+        {% if collection.signed %}
+        <dt>Signed by</dt><dd class="dc-signed">✍ {{ collection.signed_by or 'Yes' }}</dd>
+        {% endif %}
+        {% if collection.known.get('media_condition') %}
+        <dt>Media</dt><dd>{{ collection.known.media_condition }}</dd>
+        {% endif %}
+    </dl>
+
+    <a href="/catalogue/{{ token.id }}" class="btn btn-primary peek-cta">View full details</a>
+
+    <details class="peek-debug-panel">
+        <summary>Debug</summary>
+        <dl class="peek-debug-dl">
+            <dt>Status</dt><dd style="color:var(--accent-light)">peek loaded ✓</dd>
+            <dt>Token</dt><dd><code>{{ token.id }}</code></dd>
+            <dt>Route</dt><dd><code>/catalogue/{{ token.id }}/peek</code></dd>
+            <dt>Tracks</dt><dd>{{ tracklist_count }}</dd>
+        </dl>
+    </details>
+
+</div>

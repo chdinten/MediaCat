@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en-GB" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}MediaCat{% endblock %}</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <script src="/static/theme.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/layout_3panel.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="/static/htmx.min.js" defer></script>
+    <script src="/static/forms.js" defer></script>
+    <script src="/static/bio_research.js" defer></script>
+    <script src="/static/search_history.js" defer></script>
+    <script src="/static/panel_resize.js" defer></script>
+    <script src="/static/command_palette.js" defer></script>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="sp-body {% block body_class %}{% endblock %}" hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}' data-user-role="{{ user.get('role', '') if user else '' }}">
+
+{# ══════════════════════════════════════════════════════════════
+   TOP BAR
+   ══════════════════════════════════════════════════════════════ #}
+<header class="sp-topbar">
+
+    <a href="/" class="sp-home-btn" title="Dashboard">
+        <span class="sp-home-icon">⌂</span>
+        <span>Home</span>
+    </a>
+
+    {% if user and user.get('user_id') %}
+    <form id="sp-search-form"
+          class="sp-search-wrap"
+          action="/search"
+          method="get"
+          hx-get="/search"
+          hx-target="#sp-center"
+          hx-swap="innerHTML"
+          hx-trigger="submit"
+          hx-indicator="#sp-search-spinner">
+        <div class="sp-search-inner">
+            <span class="sp-search-icon">&#x1F50D;</span>
+            {% set sp_scope = request.query_params.get('scope', 'all') %}
+            <select id="sp-search-scope" name="scope" class="sp-search-scope"
+                    title="What to search" aria-label="What to search">
+                <option value="all" {% if sp_scope == 'all' %}selected{% endif %}>Artists &amp; albums</option>
+                <option value="artists" {% if sp_scope == 'artists' %}selected{% endif %}>Artists</option>
+                <option value="albums" {% if sp_scope == 'albums' %}selected{% endif %}>Albums</option>
+                <option value="tracks" {% if sp_scope == 'tracks' %}selected{% endif %}>Tracks</option>
+            </select>
+            <input id="sp-search-input"
+                   type="text"
+                   name="q"
+                   class="sp-search-input"
+                   placeholder="Search artists and album titles&hellip;"
+                   autocomplete="off"
+                   spellcheck="false"
+                   value="{{ request.query_params.get('q', '') }}">
+            <button id="sp-search-clear-btn" type="button"
+                    class="sp-search-clear" title="Clear" aria-label="Clear search">&#x2715;</button>
+            <span id="sp-search-spinner" class="htmx-indicator"
+                  style="color:var(--accent-light);font-size:0.8rem;padding-right:0.25rem">&#x23F3;</span>
+        </div>
+        <div id="sp-search-history-drop" class="sp-search-history"></div>
+    </form>
+    <button id="cp-hint" class="cp-kbd-hint" type="button"
+            title="Command palette: jump to pages and recent searches, or type /track, /album, /artist (Ctrl+K)">
+        <span class="cp-kbd-hint-label">Commands</span>
+        <kbd>Ctrl K</kbd>
+    </button>
+    {% endif %}
+
+    <div class="sp-topbar-right">
+        {% if user and user.get('user_id') %}
+        <div class="nav-links">
+            <a href="/catalogue" {% if request.url.path.startswith('/catalogue') %}class="active"{% endif %}>Catalogue</a>
+            <a href="/artists"   {% if request.url.path.startswith('/artists')   %}class="active"{% endif %}>Artists</a>
+            <a href="/reviews"   {% if request.url.path.startswith('/reviews')   %}class="active"{% endif %}>Reviews</a>
+            <a href="/tokens"    {% if request.url.path.startswith('/tokens')    %}class="active"{% endif %}>Tokens</a>
+            {% if user.get('role') == 'admin' %}
+            <a href="/admin" {% if request.url.path.startswith('/admin') %}class="active"{% endif %}>Admin</a>
+            {% endif %}
+        </div>
+        {% endif %}
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+            <span class="theme-icon-light">🌙</span>
+            <span class="theme-icon-dark">☀️</span>
+        </button>
+        {% if user and user.get('user_id') %}
+        <span class="nav-role">{{ user.get('role', '') }}</span>
+        <a href="/logout" class="nav-logout">Logout</a>
+        {% endif %}
+    </div>
+
+</header>
+
+{# ══════════════════════════════════════════════════════════════
+   PANEL LAYOUT
+   Default: single-column (sp-layout--single). Pages that use
+   multiple panels set {% block sp_layout_class %}sp-layout--three{% endblock %}.
+   ══════════════════════════════════════════════════════════════ #}
+<div class="sp-layout {% block sp_layout_class %}sp-layout--single{% endblock %}"
+     id="sp-layout-root">
+
+    <aside id="sp-left" class="sp-panel sp-left" aria-label="List panel">
+        {% block sp_left %}{% endblock %}
+    </aside>
+
+    <div id="sp-resize-left" class="sp-resize-handle" title="Drag to resize" aria-hidden="true"></div>
+
+    <main id="sp-center" class="sp-panel sp-center">
+        {# Backward-compat: pages that only define content block land here #}
+        {% block sp_center %}
+        {% block content %}{% endblock %}
+        {% endblock %}
+    </main>
+
+    <div id="sp-resize-right" class="sp-resize-handle" title="Drag to resize" aria-hidden="true"></div>
+
+    <aside id="sp-right" class="sp-panel sp-right" aria-label="Detail panel">
+        {% block sp_right %}{% endblock %}
+    </aside>
+
+</div>
+
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

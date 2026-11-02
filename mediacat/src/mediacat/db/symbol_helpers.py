@@ -13,8 +13,10 @@ structured form and the plain-text fallback stored in ``matrix_runout``.
 
 from __future__ import annotations
 
+from typing import Any
 
-def render_parts_to_text(parts: list[dict], *, symbols: dict[str, str]) -> str:
+
+def render_parts_to_text(parts: list[dict[str, Any]], *, symbols: dict[str, str]) -> str:
     """Convert a parts array to a plain-text string.
 
     ``symbols`` maps slug → display text (e.g. ``{"emi-triangle": "△"}``).
@@ -38,7 +40,7 @@ def render_parts_to_text(parts: list[dict], *, symbols: dict[str, str]) -> str:
     return "".join(fragments)
 
 
-def extract_symbol_ids(parts: list[dict]) -> list[tuple[str, int]]:
+def extract_symbol_ids(parts: list[dict[str, Any]]) -> list[tuple[str, int]]:
     """Return (symbol_id, position) pairs for every symbol in a parts array.
 
     Parameters

@@ -16,6 +16,8 @@ secrets:
     file: ${MEDIACAT_DATA_ROOT:-/srv/mediacat}/secrets/minio_root_password
   redis_password:
     file: ${MEDIACAT_DATA_ROOT:-/srv/mediacat}/secrets/redis_password
+  discogs_token:
+    file: ${MEDIACAT_DATA_ROOT:-/srv/mediacat}/secrets/discogs_token
 
 # ---------- Networks -------------------------------------------------------
 networks:
@@ -44,6 +46,8 @@ services:
       - caddy_config:/config
     networks:
       - frontend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "caddy", "version"]
       interval: 30s
@@ -96,6 +100,7 @@ services:
     volumes:
       - ${MEDIACAT_DATA_ROOT:-/srv/mediacat}/minio:/data
     networks:
+      - frontend
       - backend
     ports:
       - "${MINIO_API_BIND:-127.0.0.1:9000}:9000"
@@ -180,9 +185,11 @@ services:
       - postgres_app_password
       - minio_root_password
       - redis_password
+      - discogs_token
     volumes:
       - ../config/app.yaml:/app/config/app.yaml:ro
       - ../config/connectors.yaml:/app/config/connectors.yaml:ro
+      - ../config/logging.yaml:/app/config/logging.yaml:ro
     networks:
       - frontend
       - backend
@@ -221,9 +228,11 @@ services:
       - postgres_app_password
       - minio_root_password
       - redis_password
+      - discogs_token
     volumes:
       - ../config/app.yaml:/app/config/app.yaml:ro
       - ../config/connectors.yaml:/app/config/connectors.yaml:ro
+      - ../config/logging.yaml:/app/config/logging.yaml:ro
     networks:
       - backend
     depends_on:
@@ -245,18 +254,22 @@ services:
   backup:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
+    # BusyBox crond ships with the image.  Nothing is installed at start-up:
+    # the backend network is internal (no internet), so `apk add` cannot work.
+    # Job output goes to PID 1's stdout, i.e. `docker compose logs backup`.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        apk add --no-cache minio-client supercronic 2>/dev/null || true
-        echo "0 2 * * * /scripts/backup.sh" > /etc/crontab
-        exec supercronic /etc/crontab
+        echo "0 2 * * * /scripts/backup.sh > /proc/1/fd/1 2>&1" > /etc/crontabs/root
+        echo "[backup] crond started; daily pg_dump at 02:00 UTC"
+        exec crond -f -l 8
     environment:
       PGHOST: postgres
       PGPORT: "5432"
       PGDATABASE: ${POSTGRES_DB:-mediacat}
       PGUSER: postgres
-      PGPASSFILE: /run/secrets/postgres_password
+      # backup.sh reads the password from this file (a bare password, not pgpass format)
+      PGPASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
       - minio_root_password

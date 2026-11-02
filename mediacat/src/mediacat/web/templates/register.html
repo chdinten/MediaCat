@@ -1,0 +1,39 @@
+{% extends layout_base %}
+{% block title %}Create account — MediaCat{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+    <h1>Create account</h1>
+    <p class="text-muted" style="margin-bottom:1rem">
+        New accounts are created with <strong>viewer</strong> access. An admin can upgrade your role afterwards.
+    </p>
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/register">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required autofocus
+               minlength="3" maxlength="150"
+               pattern="[a-zA-Z0-9._-]+"
+               title="Letters, numbers, dots, hyphens, underscores only">
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required maxlength="254">
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required
+               minlength="8" maxlength="128">
+
+        <label for="confirm_password">Confirm password</label>
+        <input type="password" id="confirm_password" name="confirm_password" required
+               minlength="8" maxlength="128">
+
+        <button type="submit">Create account</button>
+    </form>
+    <p style="margin-top:1rem;font-size:0.9rem">
+        Already have an account? <a href="/login">Sign in</a>
+    </p>
+</div>
+{% endblock %}

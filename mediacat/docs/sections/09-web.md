@@ -13,11 +13,10 @@ three visual zones rendered by `templates/dashboard.html`:
 
 ### 1 · Hero
 
-A full-bleed photograph (`static/hero-turntable1.jpg`) occupies the upper
-portion of the viewport. The hero uses CSS `position: absolute; inset: 0`
-layers to composite:
+The page background (see [Login and dashboard background](#login-and-dashboard-background))
+stays fixed behind the page while the content scrolls over it. The hero box uses CSS
+`position: absolute; inset: 0` layers over a semi-transparent dark backdrop:
 
-- `hero-bg-img` — the photographic background (object-fit: cover)
 - `hero-lamp-wash` — radial amber gradient (animated flicker keyframe)
 - `hero-fade` — bottom-to-top dark fade that anchors the UI text
 - `hero-vignette` — left-edge vignette to create depth behind the headline
@@ -61,10 +60,26 @@ Below the hero, the dashboard renders up to three carousel rows:
 Each carousel card shows the sleeve image with a vinyl disc peeking behind it
 on hover (CSS transform).
 
+## Login and dashboard background
+
+`web/background.py` with `templates/partials/page_background.html` and
+`static/background.js`. The login page and the dashboard show either a
+**looping video** or a **still image**, chosen in Admin → Layout → Background.
+
+- **Markup:** a muted, looping, autoplaying `<video>` (WebM source first, then MP4) over an `<img>` of the still, which is also the video's poster.
+- **Pausing:** `background.js` pauses the video in hidden tabs. Under `prefers-reduced-motion` the video is hidden and paused, so the still shows.
+- **Display:** *Fit to width* (default) shows the whole picture below the top bar and fades into the page colour. The login card then starts in that faded edge, below the turntable. *Fill screen* covers the window and crops the sides.
+- **Setting:** SiteSetting `background` (JSON: `mode`, `fit`, and the uploaded `image` / `mp4` / `webm` with their format details). Without it, the built-in `static/media-cat-hero-poster.webp`, `media-cat-hero.webm` and `media-cat-hero.mp4` are used.
+- **Uploads:** 1–3 files at once, identified by their content:
+    - JPEG/PNG/WebP stills, at least 1200 × 300 px and up to 15 MB;
+    - MP4 in H.264 or AV1, or WebM in VP8, VP9 or AV1, up to 50 MB and 60 s.
+- **Delivery:** uploads are stored in MinIO under `site/background/<sha256>.<ext>` and served publicly (Range-aware) by `GET /site-media/background/{name}`.
+
 ## Template context variables
 
 | Variable | Type | Description |
 |---|---|---|
+| `background` | `dict` | `mode`, `fit`, `ratio`, `image_url`, `videos` (from `background.page_background`) |
 | `stats` | `dict` | `total`, `vinyl`, `cd`, `artists`, `oldest_year` |
 | `genre_stats` | `list[dict]` | `[{"genre": str, "count": int}, …]` — top 5 |
 | `recent` | `list[Token]` | 8 most-recently added tokens (with `label` and `media_objects` loaded) |
@@ -83,9 +98,101 @@ prevent flash of wrong theme.
 
 | File | Purpose |
 |---|---|
-| `static/hero-turntable1.jpg` | Hero background photograph |
+| `static/media-cat-hero-poster.webp`, `media-cat-hero.webm`, `media-cat-hero.mp4` | Built-in background (still + animation) |
+| `static/background.js` | Pauses the background video in hidden tabs and under reduced motion |
 | `static/style.css` | All styles — design tokens, hero layout, stat cards, carousels |
 | `static/theme.js` | Theme persistence via `localStorage['mc-theme']` |
+
+## Top bar and search (3panel layout)
+
+The top bar (`templates/base_3panel.html`) holds **Home**, the global search
+box, the **Commands** button and the navigation links.
+
+### Search scopes
+
+A picker at the left of the search box chooses what `GET /search?q=&scope=`
+(`routes.global_search`) looks in:
+
+| Scope | Matches | Result list (left panel) |
+|---|---|---|
+| **Artists & albums** (`all`, default) | artist name; album title or catalogue number | *Artists* group, then *Albums* group |
+| **Artists** (`artists`) | artist name | artists |
+| **Albums** (`albums`) | album title or catalogue number | pressings, with artist, year, format, cat. no. |
+| **Tracks** (`tracks`) | song title | tracks, with position (`B1`), artist, album, year |
+
+- Song titles come from each pressing's `Token.tracklist` (JSONB), unnested with
+  a lateral `jsonb_array_elements`. There is no track table; about 10,500 tracks
+  are searched in roughly 10 ms.
+- Case-insensitive substring match; `%` and `_` in the query match literally.
+- Albums and tracks show at most 100 hits, artists 50.
+- An artist hit loads the artist page into the centre panel. Album and track
+  hits are links to the album's full detail page. The centre panel opens with
+  the first artist (or the artist of the first album/track hit).
+- Exactly one album or track hit and no artist: the route answers with
+  `HX-Redirect` and the album page opens directly.
+- The scope and the last 10 search terms are remembered per browser
+  (`localStorage`); changing the scope re-runs the search.
+
+### Command palette
+
+**Commands** (or Ctrl+K) opens the command palette (`static/command_palette.js`):
+pages, recent searches and slash commands such as `/track <title>` (`/t`,
+`/song`), `/album <title>` (`/al`) and `/artist <name>` (`/a`).
+
+## Artist page and biographies
+
+`/artists/detail?artist=` shows the biography, the albums in the collection
+and the discography. The biography partial (`/artists/info`) is resolved by
+`ingestion/artist_bio.py`:
+
+1. Wikipedia via the MusicBrainz artist link (trusted).
+2. Otherwise a Wikipedia search, with title checks and an LLM verdict that the
+   article is about this music artist.
+3. Wikipedia with 800+ characters is used as is.
+4. Otherwise the Discogs artist profile is compared; it wins only as a real
+   biography (≥ 150 characters, ≥ 2 sentences) at least twice as long as the
+   Wikipedia text. Discogs-only artists use Discogs.
+5. Then the official homepage, summarised by the LLM from facts on the page
+   only (marked "AI summary").
+6. Otherwise a "No biography found" statement listing what was checked.
+
+Bios are cut to whole paragraphs of about 1,200–2,500 characters and cached in
+`artist_bios`. **Refresh bio** repeats the lookup. Lookups run as server-side
+tasks: they finish and save even if the user leaves the page, and a second
+request joins the running lookup. `static/bio_research.js` shows a
+**Research in progress** banner with a timer while a lookup takes longer than
+about a second.
+
+## Pressing page additions
+
+| Feature | Where | Notes |
+|---|---|---|
+| Pressing variants pick-and-copy | *Pressing variants*, *Manufacturing & stamping* | Pick a Discogs variant, tick matrix codes (or **All**), **Copy to My copy**; **Load variants** fetches identifiers for older imports. Box sets (> 2 LPs): full width, LP blocks side by side, pinned header. *My copy* has runout fields for LP 1–2 only |
+| My copy (Discogs collection fields) | *My copy* card | Runout / Matrix LP1–2 A/B, Autographed, Signed by…; **Save in MediaCat** or **Save & write back to Discogs** |
+| Album sheet | **Print sheet (PDF)** | A4 PDF: cover, headline, tracklist per LP, runout codes (`web/print_sheet.py`) |
+| Image lightbox | Click any image | Pop-up over the page with close button, Esc, ← → stepping |
+| Add pressing cards | `/catalogue/new` results → **Cards with images** | Discogs images, format details, barcode and first matrix variant per result, loaded per card as it scrolls into view (`/catalogue/new/discogs-preview/{id}`, cached 1 h) |
+| Import banner | Top of the page | Shown while a Discogs collection import runs: Discogs functions may fail or wait (shared ~60 requests/min limit) |
+
+Discogs identifiers and collection fields are stored in `Token.extra`
+(`"discogs"`, `"discogs_collection"`), so no migration was needed. Routes:
+`POST /catalogue/{id}/discogs-details/refresh`,
+`POST /catalogue/{id}/discogs-collection`, `GET /catalogue/{id}/print.pdf`.
+
+## JavaScript and the CSP
+
+The CSP `script-src 'self'` blocks every inline script, including HTMX
+`hx-on` attributes, so all handlers live in static files:
+
+| File | Purpose |
+|---|---|
+| `static/forms.js` | CSRF header on native POSTs; list-row highlight via `data-mc-active="row-class"` (optional `data-mc-clear="#panel"`) |
+| `static/search_history.js` | Search scope picker and search history |
+| `static/command_palette.js` | Ctrl+K palette and slash commands |
+| `static/bio_research.js` | "Research in progress" banner with timer |
+| `static/pressing.js` | Pressing page: uploads, variant pick-and-copy, lightbox |
+| `static/panel_resize.js` | 3panel layout switching and resizable panels |
+| `static/background.js` | Login/dashboard background video: pause when hidden or reduced motion |
 
 ## Full API reference
 

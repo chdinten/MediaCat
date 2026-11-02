@@ -28,7 +28,9 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/healthz",
         "/readyz",
         "/login",
+        "/register",
         "/static",
+        "/site-media",  # login page background (web/background.py)
         "/api/docs",
         "/api/openapi.json",
     }
@@ -118,7 +120,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._csp = csp or (
             "default-src 'self'; "
-            "img-src 'self' data: blob:; "
+            # Wikipedia serves thumbnails from both upload. and thumb.wikimedia.org
+            "img-src 'self' data: blob: https://upload.wikimedia.org https://thumb.wikimedia.org "
+            "https://images.discogs.com https://i.discogs.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self'; "

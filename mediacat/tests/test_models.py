@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "ocr_artifacts",
     "review_items",
     "audit_log",
+    "discogs_sales_imports",
 }
 
 

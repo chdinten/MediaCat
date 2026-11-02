@@ -330,7 +330,81 @@ document.addEventListener('DOMContentLoaded', function () {
         dlg.addEventListener('cancel', function (e) { e.preventDefault(); mcCloseCrop(); });
     }
 
-    /* ── 9. Image drop zone ── */
+    /* ── 8b. Sales history help dialog ── */
+    var salesHelpDlg   = document.getElementById('sales-help-dialog');
+    var salesHelpOpen  = document.getElementById('sales-help-open');
+    var salesHelpClose = document.getElementById('sales-help-close');
+    if (salesHelpDlg && salesHelpOpen) {
+        salesHelpOpen.addEventListener('click', function () { salesHelpDlg.showModal(); });
+        if (salesHelpClose) {
+            salesHelpClose.addEventListener('click', function () { salesHelpDlg.close(); });
+        }
+        salesHelpDlg.addEventListener('click', function (e) {
+            if (e.target === salesHelpDlg) salesHelpDlg.close();
+        });
+    }
+
+    /* ── 9. Genre edit toggle ── */
+    var genreToggle = document.querySelector('.genre-edit-toggle');
+    var genreForm   = document.querySelector('.genre-edit-form');
+    var genreCancel = document.querySelector('.genre-edit-cancel');
+    if (genreToggle && genreForm) {
+        genreToggle.addEventListener('click', function () {
+            genreForm.style.display = '';
+            genreToggle.style.display = 'none';
+        });
+        if (genreCancel) {
+            genreCancel.addEventListener('click', function () {
+                genreForm.style.display = 'none';
+                genreToggle.style.display = '';
+            });
+        }
+    }
+
+    /* ── 10. Available genre pill → add/remove chip (delegated) ── */
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.genre-available-btn');
+        if (!btn) return;
+        var widget = document.querySelector('.genre-tag-input');
+        if (!widget) return;
+        var value = btn.dataset.genre;
+        /* Toggle: if chip exists, remove it; otherwise add it */
+        var chips = widget.querySelectorAll('.genre-chip');
+        for (var i = 0; i < chips.length; i++) {
+            if (chips[i].dataset.value.toLowerCase() === value.toLowerCase()) {
+                chips[i].remove();
+                btn.classList.remove('genre-available-btn--active');
+                return;
+            }
+        }
+        /* Add chip */
+        var chip = document.createElement('span');
+        chip.className = 'genre-chip';
+        chip.dataset.value = value;
+        chip.textContent = value;
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'genre-chip-remove';
+        removeBtn.setAttribute('aria-label', 'Remove');
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', function () {
+            chip.remove();
+            btn.classList.remove('genre-available-btn--active');
+        });
+        chip.appendChild(removeBtn);
+        widget.insertBefore(chip, widget.querySelector('.genre-typeahead'));
+        btn.classList.add('genre-available-btn--active');
+    });
+
+    /* ── 11. Import genres button → submit hidden form ── */
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.genre-import-btn');
+        if (!btn) return;
+        var form = btn.closest('.genre-edit-form').querySelector('.import-genres-form');
+        if (form) form.requestSubmit ? form.requestSubmit() : form.submit();
+    });
+
+    /* ── 12. Image drop zone ── */
     var zone   = document.getElementById('drop-zone');
     var fileIn = document.getElementById('img-file');
     var region = document.getElementById('region-select');
@@ -418,3 +492,517 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 });
+
+/* ── Price fetch loading indicator ─────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('form[action*="/fetch-price"]').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var btn = form.querySelector('button[type="submit"]');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '⏳ Fetching price…';
+                btn.style.opacity = '0.7';
+            }
+
+            /* Insert a status banner near the price history section */
+            var priceSection = document.querySelector('.price-history-section, .price-history-empty');
+            var statusEl = document.getElementById('price-fetch-status');
+            if (!statusEl) {
+                statusEl = document.createElement('div');
+                statusEl.id = 'price-fetch-status';
+                statusEl.style.cssText = 'margin:0.75rem 0;padding:0.6rem 0.9rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-size:0.85rem;color:var(--text-muted);display:flex;align-items:center;gap:0.6rem';
+                statusEl.innerHTML =
+                    '<span class="ocr-spinner" style="width:16px;height:16px;border-width:2px"></span>' +
+                    '<span>Fetching current market price from Discogs — this may take a moment…</span>';
+                if (priceSection) {
+                    priceSection.insertAdjacentElement('beforebegin', statusEl);
+                } else if (btn) {
+                    btn.closest('form').insertAdjacentElement('afterend', statusEl);
+                }
+            }
+
+            var fd = new FormData(form);
+            fetch(form.action, {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': mcCsrf() },
+                body: fd,
+                redirect: 'follow',
+            }).then(function (res) {
+                window.location.href = res.url || window.location.pathname;
+            }).catch(function (err) {
+                if (btn) { btn.disabled = false; btn.textContent = '$ Fetch price'; btn.style.opacity = ''; }
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:var(--danger)">Network error: ' + err.message + '</span>';
+                }
+            });
+        });
+    });
+});
+
+/* ── Star rating widget ─────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.star-widget').forEach(function (widget) {
+        var inputId = widget.dataset.input;
+        var formId  = widget.dataset.form;
+        var input   = document.getElementById(inputId);
+        var current = parseFloat(widget.dataset.current) || 0;
+        var halves  = widget.querySelectorAll('.star-half');
+
+        function render(val) {
+            halves.forEach(function (h) {
+                h.classList.toggle('filled', parseFloat(h.dataset.value) <= val);
+            });
+        }
+
+        render(current);
+
+        halves.forEach(function (h) {
+            h.addEventListener('click', function () {
+                var val = parseFloat(h.dataset.value);
+                current = val;
+                input.value = val * 2; /* store as 0–10 */
+                render(val);
+                /* Submit directly — don't rely on event bubbling to forms.js */
+                var form = document.getElementById(formId);
+                if (!form) return;
+                var fd = new FormData(form);
+                fetch(form.action, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-Token': mcCsrf() },
+                    body: fd,
+                    redirect: 'follow',
+                }).then(function (res) {
+                    window.location.href = res.url || form.action;
+                }).catch(function (err) {
+                    console.error('[MediaCat] rating save error:', err);
+                });
+            });
+            h.addEventListener('mouseenter', function () { render(parseFloat(h.dataset.value)); });
+        });
+        widget.addEventListener('mouseleave', function () { render(current); });
+    });
+
+    /* ── Persist disc-section open/closed state per token ── */
+    var tokenUuid = document.getElementById('token-uuid');
+    if (tokenUuid) {
+        var storageKey = 'disc-state-' + tokenUuid.textContent.trim();
+        var saved = {};
+        try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch (_) {}
+        document.querySelectorAll('.disc-section').forEach(function (el) {
+            if (el.id in saved) {
+                if (saved[el.id]) el.setAttribute('open', '');
+                else               el.removeAttribute('open');
+            }
+            el.addEventListener('toggle', function () {
+                saved[el.id] = el.open;
+                try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch (_) {}
+            });
+        });
+    }
+
+    /* ── Genre tag-input widget ─────────────────────────────────────────── */
+    document.querySelectorAll('.genre-tag-input').forEach(function (widget) {
+        function addChip(value) {
+            value = value.trim();
+            if (!value) return;
+            var existing = widget.querySelectorAll('.genre-chip');
+            for (var i = 0; i < existing.length; i++) {
+                if (existing[i].dataset.value.toLowerCase() === value.toLowerCase()) return;
+            }
+            var chip = document.createElement('span');
+            chip.className = 'genre-chip';
+            chip.dataset.value = value;
+            chip.textContent = value;
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'genre-chip-remove';
+            btn.setAttribute('aria-label', 'Remove');
+            btn.textContent = '×';
+            btn.addEventListener('click', function () { chip.remove(); });
+            chip.appendChild(btn);
+            widget.insertBefore(chip, widget.querySelector('.genre-typeahead'));
+        }
+
+        var typeahead = widget.querySelector('.genre-typeahead');
+        typeahead.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ',') {
+                var val = typeahead.value.replace(/,$/, '').trim();
+                if (val) {
+                    e.preventDefault();
+                    addChip(val);
+                    typeahead.value = '';
+                } else if (e.key === ',') {
+                    e.preventDefault(); // comma with nothing: swallow quietly
+                }
+                // Enter with empty typeahead: fall through → browser submits form
+            } else if (e.key === 'Backspace' && typeahead.value === '') {
+                var chips = widget.querySelectorAll('.genre-chip');
+                if (chips.length) chips[chips.length - 1].remove();
+            }
+        });
+        typeahead.addEventListener('change', function () {
+            if (typeahead.value) { addChip(typeahead.value); typeahead.value = ''; }
+        });
+        widget.querySelectorAll('.genre-chip-remove').forEach(function (btn) {
+            btn.addEventListener('click', function () { btn.closest('.genre-chip').remove(); });
+        });
+    });
+
+    /* ── Catalogue filter: sync genre chips before GET form submit ───────── */
+    var catForm = document.getElementById('catalogue-search-form');
+    if (catForm) {
+        catForm.addEventListener('submit', function () {
+            var widget = catForm.querySelector('.genre-tag-input');
+            var hidden = catForm.querySelector('input[name="genres"]');
+            if (widget && hidden) {
+                hidden.value = Array.from(widget.querySelectorAll('.genre-chip'))
+                    .map(function (c) { return c.dataset.value; })
+                    .join(',');
+            }
+        });
+    }
+
+    /* ── Genre form: direct submit with chip sync ───────────────────────── */
+    document.querySelectorAll('.genre-form').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            e.stopPropagation(); /* prevent forms.js double-handling */
+            var widget = form.querySelector('.genre-tag-input');
+            if (widget) {
+                var hidden = form.querySelector('input[name="genres"]');
+                if (hidden) {
+                    hidden.value = Array.from(widget.querySelectorAll('.genre-chip'))
+                        .map(function (c) { return c.dataset.value; })
+                        .join(', ');
+                }
+            }
+            var fd = new FormData(form);
+            fetch(form.action, {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': mcCsrf() },
+                body: fd,
+                redirect: 'follow',
+            }).then(function (res) {
+                window.location.href = res.url || window.location.pathname;
+            }).catch(function (err) {
+                console.error('[MediaCat] genre save error:', err);
+            });
+        });
+    });
+});
+
+
+/* ── Discogs: album sheet PDF, runout copy, apply variant ───────────────── */
+function mcCopyText(text, btn) {
+    function done() {
+        if (!btn) return;
+        var orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(function () { btn.textContent = orig; }, 1400);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done);
+        return;
+    }
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+}
+
+/* Ask for the save location first (the picker needs the click's user
+ * activation), then fetch the PDF and write it.  Browsers without the File
+ * System Access API (Firefox, Safari) fall back to a normal download. */
+async function mcSavePdf(btn) {
+    var url = btn.dataset.url;
+    var name = btn.dataset.filename || 'album.pdf';
+    var label = btn.textContent;
+    var handle = null;
+    if (window.showSaveFilePicker) {
+        try {
+            handle = await window.showSaveFilePicker({
+                suggestedName: name,
+                types: [{ description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }],
+            });
+        } catch (e) {
+            if (e.name === 'AbortError') return;   /* user cancelled */
+            handle = null;
+        }
+    }
+    btn.disabled = true;
+    btn.textContent = 'Creating PDF…';
+    try {
+        var res = await fetch(url, { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var blob = await res.blob();
+        if (handle) {
+            var writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+        } else {
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+        }
+        btn.textContent = 'Saved ✓';
+    } catch (err) {
+        console.error('[MediaCat] PDF export failed:', err);
+        btn.textContent = 'PDF failed: ' + err.message;
+    } finally {
+        btn.disabled = false;
+        setTimeout(function () { btn.textContent = label; }, 2500);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.js-print-sheet').forEach(function (btn) {
+        btn.addEventListener('click', function () { mcSavePdf(btn); });
+    });
+
+    document.addEventListener('click', function (e) {
+        var copyBtn = e.target.closest('.js-dc-copy');
+        if (copyBtn) {
+            mcCopyText(copyBtn.dataset.copy || '', copyBtn);
+            return;
+        }
+        var applyBtn = e.target.closest('.js-dc-apply-variant');
+        if (!applyBtn) return;
+        var editBox = document.getElementById('dc-edit');
+        if (!editBox) return;
+        /* First ticked code per field wins (a variant rarely lists a side twice). */
+        var fill = {};
+        applyBtn.closest('.dc-variant').querySelectorAll('.js-dc-pick:checked').forEach(function (cb) {
+            if (!(cb.dataset.key in fill)) fill[cb.dataset.key] = cb.dataset.value;
+        });
+        editBox.querySelectorAll('.dc-filled').forEach(function (el) { el.classList.remove('dc-filled'); });
+        var applied = 0;
+        Object.keys(fill).forEach(function (key) {
+            var input = editBox.querySelector('[data-key="' + key + '"]');
+            if (!input) return;
+            input.value = fill[key];
+            input.classList.add('dc-filled');
+            applied += 1;
+        });
+        var copyCard = document.getElementById('discogs-copy');
+        mcSetCard(copyCard, true);
+        copyCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (!applied) {
+            window.alert('No runout fields (e.g. "Runout / Matrix LP1 - A") were found in your Discogs collection fields.');
+        }
+    });
+
+    /* Runout tick-boxes: a selection belongs to one variant, so ticking a
+     * code in another variant clears the previous one. */
+    var editBox = document.getElementById('dc-edit');
+    document.querySelectorAll('.js-dc-pick').forEach(function (cb) {
+        var hasField = editBox && editBox.querySelector('[data-key="' + cb.dataset.key + '"]');
+        if (!hasField) {
+            cb.disabled = true;
+            cb.title = 'Your Discogs collection has no field for this side';
+        }
+    });
+    document.querySelectorAll('.dc-variant--pick').forEach(mcUpdatePick);
+
+    document.addEventListener('change', function (e) {
+        /* Manufacturing card: show the chosen variant, drop ticks on the others. */
+        var choose = e.target.closest('.js-dc-variant-select');
+        if (choose) {
+            choose.closest('.dc-mfg-variants').querySelectorAll('.dc-variant--choice').forEach(function (v) {
+                var shown = v.dataset.choice === choose.value;
+                v.hidden = !shown;
+                if (!shown) {
+                    v.querySelectorAll('.js-dc-pick, .js-dc-pick-all').forEach(function (cb) { cb.checked = false; });
+                    mcUpdatePick(v);
+                }
+            });
+            return;
+        }
+        var pick = e.target.closest('.js-dc-pick, .js-dc-pick-all');
+        if (!pick) return;
+        var variant = pick.closest('.dc-variant');
+        if (pick.classList.contains('js-dc-pick-all')) {
+            variant.querySelectorAll('.js-dc-pick:not(:disabled)').forEach(function (cb) {
+                cb.checked = pick.checked;
+            });
+        }
+        if (pick.checked) {
+            document.querySelectorAll('.dc-variant--pick').forEach(function (other) {
+                if (other === variant) return;
+                other.querySelectorAll('.js-dc-pick, .js-dc-pick-all').forEach(function (cb) { cb.checked = false; });
+                mcUpdatePick(other);
+            });
+        }
+        mcUpdatePick(variant);
+    });
+});
+
+/* Sync a variant's "All" box and copy button with its ticked codes. */
+function mcUpdatePick(variant) {
+    var boxes = Array.prototype.slice.call(variant.querySelectorAll('.js-dc-pick:not(:disabled)'));
+    var ticked = boxes.filter(function (cb) { return cb.checked; }).length;
+    var all = variant.querySelector('.js-dc-pick-all');
+    var btn = variant.querySelector('.js-dc-apply-variant');
+    if (all) {
+        all.disabled = !boxes.length;
+        all.checked = boxes.length > 0 && ticked === boxes.length;
+        all.indeterminate = ticked > 0 && ticked < boxes.length;
+    }
+    if (btn) {
+        btn.disabled = !ticked;
+        btn.textContent = ticked && ticked < boxes.length
+            ? 'Copy ' + ticked + ' to My copy' : 'Copy to My copy';
+    }
+    variant.classList.toggle('is-picking', ticked > 0);
+}
+
+/* ── Detail cards ───────────────────────────────────────────────────────────
+ * A closed card shows its key details; opening one makes it span the full
+ * grid width (CSS .is-open). Only one card is open at a time. Clicking the
+ * header button toggles; clicking anywhere else on a closed card opens it. */
+function mcSetCard(card, open) {
+    if (!card) return;
+    if (open) {
+        document.querySelectorAll('.dc-card.is-open').forEach(function (c) {
+            if (c !== card) mcSetCard(c, false);
+        });
+    }
+    card.classList.toggle('is-open', open);
+    var btn = card.querySelector('.js-card-toggle');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('click', function (e) {
+        var toggle = e.target.closest('.js-card-toggle');
+        if (toggle) {
+            var tc = toggle.closest('.dc-card');
+            var opening = !tc.classList.contains('is-open');
+            mcSetCard(tc, opening);
+            if (opening) tc.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            return;
+        }
+        var card = e.target.closest('.dc-card');
+        if (!card || card.classList.contains('is-open')) return;
+        if (e.target.closest('a, button, input, select, textarea, label, form, summary')) return;
+        if (window.getSelection && String(window.getSelection())) return;  /* selecting text */
+        mcSetCard(card, true);
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+        var open = document.querySelector('.dc-card.is-open');
+        if (open) mcSetCard(open, false);
+    });
+});
+
+/* ── Image lightbox ─────────────────────────────────────────────────────────
+ * Thumbnails (.image-thumb-link) open in a dialog above the page instead of a
+ * bare image tab. Arrows / ← → step through the images of the same group
+ * (gallery or runout list); Esc, × or a click beside the image closes it.
+ * Ctrl/⌘/Shift/middle click keep the browser's normal "open in new tab". */
+var mcLightbox = null;
+
+function mcLightboxBuild() {
+    var dlg = document.createElement('dialog');
+    dlg.className = 'mc-lightbox';
+    dlg.setAttribute('aria-label', 'Image viewer');
+    dlg.innerHTML =
+        '<div class="mc-lb-bar">' +
+        '  <span class="mc-lb-caption"></span>' +
+        '  <a class="mc-lb-open btn btn-ghost btn-xs" target="_blank" rel="noopener">Open full size ↗</a>' +
+        '  <button type="button" class="mc-lb-close" aria-label="Close">×</button>' +
+        '</div>' +
+        '<button type="button" class="mc-lb-nav mc-lb-prev" aria-label="Previous image">‹</button>' +
+        '<div class="mc-lb-stage"><img class="mc-lb-img" alt=""></div>' +
+        '<button type="button" class="mc-lb-nav mc-lb-next" aria-label="Next image">›</button>';
+    document.body.appendChild(dlg);
+    dlg.addEventListener('click', function (e) {
+        /* the dialog itself (backdrop) or the empty stage around the image */
+        if (e.target.closest('.mc-lb-close') || e.target === dlg ||
+            e.target.classList.contains('mc-lb-stage')) { dlg.close(); return; }
+        if (e.target.closest('.mc-lb-prev')) mcLightboxStep(-1);
+        if (e.target.closest('.mc-lb-next')) mcLightboxStep(1);
+    });
+    dlg.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft') { e.preventDefault(); mcLightboxStep(-1); }
+        if (e.key === 'ArrowRight') { e.preventDefault(); mcLightboxStep(1); }
+    });
+    dlg.addEventListener('close', function () {
+        dlg.querySelector('.mc-lb-img').removeAttribute('src');
+    });
+    return { dlg: dlg, links: [], index: 0 };
+}
+
+function mcLightboxShow(i) {
+    var lb = mcLightbox;
+    var n = lb.links.length;
+    lb.index = (i + n) % n;
+    var link = lb.links[lb.index];
+    var thumb = link.querySelector('img');
+    var label = thumb ? thumb.alt : '';
+    var img = lb.dlg.querySelector('.mc-lb-img');
+    img.src = link.href;
+    img.alt = label;
+    lb.dlg.querySelector('.mc-lb-caption').textContent = label + (n > 1 ? '  ·  ' + (lb.index + 1) + ' / ' + n : '');
+    lb.dlg.querySelector('.mc-lb-open').href = link.href;
+    lb.dlg.querySelectorAll('.mc-lb-nav').forEach(function (b) { b.hidden = n < 2; });
+}
+
+function mcLightboxStep(delta) {
+    if (mcLightbox && mcLightbox.links.length > 1) mcLightboxShow(mcLightbox.index + delta);
+}
+
+document.addEventListener('click', function (e) {
+    var link = e.target.closest('a.image-thumb-link');
+    if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (!mcLightbox) mcLightbox = mcLightboxBuild();
+    var group = link.closest('.image-grid, .runout-image-list, .dc-preview-images') || document;
+    mcLightbox.links = Array.prototype.slice.call(group.querySelectorAll('a.image-thumb-link'));
+    mcLightboxShow(Math.max(0, mcLightbox.links.indexOf(link)));
+    mcLightbox.dlg.showModal();
+    mcLightbox.dlg.querySelector('.mc-lb-close').focus();
+});
+
+/* ── Add pressing: Table / Cards view of the search results ─────────────────
+ * The cards load Discogs images and matrix codes lazily (hx-trigger="intersect
+ * once"), so nothing is fetched until the cards view is shown.  The choice is
+ * remembered per browser. */
+(function () {
+    var KEY = 'mc-find-view';
+
+    function setView(box, view) {
+        var cards = box.querySelector('.find-cards');
+        var table = box.querySelector('.find-results-table-wrap');
+        if (!cards || !table) return;
+        cards.hidden = view !== 'cards';
+        table.hidden = view === 'cards';
+        box.querySelectorAll('.js-find-view').forEach(function (b) {
+            var on = b.dataset.view === view;
+            b.classList.toggle('is-active', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.js-find-view');
+        if (!btn) return;
+        setView(btn.closest('.js-find-results'), btn.dataset.view);
+        try { localStorage.setItem(KEY, btn.dataset.view); } catch (_) { /* blocked */ }
+    });
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var saved = null;
+        try { saved = localStorage.getItem(KEY); } catch (_) { /* blocked */ }
+        if (saved !== 'cards') return;
+        document.querySelectorAll('.js-find-results').forEach(function (box) { setView(box, 'cards'); });
+    });
+}());

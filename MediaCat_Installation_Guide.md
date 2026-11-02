@@ -258,7 +258,21 @@ Import-Certificate -FilePath "$env:USERPROFILE\caddy-root.crt" `
     -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
-After this, all Windows browsers trust `https://mediacat.localhost` permanently (no more certificate warnings). The cert only needs to be imported once.
+After this, all Windows browsers trust `https://mediacat.localhost:8443` (and the `docs.`, `minio.` and `ollama.` sub-domains) permanently, with no more certificate warnings. The cert only needs to be imported once.
+
+Only the **root** certificate (valid 10 years) is imported. The site certificates Caddy issues from it last **30 days** and renew automatically (set by the `(local_tls)` snippet in `deploy/Caddyfile`), so renewals never need a new import. Firefox keeps its own certificate store: import `caddy-root.crt` there too (Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import).
+
+### Opening MediaCat
+
+| What | Address |
+|---|---|
+| **MediaCat app** | `https://mediacat.localhost:8443/` |
+| Documentation (when the docs server runs) | `https://docs.mediacat.localhost:8443/` |
+| MinIO console | `https://minio.mediacat.localhost:8443/` |
+| Open WebUI (Ollama profile) | `https://ollama.mediacat.localhost:8443/` |
+| Stack control panel (`make ctl-web`) | `http://127.0.0.1:8810/` |
+
+> **Why `:8443`?** Caddy publishes HTTPS on `HTTPS_BIND` (default `127.0.0.1:8443`), not on the standard port 443. An address without the port goes to whatever else listens on 443. On this machine that is **Kasm Workspaces**, which shows its own login page. The port is set in `.env`; if 443 is free and you prefer short addresses, set `HTTPS_BIND=127.0.0.1:443` and restart Caddy.
 
 > **Hosts file not needed** — With `networkingMode=mirrored` in WSL2, `127.0.0.1` in WSL maps directly to `127.0.0.1` in Windows. No `hosts` file entry is required.
 
@@ -298,7 +312,13 @@ curl -s http://127.0.0.1:8181/health
 make lint
 make typecheck
 make test
+
+# 8. Caddy serves the app on 8443
+curl -sk -o /dev/null -w "%{http_code}\n" https://mediacat.localhost:8443/login
+# Expected: 200
 ```
+
+Finally, open `https://mediacat.localhost:8443/` in a Windows browser: the MediaCat login page appears.
 
 
 
@@ -339,7 +359,7 @@ make ollama-models
 # Should list qwen2.5vl:32b and glm-ocr with GPU memory usage
 ```
 
-Open WebUI is available at `https://ollama.mediacat.localhost`.
+Open WebUI is available at `https://ollama.mediacat.localhost:8443`.
 
 > **Healthcheck note:** The `ollama/ollama` image does not include `curl`. The healthcheck uses `ollama list >/dev/null 2>&1` instead.
 
@@ -388,6 +408,8 @@ docker compose --env-file .env -f deploy/docker-compose.yaml exec app bash
 | `make test` | Full pytest suite with coverage report |
 | `make test-fast` | Pytest excluding slow / integration tests |
 
+Lint, formatting, mypy (0 errors) and Bandit (0 findings) are clean, and the pre-commit hooks run all four before each commit. All tests pass, but total coverage (about 39%) is below the configured 55% threshold, so `make test` ends with a coverage failure; this is a known open item.
+
 
 ## Troubleshooting
 
@@ -423,7 +445,35 @@ Compose v2 looks for `.env` in the directory of the compose file (`deploy/`), no
 1. Verify Caddy is running: `make ps` — look for `caddy (healthy)`.
 2. Check the bind address: `grep HTTP_BIND .env` should show `127.0.0.1:8080` (not `0.0.0.0:8080`).
 3. Verify WSL2 mirrored networking is enabled: check `%USERPROFILE%\.wslconfig` for `networkingMode=mirrored`.
-4. Test TCP connectivity from PowerShell: `Test-NetConnection 127.0.0.1 -Port 8080`.
+4. Test TCP connectivity from PowerShell: `Test-NetConnection 127.0.0.1 -Port 8443` (HTTPS) or `-Port 8080` (HTTP).
+5. Make sure the address includes the port: `https://mediacat.localhost:8443/`.
+
+### Background video does not move
+
+The login page and the dashboard show the still image instead of the animation when:
+
+- the system asks for reduced motion (Windows: Settings → Accessibility → Visual effects → *Animation effects* off), which is intended;
+- the browser blocks autoplay for the site, in which case the poster (the same still) stays;
+- the browser still runs old CSS/JS after a deploy (press Ctrl+F5);
+- **Still image** is selected in Admin → Layout → Background.
+
+### Browser shows another product's login page (e.g. Kasm Workspaces)
+The address is missing `:8443`. Without a port the browser uses 443, where a different program answers (on this machine, Kasm Workspaces' `kasm_proxy` container). Check what owns the port with `docker ps --format '{{.Names}} {{.Ports}}' | grep ':443->'`. Use `https://mediacat.localhost:8443/`, or move MediaCat to 443 with `HTTPS_BIND=127.0.0.1:443` if nothing else needs it.
+
+### Browser warns "not secure" after the PC was asleep, then it works again
+The site certificate had expired while the PC or WSL was asleep, and Caddy had not renewed it yet (it checks every 10 minutes or so). Older setups used Caddy's 12-hour default; `deploy/Caddyfile` now issues 30-day certificates, which outlast sleep. If you still see it:
+1. Check the dates: `echo | openssl s_client -connect 127.0.0.1:8443 -servername mediacat.localhost 2>/dev/null | openssl x509 -noout -dates`.
+2. Make sure the Caddyfile has `import local_tls` in each site, then `docker compose --env-file .env -f deploy/docker-compose.yaml up -d --no-deps --force-recreate caddy`.
+3. Existing short certificates are only replaced at their next renewal. To replace them at once, move them aside and restart Caddy (the trusted root stays, so no re-import is needed):
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.yaml exec caddy sh -c \
+     'B=/data/caddy/backup-$(date +%Y%m%d%H%M); mkdir -p $B && \
+      mv /data/caddy/pki/authorities/local/intermediate.* $B/ && \
+      mv /data/caddy/certificates/local $B/certificates-local'
+   docker compose --env-file .env -f deploy/docker-compose.yaml restart caddy
+   ```
+
+A warning with a certificate for "OmenServer" (or another product) means the address lacks `:8443`; see the Kasm entry above.
 
 ### Browser switches to HTTPS even when using `http://`
 Browsers (especially Chromium-based) have HSTS preloading for `.localhost`. Either:
@@ -460,7 +510,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 ```
 
 ### Open WebUI not accessible
-Open WebUI proxies through Caddy at `https://ollama.mediacat.localhost`. Ensure:
+Open WebUI proxies through Caddy at `https://ollama.mediacat.localhost:8443`. Ensure:
 1. The Ollama profile is running (`make ollama-gpu-up` or `make ollama-up`).
 2. The Caddy local CA certificate is imported into Windows (Phase 8).
 3. `MEDIACAT_OLLAMA=1` is set in `.env`.

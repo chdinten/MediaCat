@@ -1,6 +1,6 @@
 # MediaCat — Technical Reference
 
-**Version 0.3 · April 2026**
+**Version 0.5 · November 2026**
 
 > Cataloguing platform for vinyl records and compact discs.
 > Python 3.12 · FastAPI · PostgreSQL 16 · MinIO · Redis · OPA · Ollama
@@ -236,7 +236,7 @@ The UI uses the **Late Night Hi-Fi — Espresso Lounge** dark-first CSS custom p
 
 - **`static/theme.js`** — Runs synchronously before first paint (no `defer`) to prevent flash of wrong theme. Reads `localStorage['mc-theme']` and applies the `data-theme` attribute immediately.
 - **`static/style.css`** — Single stylesheet; all colours are CSS custom properties. `[data-theme="light"]` block overrides the dark defaults.
-- **`static/hero-turntable1.jpg`** — Full-bleed dashboard hero photograph; composited with lamp-wash, fade, and vignette CSS layers.
+- **Page background** — the login page and dashboard show an admin-chosen looping video or still image (see [2.7](#27-login-and-dashboard-background-webbackgroundpy)); the dashboard hero composites lamp-wash, fade, vignette and grain CSS layers over it.
 - Theme persists across sessions via `localStorage`.
 
 ### 2.4 Template Context
@@ -261,6 +261,54 @@ HTMX is loaded from `/static/htmx.min.js`. The `<body>` tag includes `hx-headers
 ```
 All HTMX requests include the CSRF token automatically.
 
+
+### 2.6 Top-bar Search (`GET /search`)
+
+The 3panel layout has a global search box in the top bar (`templates/base_3panel.html`, handler `routes.global_search`). A **scope picker** at the left of the box selects what is searched:
+
+| Scope (`scope=`) | Matches | Left-panel result list |
+|---|---|---|
+| `all` (default, *Artists & albums*) | artist name; album title or catalogue number | **Artists** group, then **Albums** group |
+| `artists` | artist name | artists |
+| `albums` | album title or catalogue number | albums (pressings) |
+| `tracks` | song title in the pressing's tracklist | tracks, with position (e.g. `B1`), artist, album and year |
+
+- Track titles come from `Token.tracklist` (JSONB list of `{"position", "title"}`), unnested with a lateral `jsonb_array_elements` (guarded by `jsonb_typeof = 'array'`). There is no separate track table and no index is needed: about 10,500 tracks are searched in roughly 10 ms.
+- Matching is a case-insensitive substring match (`ILIKE`); `%` and `_` in the query match themselves (`routes._like_pattern`).
+- Albums and tracks are capped at 100 hits (with a "showing the first 100" note); artists at 50.
+- Picking an artist loads the artist page into the centre panel. Album and track hits are links to the album's full detail page (`/catalogue/{id}`). The centre panel opens with the first artist hit, or else the artist of the first album/track hit.
+- A search that finds exactly one album or track and no artist answers with `HX-Redirect` and opens that album page directly.
+- The chosen scope is remembered per browser (`localStorage['mc-search-scope']`); changing it re-runs the current search. Search history (last 10 terms) is kept the same way.
+- Outside the 3panel layout, or for a full-page request, `/search?q=&scope=` returns a flat list of pressings (track hits show the track title first).
+- The **Commands** button (Ctrl+K) next to the box opens the command palette (`static/command_palette.js`). Its slash commands include `/artist`, `/album` (`/al`) and `/track` (`/t`, `/song`), which open the search in that scope.
+
+### 2.7 Login and Dashboard Background (`web/background.py`)
+
+The login page and the dashboard share one fixed page background (`templates/partials/page_background.html`, `#dash-bg`, z-index 1 below the content): either a **looping video** or a **still image**, chosen by an admin in Admin → Layout → Background. Other pages have no background picture.
+
+- **Markup:** `<video autoplay muted loop playsinline preload="auto" poster="…">` with a WebM source first, then MP4. Under the video lies an `<img>` of the still, which is also the poster, so the still shows while the video loads or if the browser refuses to autoplay.
+- **`static/background.js`:** pauses the video while the tab is hidden and keeps it paused under `prefers-reduced-motion: reduce` (CSS hides the video there, so the still shows).
+- **Display (`fit`):**
+  - `width` (default) shows the whole picture across the window below the top bar. Its lower edge fades into the page colour (`mask-image`). On the login page the sign-in card starts in that faded edge (`.auth-wrap--below-bg`, `padding-top = --bg-ratio × 100vw × 0.85`), so the turntable stays visible. `--bg-ratio` is height ÷ width of the file shown.
+  - `cover` fills the window and crops the sides (`object-fit: cover`).
+- **Setting:** one `SiteSetting` row, `background`, holds JSON: `mode` (`video` | `image`), `fit` (`width` | `cover`), and per slot (`image`, `mp4`, `webm`) the stored file's name, size, format, codec, dimensions and duration, or `null`. It is cached in the process for 60 s and reset on every save. Without a row, the built-in files are used: `static/media-cat-hero-poster.webp`, `media-cat-hero.webm` and `media-cat-hero.mp4` (1668 × 470, 5.4 s seamless loop).
+- **Uploads:** checked by content, never by name or browser MIME type (`check_media`):
+
+| Kind | Accepted | Limits |
+|---|---|---|
+| Still image | JPEG, PNG, WebP (Pillow verify; animated images rejected) | ≥ 1200 × 300 px, ≤ 8192 px a side, ≤ 15 MB |
+| MP4 | H.264 (`avc1`/`avc3`) or AV1 (`av01`); HEVC is rejected because not every browser plays it. The box structure is parsed (`ftyp`, `moov`, `mvhd`, `tkhd`, `stsd`) | 640–3840 px wide, ≤ 60 s, ≤ 50 MB |
+| WebM | VP8, VP9 or AV1 (EBML: DocType `webm`, `CodecID`, `PixelWidth`/`PixelHeight`, `Duration`) | same as MP4 |
+
+  - Up to three files are uploaded at once, one per slot.
+  - A video switches to the animation mode; an image alone switches to the still.
+  - A new MP4 without a WebM clears the stored WebM, and the reverse, so every browser shows the same clip.
+  - An MP4 whose `moov` box follows `mdat` is accepted with a note: it only starts playing once it has fully loaded (`-movflags +faststart` fixes it).
+- **Storage and delivery:** files are stored in MinIO (`media-originals`) under `site/background/<sha256>.<ext>` and served by `GET /site-media/background/{name}`.
+  - This route is public (in `_PUBLIC_PATHS`) because the login page needs it before anyone signs in.
+  - It only serves names matching `<64 hex>.(jpg|png|webp|mp4|webm)` from that prefix, so no catalogue images are exposed.
+  - It answers single `Range` requests (206), as browsers fetch video with `Range: bytes=0-`.
+  - It sends `Cache-Control: immutable` (the name is the content hash) and keeps up to 150 MB of files in memory.
 
 ## 3 · Catalogue Feature
 
@@ -325,6 +373,8 @@ Artist and title values in URLs are `urllib.parse.quote()`-encoded and decoded a
 `GET /catalogue/search?q=...&source=discogs|musicbrainz` queries the external APIs and returns `partials/search_results.html`. No API key is required for basic Discogs searches (limited rate); a personal access token in `connectors.yaml` raises the rate limit to 3600/hr.
 
 MusicBrainz requires a `User-Agent` header identifying the application.
+
+**Add pressing: cards view.** On `/catalogue/new`, Discogs search results can be switched from **Table** to **Cards with images** (choice remembered per browser). Each card loads `GET /catalogue/new/discogs-preview/{release_id}` when it scrolls into view (`hx-trigger="intersect once"`; nothing loads in table view): up to 8 release images (primary first, click opens the lightbox), free-text format details (e.g. *'Sold In U.K.' Text*, *180 Gram*), release date, track count, barcode, and the **first** matrix / runout variant with the number of variants. Previews are cached in memory for an hour (max 500) and fetched with the Admin → API Tokens token, retrying HTTP 429 like the pressing refresh; a rate-limit message offers **Try again**. Helper: `discogs_extras.release_preview`.
 
 ### 3.5 Create / Edit — Revision Lifecycle
 
@@ -395,6 +445,48 @@ The display text in the section header (`10AA6305231 1Y 320`) is reconstructed a
 
 See [Section 5.5](#55-field-correction-audit-trail) for the full correction workflow.
 
+
+### 3.9 Discogs Pressing Details (`web/discogs_details.py`)
+
+The pressing page shows two kinds of Discogs data, both stored in `Token.extra` (JSONB, no migration; helpers in `ingestion/discogs_extras.py`):
+
+- **Release identifiers** (`extra["discogs"]`): Discogs' "Barcode and Other Identifiers". Matrix/runout entries are grouped by **variant**, then by LP (sides A/B → LP 1, C/D → LP 2, …). The runout text is shown verbatim, never interpreted. Identifiers are public and need no token.
+- **Collection custom fields** (`extra["discogs_collection"]`): the user's own per-copy fields from Discogs → Settings → Collection, e.g. *Runout / Matrix LP1 - A*, *Autographed*, *Signed by*. Field names are free text and are matched by pattern (`classify_field`). Reading and writing them uses the collection instance API and needs the personal access token from Admin → API Tokens.
+
+**Pressing variants pick-and-copy.** Under *Pressing variants* (and in the variant chooser of *Manufacturing & stamping*) the user selects a variant, then ticks individual matrix codes or all of them with one click (**All**), and copies them into the matching *My copy* fields (LP 1 A, LP 1 B, LP 2 A, …). This also corrects a copy that was stored with the wrong variant. Box sets (a variant with more than two LPs, e.g. 13 LPs) use the full card width with one block per LP side by side (`dc-variant--wide`), and the variant header with **All** and **Copy to My copy** stays pinned at the top while scrolling. *My copy* has runout fields for LP 1 and LP 2 only (recognised Discogs collection fields `runout_lp{1,2}_{a,b}`), so codes of LP 3 and later can be copied to the clipboard but not ticked; all variants' codes are still stored with the pressing as release data. A **Load variants** button fetches identifiers for pressings imported before this feature; the bulk collection import back-fills them too.
+
+**Write-back.** *My copy* values are saved locally first. A field whose local value differs from the last value known on Discogs is marked as not yet written back; **Save & write back to Discogs** pushes it through the collection instance API. Release identifiers themselves cannot be edited through the Discogs API.
+
+**Rate limits.** Discogs allows about 60 requests per minute per token, shared by a running collection import and manual refreshes. On HTTP 429 a refresh waits and retries (`RATE_LIMIT_WAITS` 2 s, 4 s, 6 s), then reports that the rate limit was reached.
+
+**Import banner.** While a Discogs collection import runs, the pressing page shows a banner warning that Discogs refresh, download and write-back functions may fail or be slow until the import finishes (`running_discogs_import`).
+
+### 3.10 Album Sheet PDF (`GET /catalogue/{token_id}/print.pdf`)
+
+`web/print_sheet.py` renders an A4 portrait sheet with ReportLab: cover image, artist, title, year and country (title shrinks to the cover height), the tracklist per LP on the left and the runout / matrix codes per side on the right, the number of LPs in the set and *Signed by* when present. Track titles are truncated at the middle of the page; runout codes are wrapped, never truncated. A Unicode font (DejaVu) is used when available so dead-wax symbols such as ∇ render.
+
+### 3.11 Image Lightbox
+
+Clicking an image on the pressing page opens it in a pop-up (`dialog.mc-lightbox`, `static/pressing.js`) above the page instead of a new browser tab. It has a close button, closes with Esc or a click outside, and steps through the images of the same group with the arrow buttons or the ← → keys.
+
+### 3.12 Artist Biographies (`ingestion/artist_bio.py`)
+
+The artist page (`/artists/detail?artist=`) loads its biography from `GET /artists/info?artist=` (`&refresh=1` for **Refresh bio**). Results, including "not found", are cached in the `artist_bios` table.
+
+**Resolution order**
+
+1. **Wikipedia via MusicBrainz**: the artist's MusicBrainz relations give the Wikipedia (or Wikidata) article, the official homepage and the Discogs artist link. Trusted without further checks.
+2. **Wikipedia search**: otherwise a search whose candidates must match the name, must not be list/discography/album/song pages, must read like a music artist, and are confirmed by the text LLM (`llm_confirms_artist`: same artist, and a music artist).
+3. A Wikipedia text of **800+ characters** is used as is; Discogs is not asked.
+4. Otherwise the **Discogs artist profile** is compared (`choose_bio`). Discogs wins only with a real biography (at least 150 characters and 2 sentences) that is at least **twice** as long as the Wikipedia text; the Wikipedia image is kept if Discogs has none. A Discogs-only artist uses Discogs. Discogs markup (`[a=Name]`, `[url=…]`) is cleaned.
+5. **Official homepage, AI summary**: the homepage (plus up to 2 about/bio links) is summarised by the text LLM from facts on the page only; the model answers NONE when the page holds no biography. Private, loopback and link-local addresses are refused (SSRF guard). Shown with an "AI summary" warning.
+6. **Not found**: a statement naming what was checked (e.g. "the Discogs profile holds no real biography") is saved and shown.
+
+Bios are sized to roughly a quarter to half a page (1,200–2,500 characters, whole paragraphs) with pronunciation guides removed. A Discogs disambiguation suffix such as `Adele (3)` is dropped for MusicBrainz/Wikipedia and kept for the exact Discogs search.
+
+**Background lookups.** A lookup runs as a server-side task (`web/artists.py`, `_bio_jobs`, awaited through `asyncio.shield`). It finishes and saves even when the user leaves the page or picks another artist; a later or concurrent request for the same artist joins the running task instead of starting a second one. Only an app restart interrupts it. While a request runs longer than about a second, `static/bio_research.js` shows a **Research in progress** banner with a running timer.
+
+The text LLM is `app.state.llm` (HybridLlm: Ollama `OLLAMA_TEXT_MODEL` / `llm.text_model`, defaulting to the vision model; Anthropic API fallback). Untrusted page text passes through `llm.safety.build_prompt`.
 
 ## 4 · Database Schema
 
@@ -687,9 +779,16 @@ The `REVOKE UPDATE, DELETE ON audit_log FROM mediacat_app` restriction is enforc
 |---|---|
 | `static/theme.js` | Theme toggle; runs synchronously before first paint |
 | `static/pressing.js` | Pressing detail and edit: upload zone, image actions, correction modal; loaded on both `pressing_detail.html` and `token_edit.html` |
-| `static/forms.js` | Shared form utilities: confirmation dialogs, inline validation |
+| `static/forms.js` | Shared form utilities: CSRF header on native POSTs, confirmation dialogs, discography loading state, list-row highlighting (`data-mc-active`) |
+| `static/search_history.js` | Top-bar search: scope picker and search history |
+| `static/command_palette.js` | Ctrl+K command palette and slash commands |
+| `static/bio_research.js` | "Research in progress" banner with timer during artist-bio lookups |
+| `static/panel_resize.js` | 3panel layout switching and drag-resizable panels |
+| `static/background.js` | Login/dashboard background video: pauses in hidden tabs and under reduced motion |
 
 This means CSP can block all inline script execution without breaking any UI functionality.
+
+HTMX `hx-on` attributes are inline script too and are blocked by the same policy. List-row highlighting therefore uses `data-mc-active="row-class"` on the requesting element (the closest `.row-class` gets `row-class--active`; optional `data-mc-clear="#panel"` empties a dependent panel), handled in `forms.js`. The CSP itself is set in `SecurityHeadersMiddleware`; its `img-src` must list every external image host (Wikipedia uses `upload.` and `thumb.wikimedia.org`).
 
 ### 9.5 Network Security
 
@@ -712,9 +811,9 @@ This means CSP can block all inline script execution without breaking any UI fun
 
 | Bucket | Contents | Key pattern |
 |---|---|---|
-| `media-originals` | Raw images from Discogs, CoverArtArchive, upload | `<sha256>.<ext>` |
+| `media-originals` | Raw images from Discogs, CoverArtArchive, upload; login/dashboard background uploads | `<sha256>.<ext>`; backgrounds `site/background/<sha256>.<ext>` |
 | `ocr-artifacts` | OCR extraction results | `<sha256>.json` |
-| `backups` | Daily pg_dump snapshots | `YYYY-MM-DD/<dump>.sql.gz` |
+| `backups` | Reserved; not written yet. Database dumps go to the host instead (see [18.6](#186-backup-and-restore)) | — |
 
 ### 10.2 Image Validation
 
@@ -804,7 +903,7 @@ Open WebUI (`ghcr.io/open-webui/open-webui`) provides a browser-based chat inter
 | `PUBLIC_HOSTNAME` | `mediacat.localhost` | Browser-visible hostname |
 | `PUBLIC_SCHEME` | `https` | `https` for Caddy TLS; `http` for plain |
 | `HTTP_BIND` | `127.0.0.1:8080` | Caddy HTTP listener |
-| `HTTPS_BIND` | `127.0.0.1:8443` | Caddy HTTPS listener |
+| `HTTPS_BIND` | `127.0.0.1:8443` | Caddy HTTPS listener; its port is part of every browser address (`https://mediacat.localhost:8443/`) |
 | `MEDIACAT_DEV_ADMIN_PASSWORD` | *(blank)* | Seeds dev admin user at startup (MEDIACAT_ENV=dev only) |
 | `TZ` | `Europe/London` | Container timezone |
 | `MEDIACAT_OLLAMA` | `0` | `1` to enable the Ollama Compose profile |
@@ -860,6 +959,18 @@ The `Caddyfile` uses environment variable substitution for all site addresses:
 
 This pattern allows switching between HTTP (dev, no cert) and HTTPS (local CA or Let's Encrypt) without editing the file.
 
+**Browser addresses include the port.** The site address above carries no port, so Caddy serves it on its container port 443, which Compose publishes on the host as `HTTPS_BIND` (default `127.0.0.1:8443`). Browsers must therefore use:
+
+| What | Address |
+|---|---|
+| **MediaCat app** | `https://mediacat.localhost:8443/` |
+| Documentation (when the docs server runs) | `https://docs.mediacat.localhost:8443/` |
+| MinIO console | `https://minio.mediacat.localhost:8443/` |
+| Open WebUI (Ollama profile) | `https://ollama.mediacat.localhost:8443/` |
+| Stack control panel (`make ctl-web`) | `http://127.0.0.1:8810/` |
+
+> **Why `:8443`?** Caddy publishes HTTPS on `HTTPS_BIND` (default `127.0.0.1:8443`), not on the standard port 443. An address without the port goes to whatever else listens on 443. On this machine that is **Kasm Workspaces**, which shows its own login page. The port is set in `.env`; if 443 is free and you prefer short addresses, set `HTTPS_BIND=127.0.0.1:443` and restart Caddy.
+
 **Local development HTTPS:** Caddy generates its own local CA for `.localhost` domains. The root certificate must be imported into the Windows certificate store once:
 
 ```powershell
@@ -867,6 +978,8 @@ This pattern allows switching between HTTP (dev, no cert) and HTTPS (local CA or
 Import-Certificate -FilePath "$env:USERPROFILE\caddy-root.crt" `
     -CertStoreLocation Cert:\LocalMachine\Root
 ```
+
+**Certificate lifetimes.** Every `.localhost` site imports the `(local_tls)` snippet, which issues **30-day** certificates from Caddy's internal CA; a global `pki` block gives the local CA a **90-day** intermediate. Caddy renews at about two-thirds of the lifetime. Caddy's default for internal certificates is 12 hours, which expired while the PC slept: after wake-up the browser warned "not secure" until Caddy's next maintenance run (up to about 10 minutes) renewed it. The root certificate (10 years) is the only one imported into Windows, so renewals never need a new import. For a public domain, remove the `import local_tls` lines and Caddy obtains Let's Encrypt certificates instead (this needs a real domain and, because MediaCat is not reachable from the internet, a DNS-01 challenge with a Caddy build that includes the DNS provider plugin).
 
 ### 13.3 WSL2 Networking
 
@@ -905,6 +1018,7 @@ All mutating endpoints require a valid session cookie and an `X-CSRF-Token` head
 | `GET` | `/login` | Login form |
 | `POST` | `/login` | Authenticate — creates session cookie |
 | `GET` | `/logout` | Clear session cookie |
+| `GET` | `/site-media/background/{name}` | Uploaded login/dashboard background file (Range-aware, immutable cache) |
 
 ### 14.2 Dashboard (Auth Required)
 
@@ -925,6 +1039,16 @@ Template context returned by `GET /`:
 | `recent` | `list[Token]` | 8 most recently created tokens (label + media_objects eager-loaded) |
 | `top_rated` | `list[Token]` | 8 highest personal-rating tokens |
 | `genre_carousels` | `list[dict]` | Up to 12 genre rows: `[{"genre": str, "tokens": list[Token]}]` |
+
+### 14.2a Search and Artists (Auth Required)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/search?q=&scope=` | Top-bar search; `scope` = `all` \| `artists` \| `albums` \| `tracks` (see [2.6](#26-top-bar-search-get-search)) |
+| `GET` | `/artists` | Artist grid / list |
+| `GET` | `/artists/detail?artist=` | Artist page: biography, albums in the collection, discography |
+| `GET` | `/artists/info?artist=[&refresh=1]` | Biography partial; runs or joins a background lookup (see [3.12](#312-artist-biographies-ingestionartist_biopy)) |
+| `GET` | `/artists/discography?artist=` | Discography partial (MusicBrainz → Wikipedia, Spotify links) |
 
 ### 14.3 Catalogue (Auth Required)
 
@@ -958,6 +1082,11 @@ Template context returned by `GET /`:
 | `POST` | `/catalogue/{token_id}/images/{image_id}/delete` | Hard-delete image |
 | `POST` | `/catalogue/{token_id}/images/{image_id}/set-cover` | Set as primary cover |
 | `POST` | `/catalogue/{token_id}/correct-matrix-field` | Correct a single parsed matrix field |
+| `GET` | `/catalogue/{token_id}/brief` | Compact pressing overview for the 3panel right panel |
+| `POST` | `/catalogue/{token_id}/discogs-details/refresh` | Re-fetch release identifiers and collection custom fields from Discogs |
+| `POST` | `/catalogue/{token_id}/discogs-collection` | Save *My copy* collection fields; `op=writeback` also writes them to Discogs |
+| `GET` | `/catalogue/{token_id}/print.pdf` | A4 album sheet PDF |
+| `GET` | `/catalogue/new/discogs-preview/{release_id}` | Add pressing cards view: images, format details and first runout variant of a Discogs release (HTMX) |
 
 ### 14.4 Review Queue (Reviewer+ Role)
 
@@ -984,6 +1113,17 @@ Template context returned by `GET /`:
 | `POST` | `/users/new` | Create user |
 | `POST` | `/users/{user_id}/activate` | Activate user |
 | `POST` | `/users/{user_id}/deactivate` | Deactivate user |
+
+### 14.7 Background (Admin Role)
+
+Each answers with a redirect to `/admin?tab=layout` carrying `bg_msg=` or `bg_error=` (see [2.7](#27-login-and-dashboard-background-webbackgroundpy)).
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/admin/background/upload` | Multipart field `files` (1–3 files): check, store and activate |
+| `POST` | `/admin/background/mode` | `mode=video` (animation) or `mode=image` (still) |
+| `POST` | `/admin/background/fit` | `fit=width` (whole picture, page colour below) or `fit=cover` (fill the window, cropped) |
+| `POST` | `/admin/background/reset` | Back to the built-in files, animation, fit to width |
 
 
 ## 15 · Alembic Migrations
@@ -1061,6 +1201,8 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 | `clean` | Cleanup | Remove build artefacts and caches |
 | `distclean` | Cleanup | clean + remove `.venv/` |
 
+**Quality gate status.** `make lint`, `ruff format --check`, `make typecheck` (mypy on `src`, 0 errors) and Bandit (0 findings) are clean. The pre-commit hooks (`mediacat/.pre-commit-config.yaml`) run Ruff, formatting, mypy and Bandit from the venv, plus YAML, whitespace and line-ending checks. A Bandit exception carries its reason **before** the marker: `# reason  # nosec B105`. `.bat` files keep CRLF line endings (`/.gitattributes`); everything else is LF. All tests pass, but total coverage (about 39%) is below the `--cov-fail-under=55` threshold, so `make test` reports a coverage failure.
+
 
 ## 17 · Open Items & Roadmap
 
@@ -1092,6 +1234,10 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 | P1 | Full image management (upload, delete, primary cover) | **Done (v0.3)** |
 | P1 | Structured matrix breakdown with AI analysis and field correction | **Done (v0.3)** |
 | P1 | CSP compliance: remove all inline event handlers | **Done (v0.3)** |
+| P1 | Discogs collection fields, pressing variants pick-and-copy, write-back, A4 album sheet | **Done (v0.4)** |
+| P1 | Validated artist biographies (Wikipedia, Discogs, homepage AI summary) as background tasks | **Done (v0.4)** |
+| P1 | Top-bar search for album titles and song titles | **Done (v0.4)** |
+| P1 | Raise test coverage to the 55% threshold (currently about 39%) | Open |
 | P2 | DEF-002 Redis-backed login rate limiter | Open |
 | P2 | Phase 2 symbol pipeline: focused re-run with slug hints from review | Open |
 | P2 | LLM comparison / anomaly detection module (`llm/tasks.py`) | Open |
@@ -1107,7 +1253,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 
 1. **Navigate to Catalogue** → **Add pressing** (`/catalogue/new`).
 2. Fill in artist, title, year, format, catalogue number, label, matrix runout.
-3. Optionally search Discogs or MusicBrainz to pre-fill fields — or click a search result's **Import** button to go straight to `GET /catalogue/import/discogs/{id}` for a preview before creating.
+3. Optionally search Discogs or MusicBrainz to pre-fill fields — or click a search result's **Import** button to go straight to `GET /catalogue/import/discogs/{id}` for a preview before creating. For Discogs results, **Cards with images** shows each release's photos, label details, barcode and first matrix variant, which helps pick the right pressing.
 4. Alternatively, **scan a cover barcode** (`POST /catalogue/scan-cover`) to auto-fill the form from a photo of the barcode.
 5. Submit — the pressing appears in the catalogue immediately.
 6. Upload scans on the pressing detail page or directly on the edit form (drag-and-drop or file picker).
@@ -1123,6 +1269,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 - Click an artist to expand its albums; click an album to expand its pressings.
 - Click any pressing to see the full detail page with revision history.
 - Use the search bar to filter by artist/title; use the format dropdown for vinyl or CD.
+- In the 3panel layout, use the top-bar search to find artists, album titles or song titles (see [18.9](#189-searching-artists-albums-and-songs)).
 - Use the Discogs/MusicBrainz search panel to look up releases externally.
 
 ### 18.3 Editing and Archiving
@@ -1154,16 +1301,26 @@ The loser is never hard-deleted; it remains in the database and can be recovered
 
 ### 18.6 Backup and Restore
 
-```bash
-# Manual backup (pg_dump to MinIO backups bucket)
-deploy/scripts/backup.sh
+The `backup` sidecar runs `deploy/scripts/backup.sh` every day at **02:00 UTC** using the image's BusyBox `crond`. It installs nothing at start-up, because the `backend` network is `internal: true` and has no internet. Each run writes a compressed `pg_dump` (custom format) to `${MEDIACAT_DATA_ROOT}/backups/postgres/mediacat_<UTC timestamp>.dump` and deletes dumps older than 30 days. Output appears in `docker compose logs backup`.
 
-# Restore from backup
-docker compose ... stop app worker
-# restore PostgreSQL dump into the postgres container
-docker compose ... start app worker
-docker compose ... exec app python -m alembic -c alembic/alembic.ini upgrade head
+**Not included:** MinIO objects (cover and runout images). Dumps also sit on the same disk as the database; copy `backups/` elsewhere for off-host safety.
+
+```bash
+C="docker compose --env-file .env -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml"
+
+# Manual backup
+$C exec backup /scripts/backup.sh
+
+# Restore one dump into the live database (replaces its contents)
+$C stop app worker
+$C exec backup sh -c 'PGPASSWORD="$(cat "$PGPASSWORD_FILE")" pg_restore --clean --if-exists \
+    --no-owner --role=mediacat_migrator -d mediacat /backups/postgres/mediacat_YYYYMMDDTHHMMSSZ.dump'
+$C exec backup sh -c 'PGPASSWORD="$(cat "$PGPASSWORD_FILE")" psql -d mediacat \
+    -c "REVOKE UPDATE, DELETE ON TABLE audit_log FROM mediacat_app"'
+$C start app worker
 ```
+
+`--role=mediacat_migrator` makes the restored tables belong to the migrator role, so the database's default privileges grant `mediacat_app` its access again (the dump is taken with `--no-owner --no-acl`). The `REVOKE` re-applies the append-only rule on `audit_log`; the app checks it at start-up (`DEF-003`). This procedure was tested against a scratch database: two consecutive restores, no errors, permissions correct.
 
 ### 18.7 Managing Images
 
@@ -1207,4 +1364,39 @@ Use this to designate a specific image as the catalogue thumbnail — for exampl
 The `_build_full_runout_text()` helper reconstructs the display string from all parsed fields at render time, so the header line always shows the complete runout text regardless of which fields have been manually corrected or which were set by an older narrower analysis.
 
 
-*MediaCat · Technical Reference · v0.3 · April 2026*
+### 18.9 Searching Artists, Albums and Songs
+
+1. Click the scope picker at the left of the top-bar search box and choose **Artists & albums**, **Artists**, **Albums** or **Tracks**.
+2. Type a term and press Enter. Changing the scope later re-runs the search.
+3. The left panel lists the hits. Click an artist to open the artist page; click an album or a track to open the album's detail page. When the search finds a single album or song, its album page opens straight away.
+4. Shortcut: press **Ctrl+K** (or click **Commands**) and type `/track money`, `/album wish you` or `/artist abba`.
+
+### 18.10 Artist Biographies
+
+- Open an artist; the biography loads automatically from the cache or is looked up.
+- **Refresh bio** (or **Try again** after "not found") repeats the lookup. When it needs web pages or the AI, a **Research in progress** banner with a timer appears. You can leave the page: the lookup finishes on the server and the result is shown next time.
+- The link under the bio shows the source (Wikipedia, Discogs or the official website). An "AI summary" note marks a bio summarised from the artist's homepage.
+
+### 18.11 Discogs Details, Variants and the Album Sheet
+
+1. On a pressing imported from Discogs, open **Pressing variants**. If it is empty, click **Load variants** (or **Refresh from Discogs**).
+2. Select the variant that matches your copy, tick the matrix codes you want (or **All**) and click **Copy to My copy**. In box sets the LPs are shown as blocks side by side and the button row stays visible while you scroll.
+3. Check the *My copy* fields and click **Save in MediaCat**, or **Save & write back to Discogs** (needs the token in Admin → API Tokens).
+4. If a banner says a Discogs import is running, Discogs functions may fail or wait until it finishes.
+5. **Print sheet (PDF)** downloads the A4 album sheet.
+
+### 18.12 Changing the Login and Dashboard Background
+
+1. Open **Admin → Layout** and scroll to **Background**.
+2. **Animation** and **Still image** show the current files with a live preview. Click **Activate** on the one you want.
+3. **Display**: **Fit to width** shows the whole picture with the page colour below it; **Fill screen** fills the window but crops the sides.
+4. To replace the files, choose up to three at once (a still image, an MP4 and/or a WebM of the same clip) and click **Upload**.
+   - A video activates the animation; an image alone activates the still.
+   - Upload the matching still with a new animation, so the first frame does not jump.
+   - Rejected files show the reason, e.g. an HEVC video, an image under 1200 px wide or a file over the size limit.
+5. **Restore the built-in background** brings back the original turntable animation.
+
+Good animations are short, silent, seamless loops with little motion, e.g. steam, a turning record, a flickering lamp. Users whose system asks for reduced motion always see the still.
+
+
+*MediaCat · Technical Reference · v0.5 · November 2026*

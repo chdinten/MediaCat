@@ -12,9 +12,32 @@
 		output stdout
 		format json
 	}
+
+	# Local CA (used for *.localhost): long-lived intermediate so the leaf
+	# certificates below can outlast a sleeping PC / stopped WSL.
+	pki {
+		ca local {
+			intermediate_lifetime 90d
+		}
+	}
+}
+
+# Locally-trusted certificates for the .localhost sites.  Caddy's default
+# 12-hour certificates expire while the PC sleeps, and on wake-up the browser
+# sees an expired one ("not secure") until Caddy's next check renews it.
+# 30 days, renewed after ~20.  Remove the imports for a public domain, where
+# Caddy obtains certificates from Let's Encrypt instead.
+(local_tls) {
+	tls {
+		issuer internal {
+			lifetime 30d
+		}
+	}
 }
 
 {$PUBLIC_SCHEME:-https}://{$PUBLIC_HOSTNAME:-mediacat.localhost} {
+	import local_tls
+
 	# ----- Security headers -----
 	header {
 		Strict-Transport-Security  "max-age=63072000; includeSubDomains; preload"
@@ -58,11 +81,26 @@
 
 # MinIO console — separate subdomain, optional.
 {$PUBLIC_SCHEME:-https}://minio.{$PUBLIC_HOSTNAME:-mediacat.localhost} {
+	import local_tls
+
 	reverse_proxy minio:9001
+}
+
+# Docs server — MkDocs live preview (active when docs server is running via mediacat-ctl.sh).
+{$PUBLIC_SCHEME:-https}://docs.{$PUBLIC_HOSTNAME:-mediacat.localhost} {
+	import local_tls
+
+	reverse_proxy http://host.docker.internal:8800
+	log {
+		output stdout
+		format json
+	}
 }
 
 # Open WebUI — browser chat UI for Ollama (only active when ollama profile is up).
 {$PUBLIC_SCHEME:-https}://ollama.{$PUBLIC_HOSTNAME:-mediacat.localhost} {
+	import local_tls
+
 	reverse_proxy open-webui:8080 {
 		health_uri  /health
 		health_interval 30s

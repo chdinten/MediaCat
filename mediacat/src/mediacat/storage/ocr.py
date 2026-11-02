@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
-import subprocess  # nosec B404 — Tesseract invocation with fixed args, no shell
+import subprocess  # Tesseract invocation with fixed args, no shell  # nosec B404
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path

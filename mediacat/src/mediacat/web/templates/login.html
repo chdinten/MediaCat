@@ -1,24 +1,32 @@
-{% extends "base.html" %}
+{% extends layout_base %}
 {% block title %}Login — MediaCat{% endblock %}
 
+{% block head %}
+<script src="/static/background.js" defer></script>
+{% endblock %}
+
 {% block content %}
-<div class="auth-card">
-    <h1>Sign in</h1>
-    {% if error %}
-    <div class="alert alert-danger">{{ error }}</div>
-    {% endif %}
-    <form method="post" action="/login">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+{% include "partials/page_background.html" %}
+<div class="auth-wrap{% if background.fit == 'width' %} auth-wrap--below-bg{% endif %}"
+     style="--bg-ratio: {{ background.ratio }}">
+    <div class="auth-card">
+        <h1>Sign in</h1>
+        {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        <form method="post" action="/login">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" required
-               autocomplete="username" autofocus maxlength="150">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" required
+                   autocomplete="username" autofocus maxlength="150">
 
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required
-               autocomplete="current-password" maxlength="128">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required
+                   autocomplete="current-password" maxlength="128">
 
-        <button type="submit">Sign in</button>
-    </form>
+            <button type="submit">Sign in</button>
+        </form>
+    </div>
 </div>
 {% endblock %}

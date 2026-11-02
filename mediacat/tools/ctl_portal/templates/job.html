@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}[{{ job.num }}] {{ job.title }} · MediaCat Control{% endblock %}
+{% block main %}
+<section class="card job" id="job" data-id="{{ job.id }}">
+  <div class="row"><h2><span class="num">[{{ job.num }}]</span> {{ job.title }}</h2><span class="spacer"></span>
+    <span id="status" class="badge warn">{{ job.status }}</span></div>
+  <p id="stage" class="stage"><span class="spinner" aria-hidden="true"></span>
+    <span id="stage-text">Running <code>mediacat-ctl.sh --run {{ job.num }}</code>…</span></p>
+  <pre id="log" class="log">{{ job.log | join('\n') }}</pre>
+  <div class="row">
+    <a class="btn" href="/">← Control panel</a>
+    <span class="spacer"></span><span class="small dim" id="elapsed"></span>
+    <form method="post" action="/job/{{ job.id }}/cancel" id="cancel"><input type="hidden" name="token" value="{{ csrf }}">
+      <button class="btn">Cancel</button></form>
+  </div>
+</section>
+<script src="/static/job.js"></script>
+{% endblock %}

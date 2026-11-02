@@ -81,6 +81,12 @@ class ImageRegion(enum.StrEnum):
 
     LABEL_A = "label_a"
     LABEL_B = "label_b"
+    LABEL_C = "label_c"
+    LABEL_D = "label_d"
+    LABEL_E = "label_e"
+    LABEL_F = "label_f"
+    LABEL_G = "label_g"
+    LABEL_H = "label_h"
     OBI_FRONT = "obi_front"
     OBI_BACK = "obi_back"
     OBI_SPINE = "obi_spine"
@@ -98,9 +104,20 @@ class UserRole(enum.StrEnum):
     """Application-level roles (not DB roles)."""
 
     ADMIN = "admin"
+    CONTRIBUTOR = "contributor"
     REVIEWER = "reviewer"
     VIEWER = "viewer"
     SERVICE = "service"  # machine-to-machine
+
+
+class ImportJobStatus(enum.StrEnum):
+    """Lifecycle state of a collection import job."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PAUSED = "paused"
 
 
 class SymbolCategory(enum.StrEnum):
@@ -138,8 +155,8 @@ class SymbolCategory(enum.StrEnum):
     """
 
     PRESSING_PLANT_MARK = "pressing_plant_mark"  # EMI △, Capitol ☆, Decca ◆ …
-    ENGINEER_MARK = "engineer_mark"              # PORKY, △M (Malcolm Davies) …
-    LABEL_LOGO = "label_logo"                    # small trademark stamped in wax
-    CUT_TYPE = "cut_type"                        # lacquer-cut system (WE, Lindström)
-    CERTIFICATION = "certification"              # PRS ▽, copyright marks
+    ENGINEER_MARK = "engineer_mark"  # PORKY, △M (Malcolm Davies) …
+    LABEL_LOGO = "label_logo"  # small trademark stamped in wax
+    CUT_TYPE = "cut_type"  # lacquer-cut system (WE, Lindström)
+    CERTIFICATION = "certification"  # PRS ▽, copyright marks
     OTHER = "other"

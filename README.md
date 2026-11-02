@@ -10,17 +10,26 @@ comparison, anomaly detection, translation (British English), and text generatio
 ## Key capabilities
 
 - **Catalogue browser** — Artist → Album → Pressing hierarchy with HTMX drill-down; create, edit, archive, merge, soft-delete, and flag pressings for review
+- **Artists tab** — Grid of all artists with portrait images (Wikipedia), pressing counts, and year ranges; click-through to album list, biography (Wikipedia via MusicBrainz or LLM-verified search → Discogs profile if clearly fuller → official homepage AI summary → "not found" statement; looked up in the background with a progress timer), and discography (MusicBrainz primary → Wikipedia fallback, enriched with Spotify album URLs, cached daily); Spotify links appear in the discography list and on the pressing detail page
 - **Direct import** — Create a Token directly from a Discogs or MusicBrainz release ID with a one-click preview-and-import flow; scan a barcode from a cover photo to pre-fill the form
+- **Bulk collection import** — Import an entire Discogs user collection via the Admin panel; paginated, resumable, skip-existing-by-default, with live progress tracking and per-release error recovery
 - **Image management** — Drag-and-drop upload on both the detail page and the edit form; assign region labels; delete images; primary cover selection (is_primary_cover flag) for Japanese OBI and similar multi-image cases
 - **Structured matrix breakdown** — Vision analysis decomposes runout etchings into 7 typed fields (matrix number, stamper code, SID mastering/mould codes, lacquer cutter, pressing plant, other etchings) with per-field confidence scores and source tracking
 - **Inline field correction** — Correct any individual parsed matrix field with a mandatory reason code (vision_misread, physical_inspection, cross_reference, authoritative_source, other) and optional notes; every correction is stored as a new TokenRevision for full audit trail
 - **External search** — Discogs and MusicBrainz lookup directly from the catalogue UI
+- **Global search** — Top-bar search with a scope picker: artists and album titles / catalogue numbers together, or artists, albums or song titles (tracks) on their own; album and track hits open the album page (a single hit opens it directly); Ctrl+K palette with `/album` and `/track`
+- **Discogs pressing details** — Release identifiers grouped by pressing variant and LP side; pick a variant, tick matrix codes and copy them into *My copy* (your Discogs collection fields: runout per LP side, autographed, signed by…), with write-back to Discogs; A4 album sheet PDF; image lightbox; banner while a Discogs import runs
 - **Revision history** — Every change is a new `TokenRevision`; nothing is overwritten
 - **Vision pipeline** — Ollama (local-first) or Anthropic API transcribes labels, OBI strips, runout etchings; can be triggered interactively per image or automatically on upload/region reassignment
 - **Symbol registry** — 26 seeded runout / dead-wax symbols (EMI △, PRS ▽, Porky, etc.) with slug-based indexing
 - **Review queue** — All AI proposals land here first; humans approve before any token is updated
-- **Dark / light UI** — Netflix-inspired dark theme (default) with persistent toggle
-- **Security hardened** — Argon2id passwords, CSRF protection, non-root containers, least-privilege DB roles, strict `script-src 'self'` CSP with no inline event handlers
+- **Ratings & genres** — Personal rating (0–10), Discogs community rating/votes, JSONB genre tags, full tracklist storage per token
+- **Price history** — Discogs market data snapshots per pressing (lowest price, median, num for sale)
+- **Admin panel** — Tabbed interface for user management (create/edit/role/timeout), bulk Discogs collection import, catalogue ZIP backup/restore, and debug info
+- **3panel-style layout** — Optional 3-column UI (selectable in Admin → Layout): persistent left panel (artist/search list), wide centre (detail), narrow right (pressing brief); panel widths drag-resizable and memorised per-page in localStorage; global top-bar search switches to artist-panel view; classic single-column layout retained as alternative
+- **Late Night Hi-Fi UI** — Dark-first theme with hero dashboard, stats overlay, genre counts, and oldest-year badge; `[data-theme="light"]` override available
+- **Animated background** — Login page and dashboard show a looping turntable video (still image under reduced motion); in Admin → Layout switch between animation and still, fit to width or fill the screen, and upload replacements (JPEG/PNG/WebP, MP4 H.264, WebM VP9) with a content-based format check
+- **Security hardened** — Argon2id passwords, Redis-backed login rate limiter, CSRF protection with dedicated secret, trusted-proxy IP validation, RBAC on all mutating routes, non-root containers, least-privilege DB roles, strict `script-src 'self'` CSP with no inline event handlers
 
 ## Technology stack
 
@@ -55,10 +64,11 @@ cp .env.example .env && nano .env
 cp config/app.example.yaml config/app.yaml
 make up                          # start all 8 Docker services
 docker compose --env-file .env -f deploy/docker-compose.yaml \
-    exec app python -m alembic -c alembic/alembic.ini upgrade head
+    exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat \
+    app alembic -c alembic.ini upgrade head
 ```
 
-Open `https://mediacat.localhost` in your browser.
+Open **`https://mediacat.localhost:8443/`** in your browser. Mind the port: Caddy publishes HTTPS on `HTTPS_BIND` (default `127.0.0.1:8443`), and on this machine port 443 belongs to Kasm Workspaces.
 Default admin credentials are set via `MEDIACAT_DEV_ADMIN_PASSWORD` in `.env`.
 
 ## Optional: Ollama / local AI (GPU recommended)
@@ -70,7 +80,7 @@ cp .env.example .env   # if not already done
 make ollama-gpu-up     # starts Ollama + Open WebUI, pulls qwen2.5vl:32b + glm-ocr
 ```
 
-Open WebUI is available at `https://ollama.mediacat.localhost`.
+Open WebUI is available at `https://ollama.mediacat.localhost:8443`.
 
 ## Design invariants
 
@@ -87,13 +97,13 @@ mediacat/
 ├── scripts/          Bootstrap & lifecycle scripts
 ├── config/           Non-secret YAML config (examples checked in; live files host-mounted)
 ├── deploy/           Dockerfiles, Docker Compose, Caddy, OPA bundles, backup scripts
-├── alembic/          Database migrations (0001 initial schema, 0002 symbol registry, 0003 matrix parsed, 0004 primary cover)
+├── alembic/          Database migrations (0001–0014: schema, symbols, matrix, covers, genres/ratings, contributors, price history, vinyl material, artist bios, countries, site settings, Spotify URL)
 ├── src/mediacat/     Python application package
 │   ├── db/           ORM models, enums, migrations engine
 │   ├── web/          FastAPI app, routes, auth, middleware, templates, static assets
 │   ├── vision/       VLM adapter, task prompts, candidate matcher
 │   ├── llm/          LLM adapter, tasks, safety, Ollama & Anthropic backends
-│   ├── ingestion/    Connector base, Discogs, MusicBrainz, Redis queue, drift detector
+│   ├── ingestion/    Connector base, Discogs, MusicBrainz, Spotify, Wikipedia, Redis queue, drift detector
 │   ├── rules/        OPA adapter, local Python fallback
 │   └── storage/      MinIO wrapper, image pipeline, OCR, translation
 ├── tests/            Pytest suite
@@ -108,7 +118,7 @@ ${MEDIACAT_DATA_ROOT}/
 ├── minio/            Object store data
 ├── redis/            AOF + RDB (uid 999)
 ├── secrets/          0700, root-owned — Docker reads secrets from here
-├── backups/          pg_dump + mc mirror output
+├── backups/          Daily pg_dump (02:00 UTC, 30-day retention)
 ├── logs/             Optional host-mounted logs
 └── open-webui/       Open WebUI data (if Ollama enabled)
 ```
@@ -129,10 +139,14 @@ chmod +x ~/mediacat-ctl.sh
 ~/mediacat-ctl.sh
 ```
 
-The menu covers 36 operations across five groups: start/stop/restart, image rebuilds,
-per-service restarts, database migrations, log tailing, and destructive cleanup.
-Dangerous options (volume removal, full system prune) require an explicit `y` confirmation.
+The menu covers 41 operations in seven groups: start/stop/restart, image rebuilds,
+per-service restarts, database migrations, logs, docs server, and cleanup.
+Dangerous options (catalogue wipe, volume removal, full system prune) require an explicit `y` confirmation.
 Full option reference: `mediacat/scripts/mediacat-ctl.md`.
+
+**Web control panel.** The same menu is also a web page: run `make ctl-web` in `mediacat/` and
+open `http://127.0.0.1:8810/`. It shows container status, has a prominent link to the app, and runs
+each action as `mediacat-ctl.sh --run N` with live output, so both always run the same commands.
 
 ## Common make targets
 
