@@ -1,30 +1,51 @@
 {# 3panel search response:
    - sentinel triggers layout switch to three-column
-   - OOB swap replaces left panel with artist list
-   - main content (into #sp-center) auto-loads first artist detail
+   - OOB swap replaces left panel with the hit list (artists / albums / tracks)
+   - main content (into #sp-center) auto-loads the first hit's artist; an album
+     or track hit also opens that pressing in the right panel
+   Album and track rows load the artist into #sp-center and, via data-mc-brief
+   (search_history.js), the pressing into #sp-right.
 #}
+{% set scope_labels = {'all': 'Artists & albums', 'artists': 'Artists', 'albums': 'Albums', 'tracks': 'Tracks'} %}
 
 {# sentinel — panel_resize.js switches layout to three #}
 <div data-sp-layout="three" style="display:none"></div>
 
-{# OOB: replace left panel with artist list #}
+{% macro hit_attrs(hit) -%}
+    {% if hit.artist %}hx-get="/artists/detail?artist={{ hit.enc_artist }}" hx-target="#sp-center"
+    data-mc-brief="/catalogue/{{ hit.id }}/brief"
+    {%- else %}hx-get="/catalogue/{{ hit.id }}/brief" hx-target="#sp-right"{% endif %}
+    hx-swap="innerHTML" data-mc-active="sp-artist-item"
+{%- endmacro %}
+
+{% macro hit_cover(hit, initial) -%}
+<div class="sp-artist-item-img sp-artist-item-img--square">
+    {% if hit.cover_url %}<img src="{{ hit.cover_url }}" alt="" loading="lazy">
+    {% else %}<span class="sp-artist-item-initial">{{ (initial or '?')[0] | upper }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{# OOB: replace left panel with the hit list #}
 <aside id="sp-left" hx-swap-oob="innerHTML">
 <div class="sp-artist-list-header">
     <div class="sp-artist-search-form" style="display:flex;align-items:center;gap:0.4rem">
         <span style="color:var(--text-dim);font-size:0.9rem">&#x1F50D;</span>
         <span style="font-size:0.8rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ q }}</span>
+        <span class="sp-search-scope-tag">{{ scope_labels[scope] }}</span>
     </div>
 </div>
 
-{% if artists %}
+{% if artists or albums or tracks %}
 <div class="sp-artist-list" id="sp-artist-list">
+
+    {% if artists %}
+    {% if scope == 'all' %}<div class="sp-hit-group">Artists <span>{{ artists | length }}</span></div>{% endif %}
     {% for a in artists %}
     <div class="sp-artist-item {% if loop.first %}sp-artist-item--active{% endif %}"
-         id="sp-saitem-{{ loop.index }}"
          hx-get="/artists/detail?artist={{ a.enc }}"
          hx-target="#sp-center"
          hx-swap="innerHTML"
-         hx-on::before-request="document.querySelectorAll('.sp-artist-item').forEach(function(c){c.classList.remove('sp-artist-item--active')});this.classList.add('sp-artist-item--active')">
+         data-mc-active="sp-artist-item">
         <div class="sp-artist-item-img">
             {% if a.portrait_url %}
             <img src="{{ a.portrait_url }}" alt="" loading="lazy">
@@ -43,29 +64,77 @@
         </div>
     </div>
     {% endfor %}
+    {% endif %}
+
+    {% if albums %}
+    {% if scope == 'all' %}<div class="sp-hit-group">Albums <span>{{ albums | length }}{% if albums_more %}+{% endif %}</span></div>{% endif %}
+    {% for h in albums %}
+    <div class="sp-artist-item {% if loop.first and not artists %}sp-artist-item--active{% endif %}"
+         {{ hit_attrs(h) }}>
+        {{ hit_cover(h, h.title) }}
+        <div class="sp-artist-item-body">
+            <div class="sp-artist-item-name">{{ h.title or 'Untitled' }}</div>
+            <div class="sp-artist-item-meta">
+                {{ h.artist or '—' }}{% if h.year %} · {{ h.year }}{% endif %}{% if h.media_format %} · {{ h.media_format }}{% endif %}
+                {% if h.catalog_number %} · {{ h.catalog_number }}{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    {% if albums_more %}<p class="sp-hit-more text-muted">Showing the first {{ albums | length }} albums. Refine the search to see more.</p>{% endif %}
+    {% endif %}
+
+    {% if tracks %}
+    {% for h in tracks %}
+    <div class="sp-artist-item {% if loop.first %}sp-artist-item--active{% endif %}"
+         {{ hit_attrs(h) }}>
+        {{ hit_cover(h, h.track_title) }}
+        <div class="sp-artist-item-body">
+            <div class="sp-artist-item-name">
+                {% if h.position %}<span class="sp-hit-pos">{{ h.position }}</span>{% endif %}{{ h.track_title }}
+            </div>
+            <div class="sp-artist-item-meta">
+                {{ h.artist or '—' }} — {{ h.title or 'Untitled' }}{% if h.year %} · {{ h.year }}{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    {% if tracks_more %}<p class="sp-hit-more text-muted">Showing the first {{ tracks | length }} tracks. Refine the search to see more.</p>{% endif %}
+    {% endif %}
+
 </div>
 {% else %}
 <p class="sp-artist-list-empty text-muted">
-    No artists match &ldquo;{{ q }}&rdquo;.
+    No {{ {'all': 'artists or albums', 'artists': 'artists', 'albums': 'albums', 'tracks': 'tracks'}[scope] }} match &ldquo;{{ q }}&rdquo;.
+    {% if scope != 'tracks' %}Try the <strong>Tracks</strong> search for song titles.{% endif %}
 </p>
 {% endif %}
 </aside>
 
-{# Center: auto-load first artist, or empty state #}
-{% if artists %}
+{# Center: auto-load the first hit's artist (and its pressing), or empty state #}
+{% if first.artist_enc %}
 <div id="sp-search-artist-init"
-     hx-get="/artists/detail?artist={{ artists[0].enc }}"
+     hx-get="/artists/detail?artist={{ first.artist_enc }}"
      hx-trigger="load"
      hx-swap="outerHTML"
      hx-target="#sp-search-artist-init">
     <div class="sp-empty">
         <span class="sp-empty-icon">&#x1F3B5;</span>
-        <span class="sp-empty-text">Loading {{ artists[0].name }}&hellip;</span>
+        <span class="sp-empty-text">Loading {{ first.artist_name }}&hellip;</span>
     </div>
+</div>
+{% elif artists or albums or tracks %}
+<div class="sp-empty">
+    <span class="sp-empty-icon">&#x1F3B5;</span>
+    <span class="sp-empty-text">Pick a result on the left.</span>
 </div>
 {% else %}
 <div class="sp-empty">
     <span class="sp-empty-icon">&#x1F50D;</span>
     <span class="sp-empty-text">No results for &ldquo;{{ q }}&rdquo;.</span>
 </div>
+{% endif %}
+{% if first.brief_id %}
+<div hidden hx-get="/catalogue/{{ first.brief_id }}/brief" hx-trigger="load"
+     hx-target="#sp-right" hx-swap="innerHTML"></div>
 {% endif %}

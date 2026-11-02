@@ -31,7 +31,7 @@
          hx-get="/artists/detail?artist={{ a.enc }}"
          hx-target="#sp-center"
          hx-swap="innerHTML"
-         hx-on::before-request="document.querySelectorAll('.sp-artist-item').forEach(function(c){c.classList.remove('sp-artist-item--active')});this.classList.add('sp-artist-item--active')">
+         data-mc-active="sp-artist-item">
         <div class="sp-artist-item-img">
             {% if a.portrait_url %}
             <img src="{{ a.portrait_url }}" alt="" loading="lazy">
@@ -123,7 +123,7 @@
              hx-get="/artists/detail?artist={{ a.enc }}"
              hx-target="#artist-detail-panel"
              hx-swap="innerHTML"
-             hx-on::before-request="document.querySelectorAll('.artist-card-lg').forEach(function(c){c.classList.remove('artist-card-lg--active')});this.classList.add('artist-card-lg--active')"
+             data-mc-active="artist-card-lg"
              style="cursor:pointer">
             <div class="artist-card-img">
                 {% if a.portrait_url %}

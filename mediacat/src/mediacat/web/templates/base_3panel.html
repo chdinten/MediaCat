@@ -43,11 +43,19 @@
           hx-indicator="#sp-search-spinner">
         <div class="sp-search-inner">
             <span class="sp-search-icon">&#x1F50D;</span>
+            {% set sp_scope = request.query_params.get('scope', 'all') %}
+            <select id="sp-search-scope" name="scope" class="sp-search-scope"
+                    title="What to search" aria-label="What to search">
+                <option value="all" {% if sp_scope == 'all' %}selected{% endif %}>Artists &amp; albums</option>
+                <option value="artists" {% if sp_scope == 'artists' %}selected{% endif %}>Artists</option>
+                <option value="albums" {% if sp_scope == 'albums' %}selected{% endif %}>Albums</option>
+                <option value="tracks" {% if sp_scope == 'tracks' %}selected{% endif %}>Tracks</option>
+            </select>
             <input id="sp-search-input"
                    type="text"
                    name="q"
                    class="sp-search-input"
-                   placeholder="Search artists, albums, tracks&hellip;"
+                   placeholder="Search artists and album titles&hellip;"
                    autocomplete="off"
                    spellcheck="false"
                    value="{{ request.query_params.get('q', '') }}">
@@ -58,8 +66,10 @@
         </div>
         <div id="sp-search-history-drop" class="sp-search-history"></div>
     </form>
-    <button id="cp-hint" class="cp-kbd-hint" type="button" title="Open command palette (Ctrl+K)">
-        <kbd>⌘K</kbd>
+    <button id="cp-hint" class="cp-kbd-hint" type="button"
+            title="Command palette: jump to pages and recent searches, or type /track, /album, /artist (Ctrl+K)">
+        <span class="cp-kbd-hint-label">Commands</span>
+        <kbd>Ctrl K</kbd>
     </button>
     {% endif %}
 

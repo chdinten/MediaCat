@@ -17,7 +17,9 @@
     // Slash commands: type /cmd [arg] for direct navigation or contextual search.
     // argUrl uses {arg} placeholder; null means the command takes no argument.
     var SLASH_COMMANDS = [
-        { name: 'artist',    aliases: ['a'],         url: '/artists',       argUrl: '/search?q={arg}', argHint: 'artist name',   desc: 'Browse artists' },
+        { name: 'artist',    aliases: ['a'],         url: '/artists',       argUrl: '/search?q={arg}&scope=artists', argHint: 'artist name',   desc: 'Browse artists' },
+        { name: 'album',     aliases: ['al'],        url: '/catalogue',     argUrl: '/search?q={arg}&scope=albums', argHint: 'album title',  desc: 'Search album titles' },
+        { name: 'track',     aliases: ['t', 'song'], url: '/catalogue',     argUrl: '/search?q={arg}&scope=tracks', argHint: 'song title',   desc: 'Search song titles' },
         { name: 'catalogue', aliases: ['c', 'cat'],  url: '/catalogue',     argUrl: '/catalogue?q={arg}', argHint: 'album or title', desc: 'Browse catalogue' },
         { name: 'review',    aliases: ['r'],          url: '/reviews',       argUrl: '/search?q={arg}', argHint: 'search term',   desc: 'Browse reviews' },
         { name: 'add',       aliases: [],             url: '/catalogue/new', argUrl: null, argHint: null, desc: 'Add new pressing' },

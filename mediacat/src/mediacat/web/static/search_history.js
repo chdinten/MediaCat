@@ -4,10 +4,22 @@
  * Global search bar with localStorage history.
  * Clicking a history entry fills the input and runs the search, exactly as
  * pressing Enter would (same as picking a recent search in the Ctrl+K palette).
+ *
+ * The scope picker (Artists & albums / Artists / Albums / Tracks) is
+ * remembered per browser and re-runs the current search when changed.  Album
+ * and track hits carry data-mc-brief: picking one loads the artist into the
+ * centre panel (its hx-get) and that pressing into the right panel.
  */
 (function () {
     var STORAGE_KEY = 'mc-search-history';
+    var SCOPE_KEY = 'mc-search-scope';
     var MAX_ENTRIES = 10;
+    var PLACEHOLDERS = {
+        all:     'Search artists and album titles\u2026',
+        artists: 'Search artist names\u2026',
+        albums:  'Search album titles or catalogue numbers\u2026',
+        tracks:  'Search song titles\u2026',
+    };
 
     // ── Storage ────────────────────────────────────────────────
     function loadHistory() {
@@ -99,7 +111,9 @@
             addEntry(inp.value);
             window.htmx.trigger(form, 'submit');
         } else {
-            window.location.href = '/search?q=' + encodeURIComponent(inp.value);
+            var sel = document.getElementById('sp-search-scope');
+            window.location.href = '/search?q=' + encodeURIComponent(inp.value) +
+                (sel ? '&scope=' + encodeURIComponent(sel.value) : '');
         }
         inp.blur();
     }
@@ -109,6 +123,32 @@
         if (btn) btn.classList.toggle('visible', visible);
     }
 
+    // ── Scope picker ───────────────────────────────────────────
+    function initScope(sel, inp) {
+        if (!sel) return;
+        // An explicit ?scope= wins; otherwise restore the last choice
+        if (!/[?&]scope=/.test(window.location.search)) {
+            var saved = null;
+            try { saved = localStorage.getItem(SCOPE_KEY); } catch (_) { /* blocked */ }
+            if (saved && PLACEHOLDERS[saved]) sel.value = saved;
+        }
+        inp.placeholder = PLACEHOLDERS[sel.value] || PLACEHOLDERS.all;
+        sel.addEventListener('change', function () {
+            inp.placeholder = PLACEHOLDERS[sel.value] || PLACEHOLDERS.all;
+            try { localStorage.setItem(SCOPE_KEY, sel.value); } catch (_) { /* blocked */ }
+            if (inp.value.trim()) submitSearch(inp);
+            else inp.focus();
+        });
+    }
+
+    // Album / track hit: also open the pressing in the right panel
+    document.addEventListener('htmx:beforeRequest', function (evt) {
+        var elt = evt.detail && evt.detail.elt;
+        var url = elt && elt.dataset && elt.dataset.mcBrief;
+        if (!url || !window.htmx) return;
+        window.htmx.ajax('GET', url, { target: '#sp-right', swap: 'innerHTML' });
+    });
+
     // ── DOM wiring ─────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
         var inp  = document.getElementById('sp-search-input');
@@ -117,6 +157,8 @@
         var clrBtn = document.getElementById('sp-search-clear-btn');
 
         if (!inp) return; // not on 3panel layout
+
+        initScope(document.getElementById('sp-search-scope'), inp);
 
         inp.addEventListener('focus', function () {
             renderDropdown(inp.value);

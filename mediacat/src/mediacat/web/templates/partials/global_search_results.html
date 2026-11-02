@@ -9,7 +9,7 @@
 {% if not q %}
 <div class="sp-empty">
     <span class="sp-empty-icon">🔍</span>
-    <span class="sp-empty-text">Enter a term to search artists, albums, or catalogue numbers.</span>
+    <span class="sp-empty-text">Enter a term to search artists, albums, catalogue numbers or (Tracks) song titles.</span>
 </div>
 
 {% elif not results %}
@@ -35,8 +35,13 @@
         <span class="search-result-badge">{{ r.media_format or '?' }}</span>
 
         <span class="search-result-title">
+            {% if r.track_title %}
+            <strong>{% if r.position %}{{ r.position }} {% endif %}{{ r.track_title }}</strong>
+            <span style="color:var(--text-muted)"> — {{ r.artist or '—' }} — {{ r.title or '—' }}</span>
+            {% else %}
             <strong>{{ r.artist or '—' }}</strong>
             <span style="color:var(--text-muted)"> — {{ r.title or '—' }}</span>
+            {% endif %}
         </span>
 
         {% if r.year %}

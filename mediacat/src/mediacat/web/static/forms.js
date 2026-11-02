@@ -83,3 +83,24 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
     btn.disabled = true;
   }
 });
+
+/* Active-row highlight for HTMX lists (replaces inline hx-on handlers, which
+ * the CSP blocks).  data-mc-active="row-class" on the element that sends the
+ * request: the closest .row-class gets row-class--active and every other
+ * .row-class loses it.  data-mc-clear="#selector" empties that element first
+ * (e.g. a dependent detail panel).
+ */
+document.addEventListener('htmx:beforeRequest', function (evt) {
+  var src = evt.detail && evt.detail.elt;
+  if (!src || !src.dataset || !src.dataset.mcActive) return;
+  var base = src.dataset.mcActive;
+  var row = src.closest('.' + base) || src;
+  document.querySelectorAll('.' + base + '--active').forEach(function (c) {
+    c.classList.remove(base + '--active');
+  });
+  row.classList.add(base + '--active');
+  if (src.dataset.mcClear) {
+    var clear = document.querySelector(src.dataset.mcClear);
+    if (clear) clear.innerHTML = '';
+  }
+});

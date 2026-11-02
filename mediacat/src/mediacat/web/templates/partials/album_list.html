@@ -13,7 +13,7 @@
          hx-get="/catalogue/pressings?artist={{ enc_artist }}&amp;title={{ a.enc_title }}"
          hx-target="#pressing-panel"
          hx-swap="innerHTML"
-         hx-on:htmx:before-request="document.querySelectorAll('.album-list-row').forEach(c=>c.classList.remove('album-list-row--active'));this.classList.add('album-list-row--active')">
+         data-mc-active="album-list-row">
         <div class="album-list-year">{% if a.year %}{{ a.year }}{% else %}&mdash;{% endif %}</div>
         <div class="album-list-info">
             <div class="album-list-title">{{ a.title or 'Untitled' }}</div>

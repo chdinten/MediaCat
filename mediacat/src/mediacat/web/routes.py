@@ -1300,101 +1300,261 @@ async def register_submit(
 # Global search  (3panel layout top-bar)
 # ---------------------------------------------------------------------------
 
+#: Top-bar search scopes.  "all" covers artists and albums; track titles have
+#: their own scope so a song search is not drowned in artist/album hits.
+SEARCH_SCOPES = ("all", "artists", "albums", "tracks")
+_SEARCH_LIMIT = 100
 
-@search_router.get("/search", response_class=HTMLResponse)
-async def global_search(request: Request, q: str = Query(default="")) -> HTMLResponse:
-    """Search across tokens (artist, title, catalogue number). Returns HTMX partial or full page."""
+
+def _like_pattern(q: str) -> str:
+    """ILIKE pattern matching *q* literally anywhere (``%``/``_`` match themselves)."""
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _live_tokens(stmt: Any) -> Any:
+    """Restrict a token query to live (not deleted, not merged) pressings."""
+    from mediacat.db.enums import TokenStatus
+    from mediacat.db.models import Token
+
+    return stmt.where(Token.deleted_at.is_(None)).where(Token.status != TokenStatus.MERGED)
+
+
+async def _search_artists(db: Any, pattern: str) -> list[dict[str, Any]]:
+    """Artists whose name matches, with pressing count, years and an image."""
     import urllib.parse
 
-    from sqlalchemy import func, or_, select
+    from sqlalchemy import func, select
 
-    from mediacat.db.enums import TokenStatus
     from mediacat.db.models import ArtistBio, MediaObject, Token
 
+    artist_rows = (
+        await db.execute(
+            _live_tokens(
+                select(
+                    Token.artist,
+                    func.count(Token.id).label("cnt"),
+                    func.min(Token.year).label("yr_min"),
+                    func.max(Token.year).label("yr_max"),
+                )
+            )
+            .where(Token.artist.ilike(pattern, escape="\\"))
+            .group_by(Token.artist)
+            .order_by(Token.artist.asc())
+            .limit(50)
+        )
+    ).all()
+
+    artist_names = [r.artist for r in artist_rows]
+    cover_by_artist: dict[str, str] = {}
+    portrait_by_artist: dict[str, str] = {}
+    if artist_names:
+        cover_rows = (
+            await db.execute(
+                _live_tokens(
+                    select(Token.artist, MediaObject.id, MediaObject.token_id).join(
+                        MediaObject, MediaObject.token_id == Token.id
+                    )
+                )
+                .where(Token.artist.in_(artist_names))
+                .order_by(
+                    Token.artist.asc(),
+                    MediaObject.is_primary_cover.desc().nulls_last(),
+                    Token.year.asc().nulls_last(),
+                )
+            )
+        ).all()
+        for row in cover_rows:
+            if row.artist not in cover_by_artist:
+                cover_by_artist[row.artist] = f"/catalogue/{row.token_id}/images/{row.id}"
+
+        bio_rows = (
+            await db.execute(
+                select(ArtistBio.artist_name, ArtistBio.thumbnail_url)
+                .where(ArtistBio.artist_name.in_(artist_names))
+                .where(ArtistBio.thumbnail_url.isnot(None))
+            )
+        ).all()
+        portrait_by_artist = {r.artist_name: r.thumbnail_url for r in bio_rows}
+
+    return [
+        {
+            "name": r.artist,
+            "pressing_count": r.cnt,
+            "year_range": (
+                str(r.yr_min) + (f"–{r.yr_max}" if r.yr_max != r.yr_min else "") if r.yr_min else ""
+            ),
+            "enc": urllib.parse.quote(r.artist or "", safe=""),
+            "portrait_url": portrait_by_artist.get(r.artist),
+            "cover_url": cover_by_artist.get(r.artist),
+        }
+        for r in artist_rows
+    ]
+
+
+async def _cover_urls(db: Any, token_ids: list[Any]) -> dict[str, str]:
+    """Cover image URL per token id (primary cover first)."""
+    from sqlalchemy import select
+
+    from mediacat.db.models import MediaObject
+
+    if not token_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(MediaObject.id, MediaObject.token_id)
+            .where(MediaObject.token_id.in_(token_ids))
+            .order_by(MediaObject.is_primary_cover.desc().nulls_last(), MediaObject.id.asc())
+        )
+    ).all()
+    covers: dict[str, str] = {}
+    for row in rows:
+        covers.setdefault(str(row.token_id), f"/catalogue/{row.token_id}/images/{row.id}")
+    return covers
+
+
+def _hit_row(r: Any, covers: dict[str, str]) -> dict[str, Any]:
+    """Common fields of an album or track hit."""
+    import urllib.parse
+
+    return {
+        "id": str(r.id),
+        "artist": r.artist or "",
+        "enc_artist": urllib.parse.quote(r.artist or "", safe=""),
+        "title": r.title or "",
+        "year": r.year,
+        "media_format": r.media_format,
+        "cover_url": covers.get(str(r.id)),
+    }
+
+
+async def _search_pressings(
+    db: Any, pattern: str, *, by_artist: bool, by_album: bool
+) -> list[dict[str, Any]]:
+    """Pressings whose artist and/or album title / catalogue number matches."""
+    from sqlalchemy import or_, select
+
+    from mediacat.db.models import Token
+
+    fields = ([Token.artist] if by_artist else []) + (
+        [Token.title, Token.catalog_number] if by_album else []
+    )
+    rows = (
+        await db.execute(
+            _live_tokens(
+                select(
+                    Token.id,
+                    Token.artist,
+                    Token.title,
+                    Token.year,
+                    Token.media_format,
+                    Token.catalog_number,
+                )
+            )
+            .where(or_(*(f.ilike(pattern, escape="\\") for f in fields)))
+            .order_by(Token.title.asc(), Token.artist.asc(), Token.year.asc().nulls_last())
+            .limit(_SEARCH_LIMIT + 1)
+        )
+    ).all()
+    covers = await _cover_urls(db, [r.id for r in rows])
+    return [_hit_row(r, covers) | {"catalog_number": r.catalog_number} for r in rows]
+
+
+async def _search_tracks(db: Any, pattern: str) -> list[dict[str, Any]]:
+    """Tracks (from each pressing's ``tracklist``) whose title matches."""
+    from sqlalchemy import case, cast, func, literal, select, true
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    from mediacat.db.models import Token
+
+    # Guard against a non-array tracklist: jsonb_array_elements raises on one.
+    tracks_array = case(
+        (func.jsonb_typeof(Token.tracklist) == "array", Token.tracklist),
+        else_=cast(literal("[]"), JSONB),
+    )
+    track = func.jsonb_array_elements(tracks_array).table_valued("value").lateral("track")
+    track_title = track.c.value.op("->>")("title")
+    rows = (
+        await db.execute(
+            _live_tokens(
+                select(
+                    Token.id,
+                    Token.artist,
+                    Token.title,
+                    Token.year,
+                    Token.media_format,
+                    track_title.label("track_title"),
+                    track.c.value.op("->>")("position").label("position"),
+                )
+                .select_from(Token)
+                .join(track, true())
+            )
+            .where(track_title.ilike(pattern, escape="\\"))
+            .order_by(func.lower(track_title), Token.artist.asc(), Token.year.asc().nulls_last())
+            .limit(_SEARCH_LIMIT + 1)
+        )
+    ).all()
+    covers = await _cover_urls(db, list({r.id for r in rows}))
+    return [
+        _hit_row(r, covers) | {"track_title": r.track_title or "", "position": r.position or ""}
+        for r in rows
+    ]
+
+
+def _first_hit(
+    artists: list[dict[str, Any]], albums: list[dict[str, Any]], tracks: list[dict[str, Any]]
+) -> dict[str, str]:
+    """What the centre (artist) and right (pressing) panels open with."""
+    if artists:
+        return {"artist_enc": artists[0]["enc"], "artist_name": artists[0]["name"], "brief_id": ""}
+    for hit in (albums or tracks)[:1]:
+        return {
+            "artist_enc": hit["enc_artist"],
+            "artist_name": hit["artist"],
+            "brief_id": hit["id"],
+        }
+    return {"artist_enc": "", "artist_name": "", "brief_id": ""}
+
+
+@search_router.get("/search", response_class=HTMLResponse)
+async def global_search(
+    request: Request, q: str = Query(default=""), scope: str = Query(default="all")
+) -> HTMLResponse:
+    """Search artists, album titles / catalogue numbers, or track titles.
+
+    ``scope`` is one of :data:`SEARCH_SCOPES`: ``all`` (artists and albums),
+    ``artists``, ``albums`` or ``tracks``.  Returns an HTMX partial or full page.
+    """
     q = q.strip()[:200]  # cap query length
+    if scope not in SEARCH_SCOPES:
+        scope = "all"
+    pattern = _like_pattern(q)
     sf = getattr(request.app.state, "db_session_factory", None)
 
-    # ── 3panel layout: return artist-panel view ──────────────────────────────
+    # ── 3panel layout: grouped hit list in the left panel ───────────────────
     if _is_htmx(request) and _layout_base(request) == "base_3panel.html" and q and sf:
         try:
+            artists: list[dict[str, Any]] = []
+            albums: list[dict[str, Any]] = []
+            tracks: list[dict[str, Any]] = []
             async with sf() as db:
-                # Distinct artists from matching tokens, with stats
-                artist_rows = (
-                    await db.execute(
-                        select(
-                            Token.artist,
-                            func.count(Token.id).label("cnt"),
-                            func.min(Token.year).label("yr_min"),
-                            func.max(Token.year).label("yr_max"),
-                        )
-                        .where(Token.deleted_at.is_(None))
-                        .where(Token.status != TokenStatus.MERGED)
-                        .where(Token.artist.isnot(None))
-                        .where(
-                            or_(
-                                Token.artist.ilike(f"%{q}%"),
-                                Token.title.ilike(f"%{q}%"),
-                                Token.catalog_number.ilike(f"%{q}%"),
-                            )
-                        )
-                        .group_by(Token.artist)
-                        .order_by(Token.artist.asc())
-                        .limit(50)
-                    )
-                ).all()
-
-                artist_names = [r.artist for r in artist_rows]
-                cover_by_artist: dict[str, str] = {}
-                portrait_by_artist: dict[str, str] = {}
-
-                if artist_names:
-                    cover_rows = (
-                        await db.execute(
-                            select(Token.artist, MediaObject.id, MediaObject.token_id)
-                            .join(MediaObject, MediaObject.token_id == Token.id)
-                            .where(Token.deleted_at.is_(None))
-                            .where(Token.status != TokenStatus.MERGED)
-                            .where(Token.artist.in_(artist_names))
-                            .order_by(
-                                Token.artist.asc(),
-                                MediaObject.is_primary_cover.desc().nulls_last(),
-                                Token.year.asc().nulls_last(),
-                            )
-                        )
-                    ).all()
-                    for row in cover_rows:
-                        if row.artist not in cover_by_artist:
-                            cover_by_artist[row.artist] = f"{row.token_id}|{row.id}"
-
-                    bio_rows = (
-                        await db.execute(
-                            select(ArtistBio.artist_name, ArtistBio.thumbnail_url)
-                            .where(ArtistBio.artist_name.in_(artist_names))
-                            .where(ArtistBio.thumbnail_url.isnot(None))
-                        )
-                    ).all()
-                    portrait_by_artist = {r.artist_name: r.thumbnail_url for r in bio_rows}
-
-            artists = [
-                {
-                    "name": r.artist,
-                    "pressing_count": r.cnt,
-                    "year_range": (
-                        str(r.yr_min) + (f"–{r.yr_max}" if r.yr_max != r.yr_min else "")
-                        if r.yr_min
-                        else ""
-                    ),
-                    "enc": urllib.parse.quote(r.artist or "", safe=""),
-                    "portrait_url": portrait_by_artist.get(r.artist),
-                    "cover_url": (
-                        "/catalogue/{}/images/{}".format(*cover_by_artist[r.artist].split("|"))
-                        if r.artist in cover_by_artist
-                        else None
-                    ),
-                }
-                for r in artist_rows
-            ]
-            ctx = _ctx(request, q=q, artists=artists)
+                if scope in ("all", "artists"):
+                    artists = await _search_artists(db, pattern)
+                if scope in ("all", "albums"):
+                    albums = await _search_pressings(db, pattern, by_artist=False, by_album=True)
+                if scope == "tracks":
+                    tracks = await _search_tracks(db, pattern)
+            ctx = _ctx(
+                request,
+                q=q,
+                scope=scope,
+                artists=artists,
+                albums=albums[:_SEARCH_LIMIT],
+                tracks=tracks[:_SEARCH_LIMIT],
+                albums_more=len(albums) > _SEARCH_LIMIT,
+                tracks_more=len(tracks) > _SEARCH_LIMIT,
+                first=_first_hit(artists, albums, tracks),
+            )
             return _tmpl().TemplateResponse(
                 request=request,
                 name="partials/search_3panel.html",
@@ -1404,38 +1564,25 @@ async def global_search(request: Request, q: str = Query(default="")) -> HTMLRes
             logger.warning("global_search (3panel) error: %s", exc)
 
     # ── Classic layout or empty query: flat pressing list ───────────────────
-    results: list[Any] = []
+    results: list[dict[str, Any]] = []
     if q and sf:
         try:
             async with sf() as db:
-                rows = (
-                    await db.execute(
-                        select(
-                            Token.id,
-                            Token.artist,
-                            Token.title,
-                            Token.year,
-                            Token.media_format,
-                            Token.catalog_number,
-                        )
-                        .where(Token.deleted_at.is_(None))
-                        .where(Token.status != TokenStatus.MERGED)
-                        .where(
-                            or_(
-                                Token.artist.ilike(f"%{q}%"),
-                                Token.title.ilike(f"%{q}%"),
-                                Token.catalog_number.ilike(f"%{q}%"),
-                            )
-                        )
-                        .order_by(Token.artist.asc(), Token.title.asc())
-                        .limit(40)
+                if scope == "tracks":
+                    results = await _search_tracks(db, pattern)
+                else:
+                    results = await _search_pressings(
+                        db,
+                        pattern,
+                        by_artist=scope in ("all", "artists"),
+                        by_album=scope in ("all", "albums"),
                     )
-                ).all()
-            results = [dict(r._mapping) for r in rows]
+                    results.sort(key=lambda r: (r["artist"].casefold(), r["title"].casefold()))
+                results = results[:_SEARCH_LIMIT]
         except Exception as exc:
             logger.warning("global_search error: %s", exc)
 
-    ctx = _ctx(request, q=q, results=results)
+    ctx = _ctx(request, q=q, scope=scope, results=results)
 
     if _is_htmx(request):
         return _tmpl().TemplateResponse(
