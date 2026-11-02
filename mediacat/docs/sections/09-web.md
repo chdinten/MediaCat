@@ -109,10 +109,11 @@ A picker at the left of the search box chooses what `GET /search?q=&scope=`
   are searched in roughly 10 ms.
 - Case-insensitive substring match; `%` and `_` in the query match literally.
 - Albums and tracks show at most 100 hits, artists 50.
-- An artist hit loads the artist page into the centre panel. An album or track
-  hit loads its artist into the centre **and** the pressing brief
-  (`/catalogue/{id}/brief`) into the right panel. The first hit opens
-  automatically.
+- An artist hit loads the artist page into the centre panel. Album and track
+  hits are links to the album's full detail page. The centre panel opens with
+  the first artist (or the artist of the first album/track hit).
+- Exactly one album or track hit and no artist: the route answers with
+  `HX-Redirect` and the album page opens directly.
 - The scope and the last 10 search terms are remembered per browser
   (`localStorage`); changing the scope re-runs the search.
 
@@ -150,10 +151,11 @@ about a second.
 
 | Feature | Where | Notes |
 |---|---|---|
-| Pressing variants pick-and-copy | *Pressing variants*, *Manufacturing & stamping* | Pick a Discogs variant, tick matrix codes (or **All**), **Copy to My copy**; **Load variants** fetches identifiers for older imports |
+| Pressing variants pick-and-copy | *Pressing variants*, *Manufacturing & stamping* | Pick a Discogs variant, tick matrix codes (or **All**), **Copy to My copy**; **Load variants** fetches identifiers for older imports. Box sets (> 2 LPs): full width, LP blocks side by side, pinned header. *My copy* has runout fields for LP 1–2 only |
 | My copy (Discogs collection fields) | *My copy* card | Runout / Matrix LP1–2 A/B, Autographed, Signed by…; **Save in MediaCat** or **Save & write back to Discogs** |
 | Album sheet | **Print sheet (PDF)** | A4 PDF: cover, headline, tracklist per LP, runout codes (`web/print_sheet.py`) |
 | Image lightbox | Click any image | Pop-up over the page with close button, Esc, ← → stepping |
+| Add pressing cards | `/catalogue/new` results → **Cards with images** | Discogs images, format details, barcode and first matrix variant per result, loaded per card as it scrolls into view (`/catalogue/new/discogs-preview/{id}`, cached 1 h) |
 | Import banner | Top of the page | Shown while a Discogs collection import runs: Discogs functions may fail or wait (shared ~60 requests/min limit) |
 
 Discogs identifiers and collection fields are stored in `Token.extra`
@@ -169,7 +171,7 @@ The CSP `script-src 'self'` blocks every inline script, including HTMX
 | File | Purpose |
 |---|---|
 | `static/forms.js` | CSRF header on native POSTs; list-row highlight via `data-mc-active="row-class"` (optional `data-mc-clear="#panel"`) |
-| `static/search_history.js` | Search scope picker, history, album/track hits opening the pressing brief |
+| `static/search_history.js` | Search scope picker and search history |
 | `static/command_palette.js` | Ctrl+K palette and slash commands |
 | `static/bio_research.js` | "Research in progress" banner with timer |
 | `static/pressing.js` | Pressing page: uploads, variant pick-and-copy, lightbox |

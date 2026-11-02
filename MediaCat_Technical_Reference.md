@@ -276,7 +276,8 @@ The 3panel layout has a global search box in the top bar (`templates/base_3panel
 - Track titles come from `Token.tracklist` (JSONB list of `{"position", "title"}`), unnested with a lateral `jsonb_array_elements` (guarded by `jsonb_typeof = 'array'`). There is no separate track table and no index is needed: about 10,500 tracks are searched in roughly 10 ms.
 - Matching is a case-insensitive substring match (`ILIKE`); `%` and `_` in the query match themselves (`routes._like_pattern`).
 - Albums and tracks are capped at 100 hits (with a "showing the first 100" note); artists at 50.
-- Picking an artist loads the artist page into the centre panel. Picking an album or track loads its artist into the centre panel **and** that pressing's brief into the right panel (`data-mc-brief`, handled in `static/search_history.js`). The first hit opens automatically.
+- Picking an artist loads the artist page into the centre panel. Album and track hits are links to the album's full detail page (`/catalogue/{id}`). The centre panel opens with the first artist hit, or else the artist of the first album/track hit.
+- A search that finds exactly one album or track and no artist answers with `HX-Redirect` and opens that album page directly.
 - The chosen scope is remembered per browser (`localStorage['mc-search-scope']`); changing it re-runs the current search. Search history (last 10 terms) is kept the same way.
 - Outside the 3panel layout, or for a full-page request, `/search?q=&scope=` returns a flat list of pressings (track hits show the track title first).
 - The **Commands** button (Ctrl+K) next to the box opens the command palette (`static/command_palette.js`). Its slash commands include `/artist`, `/album` (`/al`) and `/track` (`/t`, `/song`), which open the search in that scope.
@@ -344,6 +345,8 @@ Artist and title values in URLs are `urllib.parse.quote()`-encoded and decoded a
 `GET /catalogue/search?q=...&source=discogs|musicbrainz` queries the external APIs and returns `partials/search_results.html`. No API key is required for basic Discogs searches (limited rate); a personal access token in `connectors.yaml` raises the rate limit to 3600/hr.
 
 MusicBrainz requires a `User-Agent` header identifying the application.
+
+**Add pressing: cards view.** On `/catalogue/new`, Discogs search results can be switched from **Table** to **Cards with images** (choice remembered per browser). Each card loads `GET /catalogue/new/discogs-preview/{release_id}` when it scrolls into view (`hx-trigger="intersect once"`; nothing loads in table view): up to 8 release images (primary first, click opens the lightbox), free-text format details (e.g. *'Sold In U.K.' Text*, *180 Gram*), release date, track count, barcode, and the **first** matrix / runout variant with the number of variants. Previews are cached in memory for an hour (max 500) and fetched with the Admin → API Tokens token, retrying HTTP 429 like the pressing refresh; a rate-limit message offers **Try again**. Helper: `discogs_extras.release_preview`.
 
 ### 3.5 Create / Edit — Revision Lifecycle
 
@@ -422,7 +425,7 @@ The pressing page shows two kinds of Discogs data, both stored in `Token.extra` 
 - **Release identifiers** (`extra["discogs"]`): Discogs' "Barcode and Other Identifiers". Matrix/runout entries are grouped by **variant**, then by LP (sides A/B → LP 1, C/D → LP 2, …). The runout text is shown verbatim, never interpreted. Identifiers are public and need no token.
 - **Collection custom fields** (`extra["discogs_collection"]`): the user's own per-copy fields from Discogs → Settings → Collection, e.g. *Runout / Matrix LP1 - A*, *Autographed*, *Signed by*. Field names are free text and are matched by pattern (`classify_field`). Reading and writing them uses the collection instance API and needs the personal access token from Admin → API Tokens.
 
-**Pressing variants pick-and-copy.** Under *Pressing variants* (and in the variant chooser of *Manufacturing & stamping*) the user selects a variant, then ticks individual matrix codes or all of them with one click (**All**), and copies them into the matching *My copy* fields (LP 1 A, LP 1 B, LP 2 A, …). This also corrects a copy that was stored with the wrong variant. A **Load variants** button fetches identifiers for pressings imported before this feature; the bulk collection import back-fills them too.
+**Pressing variants pick-and-copy.** Under *Pressing variants* (and in the variant chooser of *Manufacturing & stamping*) the user selects a variant, then ticks individual matrix codes or all of them with one click (**All**), and copies them into the matching *My copy* fields (LP 1 A, LP 1 B, LP 2 A, …). This also corrects a copy that was stored with the wrong variant. Box sets (a variant with more than two LPs, e.g. 13 LPs) use the full card width with one block per LP side by side (`dc-variant--wide`), and the variant header with **All** and **Copy to My copy** stays pinned at the top while scrolling. *My copy* has runout fields for LP 1 and LP 2 only (recognised Discogs collection fields `runout_lp{1,2}_{a,b}`), so codes of LP 3 and later can be copied to the clipboard but not ticked; all variants' codes are still stored with the pressing as release data. A **Load variants** button fetches identifiers for pressings imported before this feature; the bulk collection import back-fills them too.
 
 **Write-back.** *My copy* values are saved locally first. A field whose local value differs from the last value known on Discogs is marked as not yet written back; **Save & write back to Discogs** pushes it through the collection instance API. Release identifiers themselves cannot be edited through the Discogs API.
 
@@ -749,7 +752,7 @@ The `REVOKE UPDATE, DELETE ON audit_log FROM mediacat_app` restriction is enforc
 | `static/theme.js` | Theme toggle; runs synchronously before first paint |
 | `static/pressing.js` | Pressing detail and edit: upload zone, image actions, correction modal; loaded on both `pressing_detail.html` and `token_edit.html` |
 | `static/forms.js` | Shared form utilities: CSRF header on native POSTs, confirmation dialogs, discography loading state, list-row highlighting (`data-mc-active`) |
-| `static/search_history.js` | Top-bar search: scope picker, search history, album/track hits opening the pressing brief |
+| `static/search_history.js` | Top-bar search: scope picker and search history |
 | `static/command_palette.js` | Ctrl+K command palette and slash commands |
 | `static/bio_research.js` | "Research in progress" banner with timer during artist-bio lookups |
 | `static/panel_resize.js` | 3panel layout switching and drag-resizable panels |
@@ -1053,6 +1056,7 @@ Template context returned by `GET /`:
 | `POST` | `/catalogue/{token_id}/discogs-details/refresh` | Re-fetch release identifiers and collection custom fields from Discogs |
 | `POST` | `/catalogue/{token_id}/discogs-collection` | Save *My copy* collection fields; `op=writeback` also writes them to Discogs |
 | `GET` | `/catalogue/{token_id}/print.pdf` | A4 album sheet PDF |
+| `GET` | `/catalogue/new/discogs-preview/{release_id}` | Add pressing cards view: images, format details and first runout variant of a Discogs release (HTMX) |
 
 ### 14.4 Review Queue (Reviewer+ Role)
 
@@ -1208,7 +1212,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 
 1. **Navigate to Catalogue** → **Add pressing** (`/catalogue/new`).
 2. Fill in artist, title, year, format, catalogue number, label, matrix runout.
-3. Optionally search Discogs or MusicBrainz to pre-fill fields — or click a search result's **Import** button to go straight to `GET /catalogue/import/discogs/{id}` for a preview before creating.
+3. Optionally search Discogs or MusicBrainz to pre-fill fields — or click a search result's **Import** button to go straight to `GET /catalogue/import/discogs/{id}` for a preview before creating. For Discogs results, **Cards with images** shows each release's photos, label details, barcode and first matrix variant, which helps pick the right pressing.
 4. Alternatively, **scan a cover barcode** (`POST /catalogue/scan-cover`) to auto-fill the form from a photo of the barcode.
 5. Submit — the pressing appears in the catalogue immediately.
 6. Upload scans on the pressing detail page or directly on the edit form (drag-and-drop or file picker).
@@ -1323,7 +1327,7 @@ The `_build_full_runout_text()` helper reconstructs the display string from all 
 
 1. Click the scope picker at the left of the top-bar search box and choose **Artists & albums**, **Artists**, **Albums** or **Tracks**.
 2. Type a term and press Enter. Changing the scope later re-runs the search.
-3. The left panel lists the hits. Click an artist to open the artist page; click an album or a track to open its artist in the centre and the pressing on the right.
+3. The left panel lists the hits. Click an artist to open the artist page; click an album or a track to open the album's detail page. When the search finds a single album or song, its album page opens straight away.
 4. Shortcut: press **Ctrl+K** (or click **Commands**) and type `/track money`, `/album wish you` or `/artist abba`.
 
 ### 18.10 Artist Biographies
@@ -1335,7 +1339,7 @@ The `_build_full_runout_text()` helper reconstructs the display string from all 
 ### 18.11 Discogs Details, Variants and the Album Sheet
 
 1. On a pressing imported from Discogs, open **Pressing variants**. If it is empty, click **Load variants** (or **Refresh from Discogs**).
-2. Select the variant that matches your copy, tick the matrix codes you want (or **All**) and click **Copy to My copy**.
+2. Select the variant that matches your copy, tick the matrix codes you want (or **All**) and click **Copy to My copy**. In box sets the LPs are shown as blocks side by side and the button row stays visible while you scroll.
 3. Check the *My copy* fields and click **Save in MediaCat**, or **Save & write back to Discogs** (needs the token in Admin → API Tokens).
 4. If a banner says a Discogs import is running, Discogs functions may fail or wait until it finishes.
 5. **Print sheet (PDF)** downloads the A4 album sheet.

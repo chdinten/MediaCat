@@ -14,7 +14,7 @@ comparison, anomaly detection, translation (British English), and text generatio
 - **Direct import** — Create a Token from a Discogs or MusicBrainz release ID with a one-click preview-and-import flow; scan a barcode to pre-fill
 - **Bulk collection import** — Import an entire Discogs user collection via the Admin panel; resumable, skip-existing-by-default, with live progress tracking
 - **External search** — Discogs and MusicBrainz lookup directly from the catalogue UI
-- **Global search** — Top-bar search with a scope picker: artists and album titles / catalogue numbers together, or artists, albums or song titles (tracks) on their own; album and track hits open the artist and the pressing; Ctrl+K palette with `/album` and `/track`
+- **Global search** — Top-bar search with a scope picker: artists and album titles / catalogue numbers together, or artists, albums or song titles (tracks) on their own; album and track hits open the album page (a single hit opens it directly); Ctrl+K palette with `/album` and `/track`
 - **Discogs pressing details** — Release identifiers grouped by pressing variant and LP side; pick a variant, tick matrix codes and copy them into *My copy* (your Discogs collection fields: runout per LP side, autographed, signed by…), with write-back to Discogs; A4 album sheet PDF; image lightbox; banner while a Discogs import runs
 - **Revision history** — Every change is a new `TokenRevision`; nothing is overwritten
 - **Vision pipeline** — Ollama (local-first) or Anthropic API transcribes labels, OBI strips, runout etchings; matrix breakdown into 7 typed fields with confidence scores
