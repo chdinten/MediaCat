@@ -302,7 +302,8 @@ def test_approve_with_valid_csrf(auth_client: TestClient) -> None:
         data={"comment": "looks good"},
         headers={"X-CSRF-Token": csrf_token},
     )
-    assert resp.status_code in (200, 303)
+    # CSRF accepted (not 403); the made-up review id does not exist.
+    assert resp.status_code == 404
 
 
 def test_approve_without_csrf_rejected(auth_client: TestClient) -> None:

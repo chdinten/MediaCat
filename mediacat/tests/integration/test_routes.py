@@ -409,10 +409,6 @@ async def test_logout_clears_the_session_cookie(admin: httpx.AsyncClient) -> Non
     assert "Max-Age=0" in raw
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: login ignores User.locked_until (documented account lockout, tools/gen_docs.py)",
-)
 async def test_db_account_lock_is_enforced(
     anon: httpx.AsyncClient, db: AsyncSession, password_hash: str
 ) -> None:
@@ -423,10 +419,6 @@ async def test_db_account_lock_is_enforced(
     assert _set_cookie(r, SESSION_COOKIE) is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: failed logins never persist User.failed_login_count (only a local dict is bumped)",
-)
 async def test_failed_login_is_counted_on_the_user_row(
     anon: httpx.AsyncClient, users: dict[str, User], db: AsyncSession
 ) -> None:
@@ -436,10 +428,6 @@ async def test_failed_login_is_counted_on_the_user_row(
     assert row.failed_login_count == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: per-user session timeout only sets cookie Max-Age; server accepts the token for 24 h",
-)
 async def test_per_user_session_timeout_is_enforced_server_side(
     anon: httpx.AsyncClient, db: AsyncSession, password_hash: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -466,7 +454,6 @@ async def _audit_count(db: AsyncSession) -> int:
     return (await db.execute(select(func.count(AuditLog.id)))).scalar_one()
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: login never writes audit_log (write_audit is unused)")
 async def test_login_is_audited(
     anon: httpx.AsyncClient, users: dict[str, User], db: AsyncSession
 ) -> None:
@@ -474,9 +461,6 @@ async def test_login_is_audited(
     assert await _audit_count(db) >= 1
 
 
-@pytest.mark.xfail(
-    strict=True, reason="BUG: review approve/reject never write audit_log (write_audit is unused)"
-)
 async def test_review_decision_is_audited(reviewer: httpx.AsyncClient, db: AsyncSession) -> None:
     token = await _add_token(db, title="Audit me")
     item = await _add_review(db, token)
@@ -603,7 +587,7 @@ async def test_create_user_with_unknown_role_becomes_viewer(
         (
             {"username": "viewer-user", "email": "dup@test.invalid", "password": "password123"},
             409,
-            "Username &#39;viewer-user&#39; already exists.",
+            "Username &#39;viewer-user&#39; or that e-mail address is already in use.",
         ),
         (
             {"username": "shorty", "email": "shorty@test.invalid", "password": "short"},
@@ -630,10 +614,6 @@ async def test_create_user_validation(
 
 
 @pytest.mark.parametrize("endpoint", ["/users/new", "/register"])
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: duplicate email is swallowed by ON CONFLICT DO NOTHING; 303 + memory-only ghost user",
-)
 async def test_duplicate_email_is_rejected(
     make_client: ClientFactory, users: dict[str, User], db: AsyncSession, endpoint: str
 ) -> None:
@@ -709,7 +689,9 @@ async def test_role_change_applies_at_next_login(
     anon: httpx.AsyncClient,
     users: dict[str, User],
 ) -> None:
-    r = await admin.post(f"/users/{users['viewer'].id}/edit", data={"role": "reviewer"})
+    r = await admin.post(
+        f"/users/{users['viewer'].id}/edit", data={"role": "reviewer", "is_active": "on"}
+    )
     assert r.status_code == 303
     assert (await _login(anon, "viewer-user")).status_code == 303
     session = app.state.session_manager.validate_session(anon.cookies[SESSION_COOKIE])
@@ -717,10 +699,6 @@ async def test_role_change_applies_at_next_login(
     assert session["role"] == "reviewer"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: unchecked 'Active' checkbox is omitted by the browser; Form default 'on' keeps user active",
-)
 async def test_edit_form_without_active_checkbox_deactivates(
     admin: httpx.AsyncClient, users: dict[str, User], db: AsyncSession
 ) -> None:
@@ -767,10 +745,6 @@ async def test_admin_can_be_demoted_while_another_admin_is_active(
     assert r.status_code == 409
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: last-admin guard counts the target even when it is already inactive (routes.py:1033)",
-)
 async def test_inactive_admin_can_be_edited_when_one_admin_is_active(
     admin: httpx.AsyncClient, users: dict[str, User], db: AsyncSession, password_hash: str
 ) -> None:
@@ -854,7 +828,8 @@ async def test_user_created_in_ui_and_demoted_logs_in_with_new_role(
     assert (await admin.post("/users/new", data=form)).status_code == 303
     row = await _user(db, "exadmin")
     assert row is not None
-    assert (await admin.post(f"/users/{row.id}/edit", data={"role": "viewer"})).status_code == 303
+    r = await admin.post(f"/users/{row.id}/edit", data={"role": "viewer", "is_active": "on"})
+    assert r.status_code == 303
     row = await _user(db, "exadmin")
     assert row is not None
     assert row.role == UserRole.VIEWER
@@ -967,7 +942,7 @@ async def test_register_creates_an_active_viewer(
     [
         ({"username": "ab"}, "Username must be at least 3 characters"),
         ({"username": "bad name!"}, "Username must be at least 3 characters"),
-        ({"username": "viewer-user"}, "Username &#39;viewer-user&#39; is already taken."),
+        ({"username": "viewer-user"}, "That username or e-mail address is already registered."),
         ({"password": "short", "confirm_password": "short"}, "Password must be at least 8"),
         ({"confirm_password": "different-one"}, "Passwords do not match."),
     ],
@@ -1729,3 +1704,107 @@ async def test_layout_switch_is_admin_only(make_client: ClientFactory, role: str
     r = await client.post("/layout/set", data={"layout": "3panel"})
     assert r.status_code == 403
     assert _set_cookie(r, "mc_layout") is None
+
+
+# ---------------------------------------------------------------------------
+# Account lock on the user row, DB-first login, audit entries
+# ---------------------------------------------------------------------------
+
+
+async def test_repeated_failures_lock_the_account_on_the_user_row(
+    app: FastAPI, anon: httpx.AsyncClient, users: dict[str, User], db: AsyncSession
+) -> None:
+    app.state.login_lockout = (3, 900)  # below the rate limiter's 10, so the row lock is what bites
+    for _ in range(3):
+        assert (await _login(anon, "viewer-user", "wrong")).status_code == 401
+    row = await _user(db, "viewer-user")
+    assert row is not None
+    assert row.failed_login_count == 3
+    assert row.locked_until is not None
+    assert row.locked_until > datetime.now(UTC) + timedelta(minutes=14)
+
+    r = await _login(anon, "viewer-user")  # right password, still locked
+    assert r.status_code == 429
+    assert _set_cookie(r, SESSION_COOKIE) is None
+
+
+async def test_expired_lock_lets_the_user_in_and_clears_it(
+    anon: httpx.AsyncClient, db: AsyncSession, password_hash: str
+) -> None:
+    await _add_user(
+        db,
+        "waited",
+        password_hash,
+        locked_until=datetime.now(UTC) - timedelta(seconds=1),
+        failed_login_count=10,
+    )
+    assert (await _login(anon, "waited")).status_code == 303
+    row = await _user(db, "waited")
+    assert row is not None
+    assert (row.failed_login_count, row.locked_until) == (0, None)
+
+
+async def test_soft_deleted_user_cannot_log_in_through_a_memory_copy(
+    monkeypatch: pytest.MonkeyPatch, anon: httpx.AsyncClient, db: AsyncSession, password_hash: str
+) -> None:
+    row = await _add_user(db, "gone", password_hash, deleted_at=datetime.now(UTC))
+    monkeypatch.setitem(
+        routes._users_store,
+        "gone",
+        {
+            "id": row.id.hex,
+            "username": "gone",
+            "password_hash": password_hash,
+            "role": "admin",
+            "is_active": True,
+        },
+    )
+    assert (await _login(anon, "gone")).status_code == 401
+
+
+async def _audit_rows(db: AsyncSession) -> list[tuple[str, str, Any]]:
+    rows = await db.execute(
+        select(AuditLog.action, AuditLog.entity_id, AuditLog.user_id).order_by(AuditLog.id)
+    )
+    return [tuple(r) for r in rows]
+
+
+async def test_logins_are_audited_with_outcome(
+    anon: httpx.AsyncClient, users: dict[str, User], db: AsyncSession
+) -> None:
+    uid = users["viewer"].id
+    await _login(anon, "viewer-user", "wrong")
+    await _login(anon, "nobody", "x")
+    await _login(anon, "viewer-user")
+    assert await _audit_rows(db) == [
+        ("login.failed", str(uid), None),
+        ("login.failed", "nobody", None),
+        ("login", str(uid), uid),
+    ]
+
+
+async def test_user_changes_are_audited_with_the_acting_admin(
+    admin: httpx.AsyncClient, users: dict[str, User], db: AsyncSession
+) -> None:
+    uid, admin_id = users["viewer"].id, users["admin"].id
+    await admin.post(f"/users/{uid}/edit", data={"role": "reviewer", "is_active": "on"})
+    await admin.post(f"/users/{uid}/deactivate")
+    await admin.post(f"/users/{uid}/activate")
+    rows = await _audit_rows(db)
+    assert rows == [
+        ("user.update", str(uid), admin_id),
+        ("user.deactivate", str(uid), admin_id),
+        ("user.activate", str(uid), admin_id),
+    ]
+    detail = (await db.execute(select(AuditLog.detail).order_by(AuditLog.id))).scalars().first()
+    assert detail is not None
+    assert detail["role"] == ["viewer", "reviewer"]
+
+
+@pytest.mark.parametrize("verb", ["approve", "reject"])
+async def test_deciding_an_unknown_review_is_404(
+    reviewer: httpx.AsyncClient, db: AsyncSession, verb: str
+) -> None:
+    for rid in (uuid.uuid4(), "not-a-uuid"):
+        assert (await reviewer.post(f"/reviews/{rid}/{verb}")).status_code == 404
+    assert await _audit_rows(db) == []

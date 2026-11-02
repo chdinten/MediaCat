@@ -113,6 +113,43 @@ def _client_ip(request: Request) -> str:
     return connecting or "unknown"
 
 
+async def _audit(
+    request: Request,
+    action: str,
+    entity_type: str,
+    entity_id: Any,
+    *,
+    detail: dict[str, Any] | None = None,
+    actor_id: str | None = None,
+) -> None:
+    """Append an audit_log entry in its own session; never fails the request.
+
+    *actor_id* defaults to the logged-in user.  An actor without a DB row
+    (in-memory bootstrap user) is kept in ``detail`` instead of the FK column.
+    """
+    sf = getattr(request.app.state, "db_session_factory", None)
+    if sf is None:
+        return
+    from mediacat.db.audit import write_audit
+
+    actor = actor_id if actor_id is not None else getattr(request.state, "user_id", None)
+    entry = {
+        "action": action,
+        "entity_type": entity_type,
+        "entity_id": str(entity_id)[:36],
+        "ip_address": _client_ip(request)[:45],
+    }
+    for user_id, extra in ((actor, {}), (None, {"actor": actor})):
+        try:
+            async with sf() as db:
+                await write_audit(db, **entry, user_id=user_id, detail={**(detail or {}), **extra})
+                await db.commit()
+            return
+        except Exception as exc:
+            if user_id is None:
+                logger.warning("Audit write failed (%s %s): %s", action, entity_id, exc)
+
+
 def _same_user_id(a: str, b: str) -> bool:
     """Compare user ids however they are spelt (the memory store keeps ``.hex``, URLs dashes)."""
     try:
@@ -208,7 +245,7 @@ async def _login_response(
 
 
 @auth_router.post("/login", response_model=None)
-async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout, audit)
+async def login_submit(  # noqa: PLR0912, PLR0915 - linear auth flow (rate limit, lockout, audit)
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -222,54 +259,61 @@ async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout
     if await rate_limiter.is_locked(username) or await rate_limiter.is_locked(ip):
         return await _login_response(request, "Account temporarily locked. Try again later.", 429)
 
-    # Lookup user — check in-memory bootstrap store first, then DB
-    user: dict[str, Any] | None = _users_store.get(username)
-    if user is None:
-        try:
-            from sqlalchemy import select as _sel
+    # Lookup user — the DB is the source of truth; the in-memory bootstrap
+    # store only answers for users without a row (or when the DB is down).
+    user: dict[str, Any] | None = None
+    known_in_db = False  # a row exists, even soft-deleted: no memory-store fallback
+    try:
+        from sqlalchemy import select as _sel
 
-            from mediacat.db.models import User as _UModel
+        from mediacat.db.models import User as _UModel
 
-            sf = getattr(request.app.state, "db_session_factory", None)
-            if sf:
-                async with sf() as _db:
-                    _row = (
-                        await _db.execute(
-                            _sel(_UModel).where(
-                                _UModel.username == username,
-                                _UModel.deleted_at.is_(None),
-                            )
-                        )
-                    ).scalar_one_or_none()
-                    if _row:
-                        user = {
-                            "id": str(_row.id),
-                            "username": _row.username,
-                            "email": _row.email,
-                            "password_hash": _row.password_hash,
-                            "role": str(_row.role),
-                            "is_active": _row.is_active,
-                            "session_timeout_seconds": getattr(
-                                _row, "session_timeout_seconds", 86400
-                            ),
-                            "failed_login_count": _row.failed_login_count or 0,
-                            "locked_until": _row.locked_until,
-                            "_db_id": str(_row.id),
-                        }
-        except Exception as _exc:
-            logger.warning("DB user lookup failed during login: %s", _exc)
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                _row = (
+                    await _db.execute(_sel(_UModel).where(_UModel.username == username))
+                ).scalar_one_or_none()
+                known_in_db = _row is not None
+                if _row and _row.deleted_at is None:
+                    user = {
+                        "id": str(_row.id),
+                        "username": _row.username,
+                        "email": _row.email,
+                        "password_hash": _row.password_hash,
+                        "role": str(_row.role),
+                        "is_active": _row.is_active,
+                        "session_timeout_seconds": getattr(_row, "session_timeout_seconds", 86400),
+                        "failed_login_count": _row.failed_login_count or 0,
+                        "locked_until": _row.locked_until,
+                        "_db_id": str(_row.id),
+                    }
+    except Exception as _exc:
+        logger.warning("DB user lookup failed during login: %s", _exc)
+    if user is None and not known_in_db:
+        user = _users_store.get(username)
 
     if not user or not user.get("is_active", False):
         await rate_limiter.record_failure(username)
         await rate_limiter.record_failure(ip)
+        await _audit(request, "login.failed", "user", username, detail={"reason": "unknown"})
         return await _login_response(request, "Invalid username or password.", 401)
+
+    # Account lock stored on the user row (set below after too many failures)
+    locked_until = user.get("locked_until")
+    if isinstance(locked_until, datetime) and locked_until > datetime.now(UTC):
+        await _audit(request, "login.locked", "user", user["id"], actor_id="")
+        return await _login_response(request, "Account temporarily locked. Try again later.", 429)
 
     # Verify password
     if not verify_password(password, user["password_hash"]):
         await rate_limiter.record_failure(username)
         await rate_limiter.record_failure(ip)
         user["failed_login_count"] = user.get("failed_login_count", 0) + 1
+        if user.get("_db_id"):
+            await _record_failed_login(request, user["_db_id"])
         logger.warning("Failed login for user=%s from ip=%s", username, ip)
+        await _audit(request, "login.failed", "user", user["id"], detail={"reason": "password"})
         return await _login_response(request, "Invalid username or password.", 401)
 
     # Check if password needs rehash (params changed)
@@ -296,6 +340,7 @@ async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout
                 _vals: dict[str, Any] = {
                     "last_login_at": datetime.now(UTC),
                     "failed_login_count": 0,
+                    "locked_until": None,
                 }
                 if new_hash:
                     _vals["password_hash"] = new_hash
@@ -306,7 +351,9 @@ async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout
 
     # Create session cookie — respect per-user session timeout
     session_timeout = user.get("session_timeout_seconds", 86400)
-    session_token = session_mgr.create_session(user["id"], user["role"])
+    session_token = session_mgr.create_session(
+        user["id"], user["role"], lifetime_seconds=session_timeout
+    )
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
         key=session_mgr.cookie_name,
@@ -318,7 +365,39 @@ async def login_submit(  # noqa: PLR0915 - linear auth flow (rate limit, lockout
     )
 
     logger.info("Successful login: user=%s role=%s ip=%s", username, user["role"], ip)
+    await _audit(request, "login", "user", user["id"], actor_id=user["id"])
     return response
+
+
+async def _record_failed_login(request: Request, user_id: str) -> None:
+    """Count a failed login on the user row; lock the account at the threshold."""
+    from datetime import timedelta
+
+    from sqlalchemy import update as _upd
+
+    from mediacat.db.models import User as _UModel
+
+    threshold, window = getattr(request.app.state, "login_lockout", (10, 900))
+    try:
+        async with request.app.state.db_session_factory() as _db:
+            count = (
+                await _db.execute(
+                    _upd(_UModel)
+                    .where(_UModel.id == uuid.UUID(user_id))
+                    .values(failed_login_count=_UModel.failed_login_count + 1)
+                    .returning(_UModel.failed_login_count)
+                )
+            ).scalar_one()
+            if count >= threshold:
+                await _db.execute(
+                    _upd(_UModel)
+                    .where(_UModel.id == uuid.UUID(user_id))
+                    .values(locked_until=datetime.now(UTC) + timedelta(seconds=window))
+                )
+                logger.warning("Account locked after %d failed logins: %s", count, user_id)
+            await _db.commit()
+    except Exception as _exc:
+        logger.warning("Failed-login counter update failed: %s", _exc)
 
 
 @auth_router.get("/logout")
@@ -588,6 +667,38 @@ async def review_detail(request: Request, review_id: str) -> HTMLResponse:
     return _tmpl().TemplateResponse(request=request, name="review_detail.html", context=context)
 
 
+async def _resolve_review(
+    request: Request, review_id: str, status: Any, comment: str
+) -> bool | None:
+    """Set a review item's outcome.  False: no such item; None: DB unavailable."""
+    from sqlalchemy import select
+
+    from mediacat.db.models import ReviewItem
+
+    try:
+        rid = uuid.UUID(review_id)
+    except ValueError:
+        return False
+    sf = getattr(request.app.state, "db_session_factory", None)
+    if sf is None:
+        return None
+    try:
+        async with sf() as db:
+            item = (
+                await db.execute(select(ReviewItem).where(ReviewItem.id == rid))
+            ).scalar_one_or_none()
+            if item is None:
+                return False
+            item.status = status
+            item.resolution_comment = comment
+            item.resolved_at = datetime.now(UTC)
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Review %s DB update failed: %s", review_id, exc)
+        return None
+    return True
+
+
 @review_router.post("/reviews/{review_id}/approve", response_model=None)
 async def review_approve(
     request: Request,
@@ -599,26 +710,15 @@ async def review_approve(
     user_id = request.state.user_id
     safe_comment = comment.replace("\n", " ").replace("\r", " ")[:200]
 
-    from sqlalchemy import select
-
     from mediacat.db.enums import ReviewStatus
-    from mediacat.db.models import ReviewItem
 
-    try:
-        rid = uuid.UUID(review_id)
-        sf = getattr(request.app.state, "db_session_factory", None)
-        if sf:
-            async with sf() as db:
-                item = (
-                    await db.execute(select(ReviewItem).where(ReviewItem.id == rid))
-                ).scalar_one_or_none()
-                if item:
-                    item.status = ReviewStatus.APPROVED
-                    item.resolution_comment = safe_comment
-                    item.resolved_at = datetime.now(UTC)
-                    await db.commit()
-    except Exception as exc:
-        logger.warning("Review approve DB update failed: %s", exc)
+    found = await _resolve_review(request, review_id, ReviewStatus.APPROVED, safe_comment)
+    if found is False:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if found:
+        await _audit(
+            request, "review.approve", "review_item", review_id, detail={"comment": safe_comment}
+        )
 
     logger.info("Review %s approved by user=%s", review_id, user_id)
     if _is_htmx(request):
@@ -637,26 +737,15 @@ async def review_reject(
     user_id = request.state.user_id
     safe_comment = comment.replace("\n", " ").replace("\r", " ")[:200]
 
-    from sqlalchemy import select
-
     from mediacat.db.enums import ReviewStatus
-    from mediacat.db.models import ReviewItem
 
-    try:
-        rid = uuid.UUID(review_id)
-        sf = getattr(request.app.state, "db_session_factory", None)
-        if sf:
-            async with sf() as db:
-                item = (
-                    await db.execute(select(ReviewItem).where(ReviewItem.id == rid))
-                ).scalar_one_or_none()
-                if item:
-                    item.status = ReviewStatus.REJECTED
-                    item.resolution_comment = safe_comment
-                    item.resolved_at = datetime.now(UTC)
-                    await db.commit()
-    except Exception as exc:
-        logger.warning("Review reject DB update failed: %s", exc)
+    found = await _resolve_review(request, review_id, ReviewStatus.REJECTED, safe_comment)
+    if found is False:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if found:
+        await _audit(
+            request, "review.reject", "review_item", review_id, detail={"comment": safe_comment}
+        )
 
     logger.info("Review %s rejected by user=%s", review_id, user_id)
     if _is_htmx(request):
@@ -826,28 +915,10 @@ async def user_create_submit(
     """Create a new user (admin only)."""
     _require_role(request, "admin")
 
-    # Check uniqueness in both in-memory store and DB
-    _taken = username in _users_store
-    if not _taken:
-        try:
-            from sqlalchemy import select as _sel
-
-            from mediacat.db.models import User as _UModel
-
-            sf = getattr(request.app.state, "db_session_factory", None)
-            if sf:
-                async with sf() as _db:
-                    _existing = (
-                        await _db.execute(_sel(_UModel.id).where(_UModel.username == username))
-                    ).scalar_one_or_none()
-                    _taken = _existing is not None
-        except Exception as exc:
-            logger.debug("username availability check failed: %s", exc)
-
-    if _taken:
+    if await _identity_taken(request, username, email):
         context = _ctx(
             request,
-            error=f"Username '{username}' already exists.",
+            error=f"Username '{username}' or that e-mail address is already in use.",
             roles=["admin", "contributor", "reviewer", "viewer"],
         )
         return _tmpl().TemplateResponse(
@@ -914,6 +985,9 @@ async def user_create_submit(
         "session_timeout_seconds": 86400,
     }
     logger.info("User created: %s role=%s by=%s", username, safe_role, request.state.user_id)
+    await _audit(
+        request, "user.create", "user", uid, detail={"username": username, "role": safe_role}
+    )
     return RedirectResponse(url="/users", status_code=303)
 
 
@@ -965,6 +1039,41 @@ async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
     return _tmpl().TemplateResponse(request=request, name="user_edit.html", context=context)
 
 
+async def _identity_taken(request: Request, username: str, email: str) -> bool:
+    """True if the username or e-mail address already belongs to a user (memory or DB)."""
+    email_l = email.strip().lower()
+    if username in _users_store or any(
+        str(u.get("email", "")).lower() == email_l for u in _users_store.values()
+    ):
+        return True
+    try:
+        from sqlalchemy import func as _func
+        from sqlalchemy import or_ as _or
+        from sqlalchemy import select as _sel
+
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                hit = (
+                    await _db.execute(
+                        _sel(_UModel.id)
+                        .where(
+                            _or(
+                                _UModel.username == username,
+                                _func.lower(_UModel.email) == email_l,
+                            )
+                        )
+                        .limit(1)
+                    )
+                ).first()
+                return hit is not None
+    except Exception as exc:
+        logger.debug("username/e-mail availability check failed: %s", exc)
+    return False
+
+
 async def _active_admin_count(request: Request) -> int:
     """Return the number of active admin accounts (DB-backed with in-memory fallback)."""
     try:
@@ -1000,7 +1109,7 @@ async def user_edit_submit(
     user_id: str,
     role: str = Form("viewer"),
     session_timeout_seconds: int = Form(86400),
-    is_active: str = Form("on"),
+    is_active: str = Form(""),  # unticked checkboxes are not sent at all
 ) -> RedirectResponse | HTMLResponse:
     """Update user role and session timeout (admin only)."""
     _require_role(request, "admin")
@@ -1038,7 +1147,8 @@ async def user_edit_submit(
     new_timeout = max(300, min(session_timeout_seconds, 604800))
 
     # Protect the last admin: can't demote or deactivate the final active admin
-    if target.get("role") == "admin":
+    # (an admin that is already inactive is not one of them).
+    if target.get("role") == "admin" and target.get("is_active", True):
         losing_admin = (not new_active) or (new_role != "admin")
         if losing_admin and await _active_admin_count(request) <= 1:
             context = _ctx(
@@ -1091,6 +1201,17 @@ async def user_edit_submit(
         mem_target["is_active"] = new_active
 
     logger.info("User updated: %s by=%s", target["username"], request.state.user_id)
+    await _audit(
+        request,
+        "user.update",
+        "user",
+        user_id,
+        detail={
+            "role": [target.get("role"), new_role],
+            "is_active": [target.get("is_active"), new_active],
+            "session_timeout_seconds": new_timeout,
+        },
+    )
     return RedirectResponse(url="/users", status_code=303)
 
 
@@ -1102,6 +1223,7 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
     # Load target to check role
     target_role: str = ""
     target_username: str = ""
+    target_active = True
     try:
         from sqlalchemy import select as _sel
 
@@ -1121,6 +1243,7 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
                 if _row:
                     target_role = str(_row.role)
                     target_username = _row.username
+                    target_active = _row.is_active
     except Exception as _exc:
         logger.warning("user_deactivate DB lookup failed: %s", _exc)
 
@@ -1129,9 +1252,10 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
             if _same_user_id(u["id"], user_id):
                 target_role = u.get("role", "")
                 target_username = u.get("username", "")
+                target_active = bool(u.get("is_active", True))
                 break
 
-    if target_role == "admin" and await _active_admin_count(request) <= 1:
+    if target_role == "admin" and target_active and await _active_admin_count(request) <= 1:
         logger.warning(
             "Blocked deactivation of last admin %s by=%s", target_username, request.state.user_id
         )
@@ -1158,6 +1282,7 @@ async def user_deactivate(request: Request, user_id: str) -> RedirectResponse:
             break
 
     logger.info("User deactivated: %s by=%s", target_username, request.state.user_id)
+    await _audit(request, "user.deactivate", "user", user_id)
     return RedirectResponse(url="/users", status_code=303)
 
 
@@ -1187,6 +1312,7 @@ async def user_activate(request: Request, user_id: str) -> RedirectResponse:
             logger.info("User activated: %s by=%s", u["username"], request.state.user_id)
             break
 
+    await _audit(request, "user.activate", "user", user_id)
     return RedirectResponse(url="/users", status_code=303)
 
 
@@ -1232,25 +1358,8 @@ async def register_submit(
     ):
         return _err("Username must be at least 3 characters (letters, numbers, ._- only).")
 
-    # Check uniqueness in both DB and in-memory store
-    _username_taken = username in _users_store
-    if not _username_taken:
-        try:
-            from sqlalchemy import select as _sel
-
-            from mediacat.db.models import User as _UModel
-
-            sf = getattr(request.app.state, "db_session_factory", None)
-            if sf:
-                async with sf() as _db:
-                    _existing = (
-                        await _db.execute(_sel(_UModel.id).where(_UModel.username == username))
-                    ).scalar_one_or_none()
-                    _username_taken = _existing is not None
-        except Exception as exc:
-            logger.debug("username availability check failed: %s", exc)
-    if _username_taken:
-        return _err(f"Username '{username}' is already taken.")
+    if await _identity_taken(request, username, email):
+        return _err("That username or e-mail address is already registered.")
     if len(password) < 8:
         return _err("Password must be at least 8 characters.")
     if password != confirm_password:
@@ -1298,6 +1407,9 @@ async def register_submit(
         "session_timeout_seconds": 86400,
     }
     logger.info("Self-registration: user=%s email=%s", username, email)
+    await _audit(
+        request, "user.register", "user", uid, actor_id=str(uid), detail={"username": username}
+    )
     return RedirectResponse(url="/login?registered=1", status_code=303)
 
 

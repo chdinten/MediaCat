@@ -70,7 +70,9 @@ class SessionManager:
     secret_key
         Server-side signing key (from Docker secrets).
     max_age_seconds
-        Session lifetime.
+        Default session lifetime (tokens without their own lifetime).
+    max_lifetime_seconds
+        Upper bound for a per-session lifetime (the longest user timeout).
     cookie_name
         Name of the session cookie.
     """
@@ -80,17 +82,26 @@ class SessionManager:
         secret_key: str,
         *,
         max_age_seconds: int = 86400,
+        max_lifetime_seconds: int = 604800,
         cookie_name: str = "mediacat_session",
         cookie_secure: bool = False,
     ) -> None:
         self._signer = TimestampSigner(secret_key)
         self._max_age = max_age_seconds
+        self._max_lifetime = max(max_lifetime_seconds, max_age_seconds)
         self.cookie_name = cookie_name
         self.cookie_secure = cookie_secure
 
-    def create_session(self, user_id: str, role: str) -> str:
-        """Create a signed session token."""
-        payload = f"{user_id}|{role}|{secrets.token_hex(8)}"
+    def create_session(
+        self, user_id: str, role: str, *, lifetime_seconds: int | None = None
+    ) -> str:
+        """Create a signed session token valid for *lifetime_seconds* (default: max_age).
+
+        The lifetime is signed into the token, so the server enforces it
+        whatever ``Max-Age`` the client's cookie jar keeps.
+        """
+        lifetime = min(lifetime_seconds or self._max_age, self._max_lifetime)
+        payload = f"{user_id}|{role}|{secrets.token_hex(8)}|{lifetime}"
         return self._signer.sign(payload).decode("utf-8")
 
     def validate_session(self, token: str) -> dict[str, str] | None:
@@ -100,13 +111,19 @@ class SessionManager:
         the token is invalid or expired.
         """
         try:
-            payload = self._signer.unsign(token, max_age=self._max_age).decode("utf-8")
-            parts = payload.split("|")
-            if len(parts) < 3:
-                return None
-            return {"user_id": parts[0], "role": parts[1]}
+            raw, signed_at = self._signer.unsign(
+                token, max_age=self._max_lifetime, return_timestamp=True
+            )
         except (BadSignature, SignatureExpired):
             return None
+        parts = raw.decode("utf-8").split("|")
+        if len(parts) < 3:
+            return None
+        # Tokens issued before lifetimes were signed in get the default.
+        lifetime = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else self._max_age
+        if self._signer.get_timestamp() - int(signed_at.timestamp()) > lifetime:
+            return None
+        return {"user_id": parts[0], "role": parts[1]}
 
 
 # ---------------------------------------------------------------------------

@@ -296,6 +296,11 @@ def create_app() -> FastAPI:
     app.state.session_manager = session_manager
     app.state.csrf_protection = csrf_protection
     app.state.login_rate_limiter = rate_limiter
+    # Per-account lock on the user row (failed_login_count / locked_until)
+    app.state.login_lockout = (
+        security_cfg.get("login", {}).get("lockout_threshold", 10),
+        security_cfg.get("login", {}).get("lockout_window_seconds", 900),
+    )
     app.state.trusted_proxy_networks = trusted_proxy_networks
     logger.info("Trusted proxy networks: %s", [str(n) for n in trusted_proxy_networks])
 
