@@ -62,7 +62,7 @@ from mediacat.web import routes
 from mediacat.web.app import create_app
 from mediacat.web.auth import hash_password
 
-from .fakes import FakeObjectStore, NetworkGuard
+from .fakes import FakeHttp, FakeObjectStore, NetworkGuard
 
 TEST_DB_NAME = "mediacat_test"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -319,6 +319,14 @@ def network_guard(monkeypatch: pytest.MonkeyPatch) -> Iterator[NetworkGuard]:
 
 
 @pytest.fixture
+def fake_http(network_guard: NetworkGuard, monkeypatch: pytest.MonkeyPatch) -> FakeHttp:
+    """Canned external HTTP answers (see :class:`FakeHttp`); unmatched requests stay blocked."""
+    fake = FakeHttp()
+    fake.install(monkeypatch)
+    return fake
+
+
+@pytest.fixture
 async def engine(test_database: IntegrationDb) -> AsyncIterator[AsyncEngine]:
     """Clean database (truncate + seed restore) and an engine as the app role."""
     conn = await asyncpg.connect(test_database.admin_dsn)
@@ -362,6 +370,9 @@ def app(
     """A fresh app wired to the test database and fakes."""
     # The in-memory bootstrap store is module state (test_web seeds it): start empty.
     monkeypatch.setattr(routes, "_users_store", {})
+    # No real API token from the developer's shell may reach the code under test.
+    for var in ("DISCOGS_TOKEN",):
+        monkeypatch.delenv(var, raising=False)
     application = create_app()
     application.state.db_engine = engine
     application.state.db_session_factory = session_factory

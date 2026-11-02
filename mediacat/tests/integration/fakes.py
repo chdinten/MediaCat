@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import ipaddress
+import random
 import socket
 from dataclasses import dataclass, field
 from typing import Any
@@ -30,6 +31,17 @@ def png_bytes(width: int = 64, height: int = 48, colour: str = "red") -> bytes:
     """A small valid PNG (distinct colours give distinct content hashes)."""
     buf = io.BytesIO()
     Image.new("RGB", (width, height), colour).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def noisy_jpeg(seed: int = 0, size: int = 64) -> bytes:
+    """A JPEG of random pixels: several KB, unlike :func:`png_bytes` (some code skips < 1 KB)."""
+    rnd = random.Random(seed)  # noqa: S311 - test data, not crypto
+    img = Image.frombytes(
+        "RGB", (size, size), bytes(rnd.randrange(256) for _ in range(size * size * 3))
+    )
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=95)
     return buf.getvalue()
 
 
@@ -124,6 +136,56 @@ class StubLlmBackend:
     async def complete(self, system: str, user: str, **_kwargs: Any) -> LlmResponse:
         self.calls.append((system, user))
         return LlmResponse(text=self.reply, provider="stub", model="stub-model")
+
+
+class FakeHttp:
+    """Canned answers for outbound ``httpx`` requests (Discogs, MusicBrainz, CDNs).
+
+    Register responses with :meth:`add`; a request matches on its URL without
+    the query string.  Anything unmatched falls through to :class:`NetworkGuard`
+    (blocked and reported).  ``requests`` lists every request answered here.
+    """
+
+    def __init__(self) -> None:
+        self.routes: dict[str, list[httpx.Response]] = {}
+        self.requests: list[httpx.Request] = []
+
+    def add(
+        self,
+        url: str,
+        *,
+        json: Any = None,
+        content: bytes = b"",
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """Answer requests to *url*.  Several answers for one URL are given in order; the last repeats."""
+        resp = (
+            httpx.Response(status, json=json, headers=headers)
+            if json is not None
+            else httpx.Response(status, content=content, headers=headers)
+        )
+        self.routes.setdefault(url, []).append(resp)
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = self
+        fallthrough = httpx.AsyncHTTPTransport.handle_async_request
+
+        async def _send(transport: Any, request: httpx.Request) -> httpx.Response:
+            key = str(request.url.copy_with(query=None))
+            replies = fake.routes.get(key)
+            if not replies:
+                return await fallthrough(transport, request)
+            fake.requests.append(request)
+            reply = replies.pop(0) if len(replies) > 1 else replies[0]
+            return httpx.Response(
+                reply.status_code, headers=reply.headers, content=reply.content, request=request
+            )
+
+        monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _send)
+
+    def urls(self) -> list[str]:
+        return [str(r.url.copy_with(query=None)) for r in self.requests]
 
 
 _LOOPBACK_NAMES = {"localhost", "testserver"}
