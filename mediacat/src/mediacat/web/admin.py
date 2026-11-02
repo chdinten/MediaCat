@@ -942,6 +942,8 @@ async def _run_import(
     from mediacat.db.models import CollectionImportJob, Token
     from mediacat.web.catalogue import _import_discogs_images
 
+    # The connector's token ("Discogs token=XXXX") also authenticates image downloads.
+    image_token = str(getattr(connector, "_auth_header", "") or "").partition("token=")[2].strip()
     _opened_locally = False
     if not getattr(connector, "_client", None):
         await connector.open()
@@ -1174,7 +1176,7 @@ async def _run_import(
                         try:
                             async with sf() as db:
                                 count = await _import_discogs_images(
-                                    store, db, token_id, data["images"][:4]
+                                    store, db, token_id, data["images"][:4], image_token
                                 )
                                 if count:
                                     await db.commit()

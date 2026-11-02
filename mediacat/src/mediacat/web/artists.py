@@ -586,11 +586,12 @@ def _discogs_token() -> str | None:
 
 
 async def _in_db_titles(request: Request, artist_name: str) -> set[str]:
+    """Lower-cased titles of the artist's live pressings (Discogs and MusicBrainz differ in case)."""
     async with _sf(request)() as db:
         return set(
             (
                 await db.execute(
-                    select(Token.title)
+                    select(func.lower(Token.title))
                     .where(Token.deleted_at.is_(None))
                     .where(Token.status != TokenStatus.MERGED)
                     .where(Token.artist == artist_name)
@@ -604,7 +605,7 @@ async def _in_db_titles(request: Request, artist_name: str) -> set[str]:
 
 def _annotate_in_db(discography: list[dict[str, Any]], in_db: set[str]) -> list[dict[str, Any]]:
     for album in discography:
-        album["in_db"] = album.get("title", "") in in_db
+        album["in_db"] = (album.get("title") or "").lower() in in_db
     return discography
 
 
@@ -861,7 +862,7 @@ async def _backfill_token_spotify_urls(
             await db.execute(
                 update(Token)
                 .where(Token.artist == artist_name)
-                .where(Token.title == title)
+                .where(func.lower(Token.title) == title.lower())
                 .where(Token.spotify_url.is_(None))
                 .values(spotify_url=spotify_url)
             )

@@ -641,11 +641,6 @@ async def test_discography_from_musicbrainz_is_annotated_and_cached(
     assert len(disco_rows(html)) == 4
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: 'in DB' annotation compares titles case-sensitively "
-    "(Discogs 'Of The' vs MusicBrainz 'of the'), unlike the casefolded Spotify match",
-)
 async def test_discography_marks_owned_titles_regardless_of_case(
     viewer: httpx.AsyncClient, db: AsyncSession, fake_http: FakeHttp
 ) -> None:
@@ -768,6 +763,7 @@ async def test_discography_spotify_enrichment_and_token_backfill(
         db, "Pink Floyd", "The Wall", 1980, spotify_url="https://open.spotify.com/album/mine"
     )
     other_artist = await add_token(db, "Roger Waters", "The Dark Side of the Moon", 2022)
+    shouty = await add_token(db, "Pink Floyd", "THE WALL", 1979)  # case differs from the source
     await db.commit()
     fake_spotify.albums = [
         {"title": "THE DARK SIDE OF THE MOON", "spotify_url": "https://open.spotify.com/album/ds"},
@@ -792,6 +788,7 @@ async def test_discography_spotify_enrichment_and_token_backfill(
     assert spotify[catalogue["floyd1"].id] == "https://open.spotify.com/album/ds"
     assert spotify[catalogue["floyd2"].id] == "https://open.spotify.com/album/wall"
     assert spotify[keep.id] == "https://open.spotify.com/album/mine"  # never overwritten
+    assert spotify[shouty.id] == "https://open.spotify.com/album/wall"
     assert spotify[other_artist.id] is None
     row = await bio_row(db, "Pink Floyd")
     assert row is not None

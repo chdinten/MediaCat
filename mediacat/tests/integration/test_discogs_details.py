@@ -412,9 +412,9 @@ async def test_refresh_stores_identifiers_and_collection_fields(
     assert coll["values"]["6"] == ""  # cleared on Discogs
     assert coll["values"]["8"] == "Nick Mason"
     assert coll["discogs_values"]["8"] == ""
-    # The public release call carries no personal token; the collection calls do.
+    # The release call uses the token saved in Admin too, like the collection calls.
     release_req = fake_http.sent("GET", f"{API}/releases/")[0]
-    assert "authorization" not in release_req.headers
+    assert release_req.headers["authorization"] == "Discogs token=dc-secret"
     assert fake_http.sent("GET", f"{API}/oauth/identity")[0].headers["authorization"] == (
         "Discogs token=dc-secret"
     )

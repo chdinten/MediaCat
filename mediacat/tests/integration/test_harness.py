@@ -32,9 +32,7 @@ async def test_schema_is_at_alembic_head(db: AsyncSession) -> None:
 
     from .conftest import PROJECT_ROOT
 
-    cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
-    cfg.set_main_option("path_separator", "os")  # alembic.ini predates the option
-    head = ScriptDirectory.from_config(cfg).get_current_head()
+    head = ScriptDirectory.from_config(Config(str(PROJECT_ROOT / "alembic.ini"))).get_current_head()
     assert (await db.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == head
 
 

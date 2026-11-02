@@ -292,6 +292,7 @@ async def _import_discogs_images(
     db: Any,
     token_id: uuid.UUID,
     images: list[Any],  # raw Discogs JSON: entries are checked below
+    token: str | None = None,
 ) -> int:
     """Download Discogs images and store them in MinIO. Returns count stored."""
     if not store or not images:
@@ -321,7 +322,7 @@ async def _import_discogs_images(
     primary_done = False
     secondary_count = 0
     stored = 0
-    headers = _discogs_auth_header()
+    headers = _discogs_auth_header(token)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for idx, img in enumerate(images[:_DISCOGS_IMAGE_LIMIT]):
@@ -1037,7 +1038,9 @@ async def token_new_form(
         did = _parse_int(discogs_id.strip())
         if did:
             try:
-                prefill = _map_discogs_fields(await _fetch_discogs_release(did))
+                prefill = _map_discogs_fields(
+                    await _fetch_discogs_release(did, await _discogs_token(request))
+                )
             except httpx.HTTPStatusError as exc:
                 search_error = (
                     f"Discogs release {discogs_id} not found."
@@ -1070,13 +1073,18 @@ async def token_new_form(
             ctr = country.strip()
             # Barcode digits: search Discogs by barcode field for precision
             if q_raw.isdigit() and len(q_raw) in (8, 12, 13):
-                search_results = await _discogs_barcode_search(q_raw)
+                dtoken = await _discogs_token(request)
+                search_results = await _discogs_barcode_search(q_raw, dtoken)
                 if not search_results:
-                    search_results = await _discogs_search(q_raw, limit, year=yr, country=ctr)
+                    search_results = await _discogs_search(
+                        q_raw, limit, year=yr, country=ctr, token=dtoken
+                    )
             elif source == "musicbrainz":
                 search_results = await _mb_search(q_raw, limit)
             else:
-                search_results = await _discogs_search(q_raw, limit, year=yr, country=ctr)
+                search_results = await _discogs_search(
+                    q_raw, limit, year=yr, country=ctr, token=await _discogs_token(request)
+                )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 search_error = (
@@ -1308,7 +1316,13 @@ async def catalogue_search(
             results = (
                 await _mb_search(q, limit)
                 if source == "musicbrainz"
-                else await _discogs_search(q, limit, year=year.strip(), country=country.strip())
+                else await _discogs_search(
+                    q,
+                    limit,
+                    year=year.strip(),
+                    country=country.strip(),
+                    token=await _discogs_token(request),
+                )
             )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
@@ -1336,7 +1350,7 @@ async def catalogue_search(
 
 
 async def _discogs_search(
-    q: str, limit: int = 10, *, year: str = "", country: str = ""
+    q: str, limit: int = 10, *, year: str = "", country: str = "", token: str | None = None
 ) -> list[dict[str, Any]]:
     params: dict[str, str | int] = {"q": q, "type": "release", "per_page": limit}
     if year:
@@ -1347,7 +1361,7 @@ async def _discogs_search(
         r = await client.get(
             f"{_DISCOGS_BASE}/database/search",
             params=params,
-            headers={"User-Agent": _USER_AGENT},
+            headers=_discogs_auth_header(token),  # Discogs search needs authentication
         )
         r.raise_for_status()
     results = []
@@ -1691,7 +1705,7 @@ async def scan_cover(
 
     # Try an exact Discogs barcode lookup first
     try:
-        results = await _discogs_barcode_search(barcode_value)
+        results = await _discogs_barcode_search(barcode_value, await _discogs_token(request))
     except Exception:
         results = []
 
@@ -1714,13 +1728,13 @@ async def scan_cover(
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 
-async def _discogs_barcode_search(barcode: str) -> list[dict[str, Any]]:
+async def _discogs_barcode_search(barcode: str, token: str | None = None) -> list[dict[str, Any]]:
     """Search Discogs by exact barcode -- more precise than a text query."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.get(
             f"{_DISCOGS_BASE}/database/search",
             params={"barcode": barcode, "type": "release", "per_page": 10},
-            headers={"User-Agent": _USER_AGENT},
+            headers=_discogs_auth_header(token),  # Discogs search needs authentication
         )
         r.raise_for_status()
     results = []
@@ -1752,20 +1766,27 @@ async def _discogs_barcode_search(barcode: str) -> list[dict[str, Any]]:
     return results
 
 
-def _discogs_auth_header() -> dict[str, str]:
+async def _discogs_token(request: Request) -> str:
+    """Discogs token for API calls: Admin → API Tokens, the app connector, else DISCOGS_TOKEN."""
+    from mediacat.web.admin import _resolve_discogs_token
+
+    return await _resolve_discogs_token(request) or os.environ.get("DISCOGS_TOKEN", "").strip()
+
+
+def _discogs_auth_header(token: str | None = None) -> dict[str, str]:
     """Return auth + user-agent headers for Discogs API and CDN requests."""
     headers: dict[str, str] = {"User-Agent": _USER_AGENT}
-    token = os.environ.get("DISCOGS_TOKEN", "").strip()
+    token = token or os.environ.get("DISCOGS_TOKEN", "").strip()
     if token:
         headers["Authorization"] = f"Discogs token={token}"
     return headers
 
 
-async def _fetch_discogs_release(release_id: int) -> dict[str, Any]:
+async def _fetch_discogs_release(release_id: int, token: str | None = None) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.get(
             f"{_DISCOGS_BASE}/releases/{release_id}",
-            headers=_discogs_auth_header(),
+            headers=_discogs_auth_header(token),
         )
         r.raise_for_status()
     return r.json()  # type: ignore[no-any-return]
@@ -1840,7 +1861,7 @@ async def import_discogs_preview(request: Request, release_id: int) -> HTMLRespo
     """Show a preview of what will be imported from a Discogs release."""
     _require_role(request, "admin", "reviewer")
     try:
-        data = await _fetch_discogs_release(release_id)
+        data = await _fetch_discogs_release(release_id, await _discogs_token(request))
         fields = _map_discogs_fields(data)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
@@ -1858,7 +1879,7 @@ async def import_discogs_create(request: Request, release_id: int) -> RedirectRe
     """Create a Token from a Discogs release and redirect to the detail page."""
     _require_role(request, "admin", "reviewer")
     try:
-        data = await _fetch_discogs_release(release_id)
+        data = await _fetch_discogs_release(release_id, await _discogs_token(request))
         fields = _map_discogs_fields(data)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Could not reach Discogs API") from exc
@@ -1898,7 +1919,9 @@ async def import_discogs_create(request: Request, release_id: int) -> RedirectRe
         store = getattr(request.app.state, "object_store", None)
         img_count = 0
         try:
-            img_count = await _import_discogs_images(store, db, token.id, data.get("images") or [])
+            img_count = await _import_discogs_images(
+                store, db, token.id, data.get("images") or [], await _discogs_token(request)
+            )
         except Exception as exc:
             logger.warning("Discogs image import failed for release %d: %s", release_id, exc)
 
@@ -2209,7 +2232,6 @@ async def catalogue_facets(
     country_q: str = Query(""),
 ) -> JSONResponse:
     """Return genre/format/decade counts as JSON for the faceted filter pills."""
-    _require_role(request)
     try:
         async with _sf(request)() as db:
             data = await _fetch_facets(db, q, fmt, year_from, year_to, country_q)
@@ -2935,7 +2957,7 @@ async def token_refresh_discogs(request: Request, token_id: str) -> RedirectResp
         )
 
     try:
-        data = await _fetch_discogs_release(token.discogs_release_id)
+        data = await _fetch_discogs_release(token.discogs_release_id, await _discogs_token(request))
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             status_code=502, detail=f"Discogs API error {exc.response.status_code}"
@@ -2949,7 +2971,9 @@ async def token_refresh_discogs(request: Request, token_id: str) -> RedirectResp
 
     try:
         async with _sf(request)() as db:
-            count = await _import_discogs_images(store, db, token.id, images)
+            count = await _import_discogs_images(
+                store, db, token.id, images, await _discogs_token(request)
+            )
             if count:
                 await db.commit()
     except Exception as exc:
@@ -3561,7 +3585,9 @@ async def import_genres(request: Request, token_id: str) -> RedirectResponse:
 
     if token.discogs_release_id:
         try:
-            data = await _fetch_discogs_release(token.discogs_release_id)
+            data = await _fetch_discogs_release(
+                token.discogs_release_id, await _discogs_token(request)
+            )
             _seen: set[str] = set()
             for g in list(data.get("genres", [])) + list(data.get("styles", [])):
                 if g not in _seen:
@@ -3648,7 +3674,7 @@ async def import_discogs_rating(request: Request, token_id: str) -> RedirectResp
         return RedirectResponse(url=f"/catalogue/{token_id}?msg=no_discogs_id", status_code=303)
 
     try:
-        data = await _fetch_discogs_release(token.discogs_release_id)
+        data = await _fetch_discogs_release(token.discogs_release_id, await _discogs_token(request))
     except Exception as exc:
         logger.warning("Discogs rating import failed for token=%s: %s", token_id, exc)
         return RedirectResponse(url=f"/catalogue/{token_id}?msg=discogs_error", status_code=303)
@@ -3705,7 +3731,9 @@ async def import_tracks(
 
     if use_discogs and token.discogs_release_id:
         try:
-            data = await _fetch_discogs_release(token.discogs_release_id)
+            data = await _fetch_discogs_release(
+                token.discogs_release_id, await _discogs_token(request)
+            )
             from mediacat.ingestion.discogs import _extract_tracklist as _dtl
 
             tracklist = _dtl(data.get("tracklist", []))
@@ -3899,7 +3927,7 @@ async def import_sales_history_confirm(
     from mediacat.ingestion.valuation_confidence import calculate_confidence, compute_statistics
 
     result = parse_sales_text(raw_text, expected_release_id=token.discogs_release_id)
-    if result.has_hard_error:
+    if result.has_hard_error or not result.valid_rows:  # the preview offers no confirm then
         logger.warning("sales-history confirm rejected: hard error for token=%s", token_id)
         return RedirectResponse(
             url=f"/catalogue/{token_id}?msg=sales_import_parse_error", status_code=303
@@ -4032,7 +4060,7 @@ async def sync_discogs_execute(request: Request, token_id: str) -> RedirectRespo
     errors: list[str] = []
 
     try:
-        data = await _fetch_discogs_release(token.discogs_release_id)
+        data = await _fetch_discogs_release(token.discogs_release_id, await _discogs_token(request))
     except Exception as exc:
         logger.warning("sync-discogs fetch failed for token=%s: %s", token_id, exc)
         return RedirectResponse(url=f"/catalogue/{token_id}?msg=discogs_error", status_code=303)
@@ -4089,7 +4117,9 @@ async def sync_discogs_execute(request: Request, token_id: str) -> RedirectRespo
     if store and data.get("images"):
         try:
             async with _sf(request)() as db:
-                count = await _import_discogs_images(store, db, tid, data["images"])
+                count = await _import_discogs_images(
+                    store, db, tid, data["images"], await _discogs_token(request)
+                )
                 if count:
                     await db.commit()
         except Exception as exc:

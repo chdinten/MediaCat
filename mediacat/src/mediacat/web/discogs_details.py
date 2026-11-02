@@ -171,7 +171,7 @@ RATE_LIMITED_MSG = (
 )
 
 
-async def _fetch_release_patiently(release_id: int) -> dict[str, Any]:
+async def _fetch_release_patiently(release_id: int, token: str | None = None) -> dict[str, Any]:
     """Fetch a release, riding out a short 429 burst.
 
     Discogs allows ~60 requests a minute per token; a collection import in
@@ -182,7 +182,7 @@ async def _fetch_release_patiently(release_id: int) -> dict[str, Any]:
 
     for wait in (*RATE_LIMIT_WAITS, None):
         try:
-            return await _fetch_discogs_release(release_id)
+            return await _fetch_discogs_release(release_id, token)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 429 or wait is None:
                 raise
@@ -201,7 +201,12 @@ async def refresh_token_discogs_details(
         return ["no Discogs release ID"]
 
     try:
-        data = release if release is not None else await _fetch_release_patiently(rid)
+        if release is not None:
+            data = release
+        else:
+            from mediacat.web.catalogue import _discogs_token  # noqa: PLC0415 - circular
+
+            data = await _fetch_release_patiently(rid, await _discogs_token(request))
         updates["discogs"] = release_extra(data)
     except Exception as exc:
         logger.warning("identifier refresh failed token=%s: %s", token.id, exc)

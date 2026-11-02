@@ -531,7 +531,7 @@ async def test_refresh_rides_out_short_rate_limit(monkeypatch: pytest.MonkeyPatc
 
     calls: list[int] = []
 
-    async def fake_fetch(release_id: int) -> dict[str, Any]:
+    async def fake_fetch(release_id: int, _token: str | None = None) -> dict[str, Any]:
         calls.append(release_id)
         if len(calls) < 3:
             req = httpx.Request("GET", "https://api.discogs.com/releases/1")
@@ -548,7 +548,7 @@ async def test_refresh_rides_out_short_rate_limit(monkeypatch: pytest.MonkeyPatc
 
     calls.clear()
 
-    async def always_429(release_id: int) -> dict[str, Any]:
+    async def always_429(release_id: int, _token: str | None = None) -> dict[str, Any]:
         calls.append(release_id)
         req = httpx.Request("GET", "https://api.discogs.com/releases/1")
         raise httpx.HTTPStatusError("429", request=req, response=httpx.Response(429, request=req))

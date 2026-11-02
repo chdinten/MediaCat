@@ -23,6 +23,12 @@
 {% if request.query_params.get('msg') == 'field_corrected' %}
 <div class="alert alert-success">Field corrected and saved to the revision history.</div>
 {% endif %}
+{% if request.query_params.get('msg') == 'tracks_imported' %}
+<div class="alert alert-success">Track listing imported.</div>
+{% endif %}
+{% if request.query_params.get('msg') == 'no_tracks_found' %}
+<div class="alert alert-warning">No track listing found on Discogs or MusicBrainz.</div>
+{% endif %}
 {% if request.query_params.get('msg') == 'image_exists' %}
 <div class="alert alert-info">That image is already attached to this pressing.</div>
 {% endif %}
@@ -278,6 +284,42 @@
         </div>
     </div>
 </div>
+
+{# ── Track listing (grouped by vinyl side, else by disc) ── #}
+<section class="tracklist-section" id="tracklist">
+    <div class="tracklist-header">
+        <h3 class="section-title">Track listing</h3>
+        {% if user.role in ('admin', 'reviewer', 'contributor') and (token.discogs_release_id or token.musicbrainz_release_id) %}
+        <form method="post" action="/catalogue/{{ token.id }}/import-tracks">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-ghost btn-sm">↓ {{ 'Refresh' if tracklist_discs else 'Import' }} from {{ 'Discogs' if token.discogs_release_id else 'MusicBrainz' }}</button>
+        </form>
+        {% endif %}
+    </div>
+    {% if tracklist_discs %}
+    {% for d in tracklist_discs %}
+    <details class="disc-section" open>
+        <summary class="disc-summary">
+            <span class="disc-toggle-icon" aria-hidden="true">▼</span>
+            <span class="disc-label">{{ 'Side' if d.label_type == 'side' else 'Disc' }} {{ d.disc }}</span>
+            <span class="disc-track-count text-muted">{{ d.tracks | length }} track{{ '' if d.tracks | length == 1 else 's' }}</span>
+        </summary>
+        <table class="track-table">
+            {% for t in d.tracks %}
+            <tr class="track-row">
+                <td class="track-pos">{{ t.position or '' }}</td>
+                <td class="track-title">{{ t.title }}</td>
+                <td class="track-artists text-muted">{{ (t.artists or []) | join(', ') }}</td>
+                <td class="track-duration text-muted">{% if t.duration_ms is number and t.duration_ms > 0 %}{{ '%d:%02d' | format(t.duration_ms // 60000, (t.duration_ms // 1000) % 60) }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </details>
+    {% endfor %}
+    {% else %}
+    <p class="tracklist-empty">No track listing yet.</p>
+    {% endif %}
+</section>
 
 {% set can_edit_coll = user.role in ('admin', 'reviewer', 'contributor') %}
 {% set can_writeback = user.role in ('admin', 'reviewer') %}

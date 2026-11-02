@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from dataclasses import field as dc_field
@@ -788,6 +789,36 @@ async def test_import_from_discogs_creates_pressing_with_images(
     assert object_store.objects[(front.bucket, front.object_key)] == blobs[front.source_url or ""]
 
 
+async def test_discogs_calls_use_the_token_saved_in_admin(
+    reviewer: httpx.AsyncClient,
+    db: AsyncSession,
+    fake_http: Any,
+    quick_sleep: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mediacat.db.models import SiteSetting
+    from mediacat.web import discogs_details
+
+    async def _no_collection(_request: Any) -> None:
+        return None  # collection fields are covered in test_discogs_details
+
+    monkeypatch.setattr(discogs_details, "open_collection_connector", _no_collection)
+
+    db.add(SiteSetting(key="discogs_token", value="admin-tok"))
+    await db.commit()
+    serve_release(fake_http, discogs_release())
+    fake_http.reply(f"{DISCOGS}/database/search", json={"results": []})
+
+    await reviewer.get("/catalogue/import/discogs/4242")
+    await reviewer.post("/catalogue/import/discogs/4242")
+    await reviewer.get("/catalogue/search?q=talking+heads")
+    sent = {(r.url.host, r.headers.get("authorization")) for r in fake_http.requests}
+    assert sent == {
+        ("api.discogs.com", "Discogs token=admin-tok"),
+        ("i.discogs.com", "Discogs token=admin-tok"),
+    }
+
+
 async def test_refresh_from_discogs_skips_images_already_stored(
     admin: httpx.AsyncClient, db: AsyncSession, fake_http: Any, quick_sleep: None
 ) -> None:
@@ -1305,6 +1336,11 @@ async def test_sales_history_confirm_rejects_unparseable_text(
         f"/catalogue/{token.id}/import-sales-history/confirm", data={"raw_text": "  "}
     )
     assert r.headers["location"].endswith("?msg=sales_import_parse_error")
+    # Text without a single valid sale is refused too, not stored as an empty import.
+    r = await contributor.post(
+        f"/catalogue/{token.id}/import-sales-history/confirm", data={"raw_text": "nothing here"}
+    )
+    assert r.headers["location"].endswith("?msg=sales_import_parse_error")
     assert (
         await db.execute(select(func.count()).select_from(DiscogsSalesImport))
     ).scalar_one() == 0
@@ -1322,10 +1358,6 @@ async def test_country_autocomplete(viewer: httpx.AsyncClient) -> None:
     assert "France" not in r.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: catalogue_facets calls _require_role(request) with no roles, so every user gets 403",
-)
 async def test_facets_endpoint_counts(viewer: httpx.AsyncClient, db: AsyncSession) -> None:
     await seed_token(db, artist="A", year=1971, genres=["Rock", "Prog"])
     await seed_token(db, artist="B", year=1975, genres=["Rock"], media_format=MediaFormat.CD)
@@ -1342,23 +1374,33 @@ async def test_facets_endpoint_counts(viewer: httpx.AsyncClient, db: AsyncSessio
     assert len(cd["formats"]) == 2
 
 
-async def test_pressing_detail_renders_genres_and_collection(
-    viewer: httpx.AsyncClient, db: AsyncSession
+async def test_pressing_detail_shows_tracklist_by_side(
+    viewer: httpx.AsyncClient, contributor: httpx.AsyncClient, db: AsyncSession
 ) -> None:
-    # The handler also groups the tracklist by side (tracklist_discs), but
-    # pressing_detail.html has never rendered it.
     token = await seed_token(
         db,
-        title="Sided",
+        title="Neu!",
         genres=["Krautrock"],
+        discogs_release_id=4242,
         tracklist=[
-            {"position": "A1", "title": "Hallogallo"},
-            {"position": "A2", "title": "Sonderangebot"},
-            {"position": "B1", "title": "Weissensee"},
+            {"position": "A1", "title": "Hallogallo", "duration_ms": 605000},
+            {"position": "A2", "title": "Sonderangebot", "artists": ["Michael Rother"]},
+            {"position": "B1", "title": "Weissensee", "duration_ms": None},
         ],
-        extra={"discogs_collection": {"known": True}},
     )
     r = await viewer.get(f"/catalogue/{token.id}")
     assert r.status_code == 200
-    assert "Sided" in r.text
     assert "Krautrock" in r.text
+    sides = re.findall(r'<span class="disc-label">([^<]+)</span>', r.text)
+    assert sides == ["Side A", "Side B"]
+    assert "Hallogallo" in r.text
+    assert "10:05" in r.text
+    assert "Michael Rother" in r.text
+    assert "/import-tracks" not in r.text  # viewers get no import button
+    assert (
+        f'action="/catalogue/{token.id}/import-tracks"'
+        in (await contributor.get(f"/catalogue/{token.id}")).text
+    )
+
+    bare = await seed_token(db)
+    assert "No track listing yet." in (await viewer.get(f"/catalogue/{bare.id}")).text

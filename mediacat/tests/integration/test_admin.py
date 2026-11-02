@@ -217,7 +217,9 @@ def image_imports(monkeypatch: pytest.MonkeyPatch) -> list[tuple[uuid.UUID, list
     """Stub the Discogs image download (it lives in catalogue.py and uses httpx)."""
     calls: list[tuple[uuid.UUID, list[Any]]] = []
 
-    async def _fake(_store: Any, db: AsyncSession, token_id: uuid.UUID, images: list[Any]) -> int:
+    async def _fake(
+        _store: Any, db: AsyncSession, token_id: uuid.UUID, images: list[Any], _token: str = ""
+    ) -> int:
         # Like the real helper: adds rows, the caller commits when count > 0.
         calls.append((token_id, images))
         db.add(
