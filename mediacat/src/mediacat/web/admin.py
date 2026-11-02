@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import io
 import json
 import logging
@@ -297,6 +298,7 @@ async def admin_user_create(
     password: str = Form(...),
     role: str = Form("viewer"),
 ) -> RedirectResponse:
+    _require_role(request, "admin")
     from mediacat.web.auth import hash_password
     from mediacat.web.routes import _users_store
 
@@ -576,8 +578,9 @@ async def import_imported_releases(request: Request, page: int = 1) -> HTMLRespo
             f"<td><code>{r['discogs_release_id']}</code></td>"
             f'<td><a href="{r["discogs_url"]}" target="_blank" rel="noopener noreferrer" '
             f'   style="font-size:0.78rem">{r["discogs_release_id"]} ↗</a></td>'
-            f"<td>{r['artist']}</td>"
-            f"<td>{r['title']}</td>"
+            # Artist and title come from Discogs / user input: escape them.
+            f"<td>{html.escape(r['artist'])}</td>"
+            f"<td>{html.escape(r['title'])}</td>"
             f"<td>{r['year']}</td>"
             f"<td>{r['fmt']}</td>"
             f'<td><a href="/catalogue/{r["id"]}" class="btn btn-ghost btn-sm" style="font-size:0.72rem">View</a></td>'
