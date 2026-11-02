@@ -42,10 +42,13 @@ PostgreSQL 16, MinIO, Redis, OPA. Docker Compose deployment on WSL2.
 - Login + dashboard background (`web/background.py`, `partials/page_background.html`, `static/background.js`): SiteSetting `background` (JSON: mode video|image, uploaded image/mp4/webm); uploads checked by content (JPEG/PNG/WebP, MP4 H.264/AV1, WebM VP8/VP9/AV1), stored in MinIO `site/background/<sha256>.<ext>`, served publicly with Range by `/site-media/background/{name}`; built-in defaults `static/media-cat-hero*`; managed in Admin → Layout. Admin page extends `base.html`, which loads only `style.css`
 - Quality gates: `make lint`, `ruff format --check`, `make typecheck` (mypy src: 0 errors), bandit (0 findings) all clean; pre-commit runs mypy/bandit from the venv. Bandit reasons go *before* the marker: `# reason  # nosec B105`
 - `.bat` files keep CRLF (`/.gitattributes`); everything else LF
+- Discogs API calls take their token from `catalogue._discogs_token(request)`: Admin → API Tokens (SiteSetting `discogs_token`), then the app connector, then `DISCOGS_TOKEN`; pass it to `_fetch_discogs_release` / `_discogs_search` / `_import_discogs_images` (Discogs search needs auth)
+- Sessions sign the user's timeout into the token (`user_id|role|nonce|lifetime`), enforced server-side; login reads the DB user first (memory bootstrap store only for unknown usernames), enforces `locked_until` and counts failures on the row; `routes._audit()` writes `audit_log` best-effort
+- Backup import converts the export's text values back by column type (`information_schema`) and restores `tokens.current_revision_id` after `token_revisions` (`_RESTORE_LATER`)
 - Integration tests (`tests/integration/`, `make test-integration`): throwaway `postgres:16-alpine` container per session (never the Compose DB), DB `mediacat_test` built by `alembic upgrade head`, app as `mediacat_app`; per-test reset + seed restore; clients per role via `make_client(role)`; outbound network blocked — stub it with the `fake_http` fixture (`FakeHttp`) or monkeypatch. `make test` needs Docker; `make test-unit` doesn't. Coverage needs `concurrency = ["greenlet", "thread"]` (SQLAlchemy async)
 
 ## Open items
-- Strict `xfail(reason="BUG: …")` tests in `tests/integration/` pin known open bugs (backup import restores nothing, audit_log never written, `User.locked_until` unused, …): fixing one makes its test XPASS → remove the marker
+- None known. Convention: a bug found but not fixed yet is pinned by a strict `xfail(reason="BUG: …")` test; fixing it makes the test XPASS → remove the marker
 
 ## Documentation
 - MediaCat_Technical_Reference.md — architecture, schema, API, configuration

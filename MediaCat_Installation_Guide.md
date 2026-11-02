@@ -432,7 +432,7 @@ The harness refuses any database not named `mediacat_test`.
 
 **External services are never called.** Discogs, MusicBrainz, Wikipedia and Spotify are stubbed per test (`FakeHttp` or monkeypatched fetchers), MinIO is an in-memory store with the same interface, and the vision/LLM backends are stubs. Every outbound connection is blocked; a test that reaches the network without a stub fails.
 
-**Known bugs** are pinned as strict `xfail` tests (`reason="BUG: …"`). Fixing one makes its test pass unexpectedly, which fails the run as a reminder to remove the marker.
+**Known bugs** that are not fixed yet are pinned as strict `xfail` tests (`reason="BUG: …"`; none at the moment). Fixing one makes its test pass unexpectedly, which fails the run as a reminder to remove the marker.
 
 | Variable | Effect |
 |----------|--------|
@@ -442,7 +442,7 @@ The harness refuses any database not named `mediacat_test`.
 
 Without Docker, `make test` skips the integration tests and then fails the coverage gate; use `make test-unit` instead.
 
-Typical run times: unit tests about 30 s; the full suite about 2 min 45 s (the container takes about 6 s to start).
+Typical run times: unit tests about 30 s; the full suite (about 710 tests) about 2 min 45 s; the container takes about 6 s to start.
 
 
 ## Troubleshooting

@@ -744,10 +744,12 @@ Jobs use `BLMOVE` for atomic pending → processing transfer.
 ### 9.1 Authentication Flow
 
 1. **Password hashing** — Argon2id (`time_cost=3`, `memory=64 MiB`, `parallelism=2`)
-2. **Login rate limiting** — In-memory lockout; 10 failures per username or IP in 15 min (DEF-002: planned Redis migration)
-3. **Session creation** — Signed cookie (`itsdangerous.TimestampSigner`); payload = `user_id|role|nonce`; 24 h TTL
-4. **CSRF protection** — Per-session HMAC-SHA256 token validated from `X-CSRF-Token` header on all mutating requests
-5. **MFA scaffold** — `User.mfa_secret` stores TOTP secret; not yet wired into login flow
+2. **Login rate limiting** — Redis (in-memory fallback) lockout; 10 failures per username or IP in 15 min. In addition each failure increments `User.failed_login_count`; at `security.login.lockout_threshold` the row gets `locked_until` = now + `lockout_window_seconds`, and login answers 429 until then. A successful login clears both
+3. **User lookup** — The DB is the source of truth; the in-memory bootstrap store answers only for usernames the DB does not know
+4. **Session creation** — Signed cookie (`itsdangerous.TimestampSigner`); payload = `user_id|role|nonce|lifetime`. The lifetime is the user's session timeout (15 min – 7 days, default 24 h) and is enforced by the server, not only by the cookie's `Max-Age`; tokens without a lifetime get 24 h
+5. **Audit trail** — `audit_log` gets an entry for login / `login.failed` / `login.locked`, user create / update / deactivate / activate / register and review approve / reject (written in its own session; a failed audit write never fails the request)
+6. **CSRF protection** — Per-session HMAC-SHA256 token validated from `X-CSRF-Token` header on all mutating requests
+7. **MFA scaffold** — `User.mfa_secret` stores TOTP secret; not yet wired into login flow
 
 ### 9.2 User Roles
 
@@ -1240,7 +1242,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 | P1 | Validated artist biographies (Wikipedia, Discogs, homepage AI summary) as background tasks | **Done (v0.4)** |
 | P1 | Top-bar search for album titles and song titles | **Done (v0.4)** |
 | P1 | Raise test coverage to the 55% threshold (integration test harness; now about 76%) | **Done** |
-| P1 | Fix the bugs pinned by strict `xfail` tests: backup import restores no rows, `audit_log` never written, `User.locked_until` / `failed_login_count` unused, per-user session timeout cookie-only, duplicate e-mail swallowed on user create | Open |
+| P1 | Fix the bugs found by the integration tests (backup restore, audit trail, account lock, server-side session lifetime, duplicate e-mail, Discogs token use, tracklist display, …) | **Done** |
 | P2 | DEF-002 Redis-backed login rate limiter | Open |
 | P2 | Phase 2 symbol pipeline: focused re-run with slug hints from review | Open |
 | P2 | LLM comparison / anomaly detection module (`llm/tasks.py`) | Open |
