@@ -19,6 +19,17 @@
   ``BLMOVE`` for at-least-once delivery with dead-letter handling.
 - `src/mediacat/ingestion/registry.py` — connector discovery from
   ``connectors.yaml``, secret resolution from Docker secrets, factory.
+- `src/mediacat/ingestion/wikipedia.py` — Wikipedia REST summaries, plain-text
+  extracts, and MusicBrainz artist links (Wikipedia/Wikidata, homepage, Discogs).
+- `src/mediacat/ingestion/artist_bio.py` — artist biography resolution:
+  Wikipedia (MusicBrainz link or LLM-verified search), Discogs artist profile
+  comparison weighted towards Wikipedia, official homepage summarised by the
+  LLM, else a "not found" statement. See [Section 9](09-web.md#artist-page-and-biographies).
+- `src/mediacat/ingestion/discogs_extras.py` — pure helpers for Discogs release
+  identifiers (runout variants grouped by LP side) and collection custom fields
+  (matched by name pattern), stored in `Token.extra`.
+- `src/mediacat/ingestion/spotify.py` — Spotify album links for the discography
+  (client-credentials; omit `include_groups` / `market`, Spotify rejects them).
 
 ## Security properties
 
@@ -28,6 +39,10 @@
 - Rate limiting prevents upstream bans and credential revocation.
 - Circuit breaker prevents cascading failures.
 - Schema drift is **advisory only** — no executable code is generated.
+- Homepage fetches for artist bios refuse private, loopback, link-local and
+  reserved addresses (SSRF guard) and follow at most two about/bio links.
+- Discogs allows about 60 requests/minute per token, shared by the collection
+  import and manual refreshes; refreshes retry HTTP 429 after 2, 4 and 6 s.
 
 ## Adding a new connector
 

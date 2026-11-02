@@ -260,6 +260,8 @@ Import-Certificate -FilePath "$env:USERPROFILE\caddy-root.crt" `
 
 After this, all Windows browsers trust `https://mediacat.localhost:8443` (and the `docs.`, `minio.` and `ollama.` sub-domains) permanently, with no more certificate warnings. The cert only needs to be imported once.
 
+Only the **root** certificate (valid 10 years) is imported. The site certificates Caddy issues from it last **30 days** and renew automatically (set by the `(local_tls)` snippet in `deploy/Caddyfile`), so renewals never need a new import. Firefox keeps its own certificate store: import `caddy-root.crt` there too (Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import).
+
 ### Opening MediaCat
 
 | What | Address |
@@ -406,6 +408,8 @@ docker compose --env-file .env -f deploy/docker-compose.yaml exec app bash
 | `make test` | Full pytest suite with coverage report |
 | `make test-fast` | Pytest excluding slow / integration tests |
 
+Lint, formatting, mypy (0 errors) and Bandit (0 findings) are clean, and the pre-commit hooks run all four before each commit. All tests pass, but total coverage (about 39%) is below the configured 55% threshold, so `make test` ends with a coverage failure; this is a known open item.
+
 
 ## Troubleshooting
 
@@ -446,6 +450,21 @@ Compose v2 looks for `.env` in the directory of the compose file (`deploy/`), no
 
 ### Browser shows another product's login page (e.g. Kasm Workspaces)
 The address is missing `:8443`. Without a port the browser uses 443, where a different program answers (on this machine, Kasm Workspaces' `kasm_proxy` container). Check what owns the port with `docker ps --format '{{.Names}} {{.Ports}}' | grep ':443->'`. Use `https://mediacat.localhost:8443/`, or move MediaCat to 443 with `HTTPS_BIND=127.0.0.1:443` if nothing else needs it.
+
+### Browser warns "not secure" after the PC was asleep, then it works again
+The site certificate had expired while the PC or WSL was asleep, and Caddy had not renewed it yet (it checks every 10 minutes or so). Older setups used Caddy's 12-hour default; `deploy/Caddyfile` now issues 30-day certificates, which outlast sleep. If you still see it:
+1. Check the dates: `echo | openssl s_client -connect 127.0.0.1:8443 -servername mediacat.localhost 2>/dev/null | openssl x509 -noout -dates`.
+2. Make sure the Caddyfile has `import local_tls` in each site, then `docker compose --env-file .env -f deploy/docker-compose.yaml up -d --no-deps --force-recreate caddy`.
+3. Existing short certificates are only replaced at their next renewal. To replace them at once, move them aside and restart Caddy (the trusted root stays, so no re-import is needed):
+   ```bash
+   docker compose --env-file .env -f deploy/docker-compose.yaml exec caddy sh -c \
+     'B=/data/caddy/backup-$(date +%Y%m%d%H%M); mkdir -p $B && \
+      mv /data/caddy/pki/authorities/local/intermediate.* $B/ && \
+      mv /data/caddy/certificates/local $B/certificates-local'
+   docker compose --env-file .env -f deploy/docker-compose.yaml restart caddy
+   ```
+
+A warning with a certificate for "OmenServer" (or another product) means the address lacks `:8443`; see the Kasm entry above.
 
 ### Browser switches to HTTPS even when using `http://`
 Browsers (especially Chromium-based) have HSTS preloading for `.localhost`. Either:

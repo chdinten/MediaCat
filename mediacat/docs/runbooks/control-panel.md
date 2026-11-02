@@ -17,6 +17,20 @@
     If 443 is free and you prefer short addresses, set `HTTPS_BIND=127.0.0.1:443` in
     `.env` and restart Caddy.
 
+## HTTPS certificates
+
+Caddy's local CA signs the `.localhost` sites. Only its root certificate is
+imported into Windows (once). Site certificates last **30 days** with a 90-day
+intermediate (`(local_tls)` snippet and `pki` block in `deploy/Caddyfile`) and
+renew automatically.
+
+!!! note "\"Not secure\" after the PC was asleep"
+    Caddy's default 12-hour certificates expired during sleep, and the browser
+    warned until Caddy renewed them a few minutes later. The 30-day lifetime
+    prevents this. Check the dates with
+    `echo | openssl s_client -connect 127.0.0.1:8443 -servername mediacat.localhost 2>/dev/null | openssl x509 -noout -dates`.
+    A certificate named "OmenServer" means the address lacks `:8443` (Kasm).
+
 ## Web control panel
 
 The terminal menu `scripts/mediacat-ctl.sh` is also available as a web page, built

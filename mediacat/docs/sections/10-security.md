@@ -39,7 +39,8 @@
 | Surface | Mitigation | Status |
 |---------|-----------|--------|
 | SQL injection | SQLAlchemy ORM with parameterised queries only; no raw SQL in application code | ✅ Implemented |
-| XSS | Jinja2 autoescaping (on by default); strict CSP `script-src 'self'` | ✅ Implemented |
+| XSS | Jinja2 autoescaping (on by default); strict CSP `script-src 'self'`, no inline handlers (HTMX `hx-on` included) | ✅ Implemented |
+| SSRF | Artist-homepage fetches refuse private, loopback, link-local and reserved hosts | ✅ Implemented |
 | CSRF | Per-session HMAC-SHA256 tokens validated on every mutating form; `SameSite=Lax` | ✅ Implemented |
 | Prompt injection | `mediacat.llm.safety.sanitise()`: length limiting, XML-tag wrapping, injection pattern detection | ✅ Implemented (Section 7) |
 | Path traversal | Object-store keys are content hashes; no user-controlled path components | ✅ By design |

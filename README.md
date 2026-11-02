@@ -10,13 +10,15 @@ comparison, anomaly detection, translation (British English), and text generatio
 ## Key capabilities
 
 - **Catalogue browser** — Artist → Album → Pressing hierarchy with HTMX drill-down; create, edit, archive, merge, soft-delete, and flag pressings for review
-- **Artists tab** — Grid of all artists with portrait images (Wikipedia), pressing counts, and year ranges; click-through to album list, Wikipedia biography, and discography (MusicBrainz primary → Wikipedia fallback, enriched with Spotify album URLs, cached daily); Spotify links appear in the discography list and on the pressing detail page
+- **Artists tab** — Grid of all artists with portrait images (Wikipedia), pressing counts, and year ranges; click-through to album list, biography (Wikipedia via MusicBrainz or LLM-verified search → Discogs profile if clearly fuller → official homepage AI summary → "not found" statement; looked up in the background with a progress timer), and discography (MusicBrainz primary → Wikipedia fallback, enriched with Spotify album URLs, cached daily); Spotify links appear in the discography list and on the pressing detail page
 - **Direct import** — Create a Token directly from a Discogs or MusicBrainz release ID with a one-click preview-and-import flow; scan a barcode from a cover photo to pre-fill the form
 - **Bulk collection import** — Import an entire Discogs user collection via the Admin panel; paginated, resumable, skip-existing-by-default, with live progress tracking and per-release error recovery
 - **Image management** — Drag-and-drop upload on both the detail page and the edit form; assign region labels; delete images; primary cover selection (is_primary_cover flag) for Japanese OBI and similar multi-image cases
 - **Structured matrix breakdown** — Vision analysis decomposes runout etchings into 7 typed fields (matrix number, stamper code, SID mastering/mould codes, lacquer cutter, pressing plant, other etchings) with per-field confidence scores and source tracking
 - **Inline field correction** — Correct any individual parsed matrix field with a mandatory reason code (vision_misread, physical_inspection, cross_reference, authoritative_source, other) and optional notes; every correction is stored as a new TokenRevision for full audit trail
 - **External search** — Discogs and MusicBrainz lookup directly from the catalogue UI
+- **Global search** — Top-bar search with a scope picker: artists and album titles / catalogue numbers together, or artists, albums or song titles (tracks) on their own; album and track hits open the artist and the pressing; Ctrl+K palette with `/album` and `/track`
+- **Discogs pressing details** — Release identifiers grouped by pressing variant and LP side; pick a variant, tick matrix codes and copy them into *My copy* (your Discogs collection fields: runout per LP side, autographed, signed by…), with write-back to Discogs; A4 album sheet PDF; image lightbox; banner while a Discogs import runs
 - **Revision history** — Every change is a new `TokenRevision`; nothing is overwritten
 - **Vision pipeline** — Ollama (local-first) or Anthropic API transcribes labels, OBI strips, runout etchings; can be triggered interactively per image or automatically on upload/region reassignment
 - **Symbol registry** — 26 seeded runout / dead-wax symbols (EMI △, PRS ▽, Porky, etc.) with slug-based indexing

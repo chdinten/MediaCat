@@ -174,8 +174,12 @@ _docs_start() {
     if ! ( cd "$PROJ_DIR" && make docs-api ) >/dev/null 2>&1; then
         echo "  Warning: docs-api failed (run 'make setup' to install doc deps) — starting server anyway"
     fi
-    ( cd "$PROJ_DIR" && nohup .venv/bin/mkdocs serve -a 0.0.0.0:8800 -f docs/mkdocs.yml \
-        >"$_DOCS_LOG" 2>&1 & echo $! >"$_DOCS_PID" )
+    # Background mkdocs itself (not a "cd && nohup" list, whose subshell PID
+    # would be recorded and stopped instead, leaving mkdocs holding the port)
+    ( cd "$PROJ_DIR" || exit 1
+      nohup .venv/bin/mkdocs serve -a 0.0.0.0:8800 -f docs/mkdocs.yml \
+        >"$_DOCS_LOG" 2>&1 </dev/null &
+      echo $! >"$_DOCS_PID" )
     sleep 2
     if _docs_is_running; then
         echo "  Docs server started (PID $(cat "$_DOCS_PID"))"
