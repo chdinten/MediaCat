@@ -399,16 +399,50 @@ docker compose --env-file .env -f deploy/docker-compose.yaml exec app bash
 
 ## Quality gates
 
+Run in **[WSL-User]** from `<REPO-ROOT>`.
+
 | Command | Description |
 |---------|-------------|
 | `make lint` | Ruff linter — code style and imports |
 | `make format` | Ruff formatter — auto-fix formatting |
 | `make typecheck` | Mypy strict — full static type checking |
 | `make security` | Bandit + pip-audit — security scan |
-| `make test` | Full pytest suite with coverage report |
-| `make test-fast` | Pytest excluding slow / integration tests |
+| `make test` | Unit + integration tests with the coverage gate (needs Docker) |
+| `make test-unit` | Unit tests only, no Docker; coverage reported, not gated |
+| `make test-integration` | Integration tests only; coverage reported, not gated |
+| `make test-fast` | Excludes slow and integration tests; coverage not gated |
 
-Lint, formatting, mypy (0 errors) and Bandit (0 findings) are clean, and the pre-commit hooks run all four before each commit. All tests pass, but total coverage (about 39%) is below the configured 55% threshold, so `make test` ends with a coverage failure; this is a known open item.
+Lint, formatting, mypy (0 errors) and Bandit (0 findings) are clean, and the pre-commit hooks run all four before each commit. `make test` passes with about 76% coverage; the gate (`fail_under` in `[tool.coverage.report]`, `pyproject.toml`) is a ratchet: raise it as coverage grows, never lower it.
+
+### Integration tests
+
+`tests/integration/` drives the real app (`create_app()`) through the full middleware stack — session cookie, `X-CSRF-Token`, role checks, security headers — against a real PostgreSQL 16 built by the Alembic migrations.
+
+**What it needs:** Docker, and the `postgres:16-alpine` image (pulled on first use). Nothing else: the Compose stack does not have to run.
+
+**The database is never the live one.** Each test session starts its own throwaway container (`docker run --rm`, data on tmpfs, a random port on 127.0.0.1) and removes it at the end. It does not connect to the Compose Postgres and does not touch `/srv/mediacat/postgres`. Inside the container:
+
+1. the production role script `deploy/initdb/01-roles.sql` runs against the database `mediacat_test`;
+2. `alembic upgrade head` runs as `mediacat_migrator`, so the migrations are tested too;
+3. the app connects as `mediacat_app`, with the real grants (for example, `audit_log` is append-only).
+
+The harness refuses any database not named `mediacat_test`.
+
+**Isolation:** before every test all tables are emptied and the rows the migrations seed (countries, symbols) are restored from a snapshot taken after `upgrade head`. Tests do not depend on each other or on their order.
+
+**External services are never called.** Discogs, MusicBrainz, Wikipedia and Spotify are stubbed per test (`FakeHttp` or monkeypatched fetchers), MinIO is an in-memory store with the same interface, and the vision/LLM backends are stubs. Every outbound connection is blocked; a test that reaches the network without a stub fails.
+
+**Known bugs** are pinned as strict `xfail` tests (`reason="BUG: …"`). Fixing one makes its test pass unexpectedly, which fails the run as a reminder to remove the marker.
+
+| Variable | Effect |
+|----------|--------|
+| `MEDIACAT_TEST_DB=off` | Skip the integration tests (they also skip, with a reason, when Docker is missing or stopped) |
+| `MEDIACAT_TEST_DB_URL=postgresql://user:pw@host:port/mediacat_test` | Use an existing server instead of a container (for CI); the harness drops and recreates `mediacat_test` there and uses that one role for everything |
+| `MEDIACAT_TEST_PG_IMAGE` | Postgres image for the container (default `postgres:16-alpine`) |
+
+Without Docker, `make test` skips the integration tests and then fails the coverage gate; use `make test-unit` instead.
+
+Typical run times: unit tests about 30 s; the full suite about 2 min 45 s (the container takes about 6 s to start).
 
 
 ## Troubleshooting

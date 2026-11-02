@@ -1185,8 +1185,10 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 | `format` | Quality | Ruff formatter |
 | `typecheck` | Quality | Mypy strict |
 | `security` | Quality | Bandit + pip-audit |
-| `test` | Quality | Full pytest suite with coverage |
-| `test-fast` | Quality | Pytest excluding slow/integration markers |
+| `test` | Quality | Unit + integration tests with the coverage gate (needs Docker) |
+| `test-unit` | Quality | Unit tests only, no Docker (coverage not gated) |
+| `test-integration` | Quality | Integration tests against a throwaway Postgres (coverage not gated) |
+| `test-fast` | Quality | Pytest excluding slow/integration markers (coverage not gated) |
 | `up` | Docker | Start all 8 services (background) |
 | `down` | Docker | Stop; data volumes preserved |
 | `restart` | Docker | down + up |
@@ -1201,7 +1203,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 | `clean` | Cleanup | Remove build artefacts and caches |
 | `distclean` | Cleanup | clean + remove `.venv/` |
 
-**Quality gate status.** `make lint`, `ruff format --check`, `make typecheck` (mypy on `src`, 0 errors) and Bandit (0 findings) are clean. The pre-commit hooks (`mediacat/.pre-commit-config.yaml`) run Ruff, formatting, mypy and Bandit from the venv, plus YAML, whitespace and line-ending checks. A Bandit exception carries its reason **before** the marker: `# reason  # nosec B105`. `.bat` files keep CRLF line endings (`/.gitattributes`); everything else is LF. All tests pass, but total coverage (about 39%) is below the `--cov-fail-under=55` threshold, so `make test` reports a coverage failure.
+**Quality gate status.** `make lint`, `ruff format --check`, `make typecheck` (mypy on `src`, 0 errors) and Bandit (0 findings) are clean. The pre-commit hooks (`mediacat/.pre-commit-config.yaml`) run Ruff, formatting, mypy and Bandit from the venv, plus YAML, whitespace and line-ending checks. A Bandit exception carries its reason **before** the marker: `# reason  # nosec B105`. `.bat` files keep CRLF line endings (`/.gitattributes`); everything else is LF. `make test` passes with about 76% coverage against a ratcheted `fail_under = 76`. The integration tests (`tests/integration/`) run the real app against a throwaway PostgreSQL container built by the Alembic migrations, with all external services stubbed; see the Installation Guide, "Quality gates". Known open bugs are pinned there as strict `xfail` tests.
 
 
 ## 17 · Open Items & Roadmap
@@ -1237,7 +1239,8 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 | P1 | Discogs collection fields, pressing variants pick-and-copy, write-back, A4 album sheet | **Done (v0.4)** |
 | P1 | Validated artist biographies (Wikipedia, Discogs, homepage AI summary) as background tasks | **Done (v0.4)** |
 | P1 | Top-bar search for album titles and song titles | **Done (v0.4)** |
-| P1 | Raise test coverage to the 55% threshold (currently about 39%) | Open |
+| P1 | Raise test coverage to the 55% threshold (integration test harness; now about 76%) | **Done** |
+| P1 | Fix the bugs pinned by strict `xfail` tests: backup import restores no rows, `audit_log` never written, `User.locked_until` / `failed_login_count` unused, per-user session timeout cookie-only, duplicate e-mail swallowed on user create | Open |
 | P2 | DEF-002 Redis-backed login rate limiter | Open |
 | P2 | Phase 2 symbol pipeline: focused re-run with slug hints from review | Open |
 | P2 | LLM comparison / anomaly detection module (`llm/tasks.py`) | Open |
