@@ -3130,6 +3130,20 @@ dialog, .modal { border-radius: 0; background: var(--bg-elevated); border: 1px s
 [data-theme="light"] .hero p   { color: hsl(24 12% 30%); }
 [data-theme="light"] .hero-eyebrow { color: var(--copper); }
 [data-theme="light"] .hero-eyebrow-line { background: hsl(18 55% 42% / 0.6); }
+/* Dashboard hero over the page background: the dark see-through panels of the
+   dark theme would sit under dark text here, so light mode gets light panels
+   (opaque enough that the picture behind cannot wash the text out) and a
+   darker brass for the numbers. */
+[data-theme="light"] .hero--dashboard { background: hsl(40 28% 92% / 0.55); }
+[data-theme="light"] .hero--dashboard .hero-content {
+    background: hsl(40 33% 97% / 0.92);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+}
+[data-theme="light"] .hero--dashboard .hero-eyebrow { color: hsl(18 60% 34%); }
+[data-theme="light"] .hero-stats-row { background: linear-gradient(transparent, hsl(40 28% 92% / 0.94) 40%); }
+[data-theme="light"] .hero-stats-row .stat-card { background: hsl(40 33% 98% / 0.85); }
+[data-theme="light"] .hero-stats-row .stat-card--primary { background: hsl(36 55% 88% / 0.9); border-top-color: hsl(36 55% 55%); }
+[data-theme="light"] .stat-value { color: hsl(30 65% 32%); }
 [data-theme="light"] .vinyl-disc {
     background: radial-gradient(circle, hsl(30 10% 72%) 0%, hsl(30 8% 62%) 45%, hsl(30 10% 58%) 100%);
 }
