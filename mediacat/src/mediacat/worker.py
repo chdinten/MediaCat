@@ -19,11 +19,26 @@ import asyncio
 import logging
 import signal
 import sys
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _shutdown = asyncio.Event()
+
+#: Touched on every loop pass; the compose healthcheck fails when it is older
+#: than 60 s (the image's own healthcheck probes the web app's port, which the
+#: worker doesn't serve).  /tmp is a tmpfs in the container.
+HEARTBEAT = Path(
+    "/tmp/mediacat-worker.heartbeat"  # noqa: S108  # container tmpfs, not shared  # nosec B108
+)
+
+
+def _beat() -> None:
+    try:
+        HEARTBEAT.touch()
+    except OSError as exc:  # read-only or missing /tmp: only the healthcheck suffers
+        logger.debug("heartbeat not written: %s", exc)
 
 
 def _handle_signal(sig: int, frame: Any) -> None:
@@ -52,6 +67,7 @@ async def run_worker() -> None:
 
     # Placeholder: poll loop until shutdown
     while not _shutdown.is_set():
+        _beat()
         try:
             # In production: job = await queue.dequeue(timeout=5.0)
             await asyncio.wait_for(_shutdown.wait(), timeout=5.0)

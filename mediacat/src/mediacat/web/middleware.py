@@ -31,8 +31,6 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/register",
         "/static",
         "/site-media",  # login page background (web/background.py)
-        "/api/docs",
-        "/api/openapi.json",
     }
 )
 

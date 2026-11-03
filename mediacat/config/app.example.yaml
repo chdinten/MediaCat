@@ -44,6 +44,9 @@ security:
     time_cost: 3
     memory_cost_kib: 65536
     parallelism: 2
+  # Public self-registration at /register (creates viewer accounts). Off: /register answers 404
+  # and admins create accounts under Admin → Users.
+  self_registration: false
   # Login hardening.
   login:
     rate_limit_per_minute: 5
@@ -116,10 +119,10 @@ llm:
   fallback: api
   # Per-task models are resolved at runtime; see Section 7.
   tasks:
-    comparison:       { temperature: 0.0, max_output_tokens: 1024 }
-    anomaly:          { temperature: 0.0, max_output_tokens: 512 }
-    translation:      { temperature: 0.0, max_output_tokens: 2048 }
-    text_generation:  { temperature: 0.3, max_output_tokens: 1024 }
+    comparison: {temperature: 0.0, max_output_tokens: 1024}
+    anomaly: {temperature: 0.0, max_output_tokens: 512}
+    translation: {temperature: 0.0, max_output_tokens: 2048}
+    text_generation: {temperature: 0.3, max_output_tokens: 1024}
 
 rule_engine:
   backend: opa                  # opa | business_rules (see ADR-0003)

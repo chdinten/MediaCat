@@ -6,8 +6,12 @@
 <div class="page-header">
     <h1>Catalogue</h1>
     <div class="page-actions">
+        {% if user.role in ('admin', 'reviewer', 'contributor') %}
         <a href="/catalogue/new" class="btn btn-primary">+ Add pressing</a>
+        {% endif %}
+        {% if user.role in ('admin', 'reviewer') %}
         <a href="/catalogue/merge" class="btn btn-ghost" id="merge-dup-btn">Merge duplicates</a>
+        {% endif %}
     </div>
 </div>
 
@@ -97,8 +101,7 @@
                        hx-trigger="input changed delay:250ms"
                        hx-target="#cat-country-list"
                        hx-swap="innerHTML"
-                       hx-include="this"
-                       onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('catalogue-search-form').requestSubmit();}">
+                       hx-include="this">
                 <datalist id="cat-country-list"></datalist>
             </div>
         </div>
@@ -168,7 +171,7 @@
     </thead>
     <tbody>
         {% for p in genre_pressings %}
-        <tr class="genre-results-row" onclick="location.href='/catalogue/{{ p.id }}'" onkeydown="if(event.key==='Enter'||event.key===' ')location.href='/catalogue/{{ p.id }}'" tabindex="0">
+        <tr class="genre-results-row" data-mc-href="/catalogue/{{ p.id }}" tabindex="0">
             <td>{{ p.artist | artist_display }}</td>
             <td><a class="genre-result-link" href="/catalogue/{{ p.id }}">{{ p.title }}</a></td>
             <td>{{ p.year or '—' }}</td>
@@ -223,7 +226,9 @@
     <a href="/catalogue" class="btn btn-ghost">Clear all filters</a>
     {% else %}
     <p class="text-muted">No pressings catalogued yet.</p>
+    {% if user.role in ('admin', 'reviewer', 'contributor') %}
     <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+    {% endif %}
     {% endif %}
 </div>
 {% endif %}

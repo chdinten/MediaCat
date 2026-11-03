@@ -3,7 +3,7 @@
     <span class="pressing-panel-title">{{ album_title }}</span>
     <span class="pressing-panel-meta">by {{ artist | artist_display }} &nbsp;&middot;&nbsp; {{ tokens|length }} pressing{% if tokens|length != 1 %}s{% endif %}</span>
     <button class="album-panel-close" type="button" style="margin-left:auto"
-            onclick="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.album-grid-card').forEach(c=>c.classList.remove('album-grid-card--active'))">&times;</button>
+            data-mc-empty="#pressing-panel" data-mc-deactivate="album-grid-card" aria-label="Close">&times;</button>
 </div>
 <div class="pressing-list" id="catalogue-pressing-list">
     {% for token in tokens %}
@@ -66,7 +66,7 @@
     <span class="pressing-panel-title">{{ album_title }}</span>
     <span class="pressing-panel-meta">by {{ artist | artist_display }}</span>
     <button class="album-panel-close" type="button" style="margin-left:auto"
-            onclick="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.album-grid-card').forEach(c=>c.classList.remove('album-grid-card--active'))">&times;</button>
+            data-mc-empty="#pressing-panel" data-mc-deactivate="album-grid-card" aria-label="Close">&times;</button>
 </div>
 <p class="text-muted" style="padding:0.75rem 1.25rem">No pressings found.</p>
 {% endif %}

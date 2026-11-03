@@ -133,20 +133,22 @@
         </div>
         {% endif %}
         <div class="sidebar-actions">
+            {% if user.role in ('admin', 'reviewer') %}
             <a href="/catalogue/{{ token.id }}/edit" class="btn btn-primary btn-block">Edit</a>
+            {% endif %}
             <button type="button" class="btn btn-ghost btn-block js-print-sheet"
                     data-url="/catalogue/{{ token.id }}/print.pdf"
                     data-filename="{{ ((token.artist | artist_display or '') ~ ' - ' ~ (token.title or 'album')) | replace('/', '_') | trim(' -') }}.pdf"
                     title="Create an A4 album sheet (cover, tracks, runouts) and save it as PDF">🖨 Print sheet (PDF)</button>
-            {% if token.status.value != 'archived' %}
+            {% if token.status.value != 'archived' and user.role in ('admin', 'reviewer') %}
             <form method="post" action="/catalogue/{{ token.id }}/archive">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn btn-ghost btn-block"
                         data-confirm="Archive this pressing?">Archive</button>
             </form>
             {% endif %}
-            <a href="/catalogue/merge?winner_id={{ token.id }}" class="btn btn-ghost btn-block">Merge…</a>
             {% if user.role in ('admin', 'reviewer') %}
+            <a href="/catalogue/merge?winner_id={{ token.id }}" class="btn btn-ghost btn-block">Merge…</a>
             <form method="post" action="/catalogue/{{ token.id }}/flag-review">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn btn-ghost btn-block"

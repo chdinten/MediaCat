@@ -75,7 +75,9 @@
 <div class="sp-empty">
     <span class="sp-empty-icon">🎸</span>
     <span class="sp-empty-text">No artists in the catalogue yet.<br>
+        {% if user.role in ('admin', 'reviewer', 'contributor') %}
         <a href="/catalogue/new" class="btn btn-primary" style="margin-top:0.75rem">Add the first pressing</a>
+        {% endif %}
     </span>
 </div>
 {% endif %}
@@ -156,7 +158,9 @@
     <p class="text-muted">
         {% if query %}No artists found for "{{ query }}".{% else %}No artists in the catalogue yet.{% endif %}
     </p>
+    {% if user.role in ('admin', 'reviewer', 'contributor') %}
     <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+    {% endif %}
 </div>
 {% endif %}
 {% endblock %}

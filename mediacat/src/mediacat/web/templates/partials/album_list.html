@@ -5,7 +5,7 @@
         <span class="album-panel-count">{{ albums|length }} album{% if albums|length != 1 %}s{% endif %}</span>
     </div>
     <button class="album-panel-close" type="button"
-            onclick="document.getElementById('album-panel').innerHTML='';document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.artist-card').forEach(c=>c.classList.remove('artist-card--active'))">&times;</button>
+            data-mc-empty="#album-panel, #pressing-panel" data-mc-deactivate="artist-card" aria-label="Close">&times;</button>
 </div>
 <div class="album-list">
     {% for a in albums %}
@@ -26,7 +26,7 @@
 <div class="album-panel-header">
     <span class="album-panel-artist">{{ artist | artist_display }}</span>
     <button class="album-panel-close" type="button"
-            onclick="document.getElementById('album-panel').innerHTML='';document.querySelectorAll('.artist-card').forEach(c=>c.classList.remove('artist-card--active'))">&times;</button>
+            data-mc-empty="#album-panel" data-mc-deactivate="artist-card" aria-label="Close">&times;</button>
 </div>
 <p class="text-muted" style="padding:1rem 1.25rem">No albums found for {{ artist | artist_display }}.</p>
 {% endif %}

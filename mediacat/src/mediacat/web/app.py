@@ -39,6 +39,7 @@ from mediacat.web.middleware import (
     SessionMiddleware,
 )
 from mediacat.web.routes import (
+    account_router,
     auth_router,
     dashboard_router,
     health_router,
@@ -273,7 +274,10 @@ def create_app() -> FastAPI:
         title="MediaCat",
         version=__version__,
         description="Cataloging platform for physical music media.",
-        docs_url="/api/docs",
+        # No Swagger UI: its CDN and inline scripts are blocked by the CSP
+        # (script-src 'self'). The schema needs a login; the API reference is
+        # on the MkDocs site (pdoc).
+        docs_url=None,
         redoc_url=None,
         openapi_url="/api/openapi.json",
         lifespan=_lifespan,
@@ -301,6 +305,8 @@ def create_app() -> FastAPI:
         security_cfg.get("login", {}).get("lockout_threshold", 10),
         security_cfg.get("login", {}).get("lockout_window_seconds", 900),
     )
+    # Public /register (creates viewer accounts); off unless app.yaml turns it on
+    app.state.self_registration = bool(security_cfg.get("self_registration", False))
     app.state.trusted_proxy_networks = trusted_proxy_networks
     logger.info("Trusted proxy networks: %s", [str(n) for n in trusted_proxy_networks])
 
@@ -332,6 +338,7 @@ def create_app() -> FastAPI:
     app.include_router(review_router)
     app.include_router(token_router)
     app.include_router(user_router)
+    app.include_router(account_router)
     app.include_router(search_router)
 
     # Catalogue router imported here to avoid circular imports at module level.

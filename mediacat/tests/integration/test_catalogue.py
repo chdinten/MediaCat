@@ -23,6 +23,7 @@ from mediacat.db.enums import (
 )
 from mediacat.db.models import Country, MediaObject, ReviewItem, Token, TokenRevision, User
 
+from .conftest import ClientFactory
 from .fakes import FakeObjectStore, png_bytes
 
 _FORM = {
@@ -1404,3 +1405,29 @@ async def test_pressing_detail_shows_tracklist_by_side(
 
     bare = await seed_token(db)
     assert "No track listing yet." in (await viewer.get(f"/catalogue/{bare.id}")).text
+
+
+# ---------------------------------------------------------------------------
+# Buttons follow the role checks of the routes they lead to
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("role", "edits", "adds"),
+    [("viewer", False, False), ("contributor", False, True), ("reviewer", True, True)],
+)
+async def test_pressing_buttons_match_the_role(
+    make_client: ClientFactory, db: AsyncSession, role: str, edits: bool, adds: bool
+) -> None:
+    token = await seed_token(db)
+    client = await make_client(role)
+    page = (await client.get(f"/catalogue/{token.id}")).text
+    assert (f'href="/catalogue/{token.id}/edit"' in page) is edits
+    assert (f'action="/catalogue/{token.id}/archive"' in page) is edits
+    assert (f'href="/catalogue/merge?winner_id={token.id}"' in page) is edits
+    for layout in ("classic", "3panel"):
+        client.cookies.set("mc_layout", layout)
+        assert ('href="/catalogue/new"' in (await client.get("/")).text) is adds
+        catalogue = (await client.get("/catalogue")).text
+        assert ('href="/catalogue/new"' in catalogue) is adds
+        assert ('href="/catalogue/merge"' in catalogue) is edits

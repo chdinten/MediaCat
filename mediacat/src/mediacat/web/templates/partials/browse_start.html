@@ -44,7 +44,9 @@
         <p class="mc-hint">{{ artist_total }} artist{{ '' if artist_total == 1 else 's' }} · {{ pressing_total }} pressing{{ '' if pressing_total == 1 else 's' }}. Type in the box above the list to filter it, or use the letters beside it to jump.</p>
         {% else %}
         <p class="mc-start-title">No pressings catalogued yet</p>
+        {% if user.role in ('admin', 'reviewer', 'contributor') %}
         <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+        {% endif %}
         {% endif %}
     </div>
 {% endif %}

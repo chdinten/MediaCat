@@ -875,6 +875,127 @@ def _user_row_to_dict(u: Any) -> dict[str, Any]:
     }
 
 
+_MIN_PASSWORD = 8
+_TIMEOUT_OPTIONS = [
+    (900, "15 minutes"),
+    (1800, "30 minutes"),
+    (3600, "1 hour"),
+    (14400, "4 hours"),
+    (28800, "8 hours"),
+    (86400, "24 hours"),
+    (604800, "7 days"),
+]
+
+
+async def _password_hash_of(request: Request, user_id: str) -> str | None:
+    """The stored password hash of *user_id* (DB row, else the memory bootstrap store)."""
+    try:
+        from sqlalchemy import select as _sel
+
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                row = (
+                    await _db.execute(
+                        _sel(_UModel.password_hash).where(
+                            _UModel.id == uuid.UUID(user_id), _UModel.deleted_at.is_(None)
+                        )
+                    )
+                ).first()
+                if row is not None:
+                    return str(row[0])
+    except (ValueError, Exception) as exc:  # bad id, or the DB is down
+        logger.warning("password lookup failed: %s", exc)
+    mem = next((u for u in _users_store.values() if _same_user_id(u["id"], user_id)), None)
+    return str(mem["password_hash"]) if mem else None
+
+
+async def _set_password(request: Request, user_id: str, password: str) -> None:
+    """Store a new password hash and lift any lock from failed sign-ins."""
+    pw_hash = hash_password(password)
+    try:
+        from sqlalchemy import update as _upd
+
+        from mediacat.db.models import User as _UModel
+
+        sf = getattr(request.app.state, "db_session_factory", None)
+        if sf:
+            async with sf() as _db:
+                await _db.execute(
+                    _upd(_UModel)
+                    .where(_UModel.id == uuid.UUID(user_id))
+                    .values(password_hash=pw_hash, failed_login_count=0, locked_until=None)
+                )
+                await _db.commit()
+    except Exception as exc:
+        logger.warning("password update failed: %s", exc)
+    mem = next((u for u in _users_store.values() if _same_user_id(u["id"], user_id)), None)
+    if mem:
+        mem.update(password_hash=pw_hash, failed_login_count=0, locked_until=None)
+
+
+account_router = APIRouter(tags=["auth"])
+
+
+@account_router.get("/account/password", response_class=HTMLResponse)
+async def account_password_form(request: Request) -> HTMLResponse:
+    """Change your own password (any logged-in user)."""
+    return _tmpl().TemplateResponse(
+        request=request,
+        name="account_password.html",
+        context=_ctx(request, error=None, done=request.query_params.get("done") == "1"),
+    )
+
+
+@account_router.post("/account/password", response_model=None)
+async def account_password_submit(  # noqa: PLR0911 - one answer per validation step
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+) -> RedirectResponse | HTMLResponse:
+    """Check the current password, then store the new one.
+
+    Wrong current passwords count towards the login rate limiter under the
+    key ``pwchange:<user id>``, so the form can't be used to guess passwords.
+    """
+    user_id = str(getattr(request.state, "user_id", "") or "")
+    limiter = request.app.state.login_rate_limiter
+    key = f"pwchange:{user_id}"
+
+    def _err(msg: str, status: int = 400) -> HTMLResponse:
+        return _tmpl().TemplateResponse(
+            request=request,
+            name="account_password.html",
+            context=_ctx(request, error=msg, done=False),
+            status_code=status,
+        )
+
+    if await limiter.is_locked(key):
+        return _err("Too many wrong attempts. Try again later.", 429)
+    stored = await _password_hash_of(request, user_id)
+    if stored is None:
+        return _err("Your account could not be found.", 404)
+    if not verify_password(current_password, stored):
+        await limiter.record_failure(key)
+        await _audit(request, "user.password_change_failed", "user", user_id)
+        return _err("The current password is not correct.")
+    if len(new_password) < _MIN_PASSWORD:
+        return _err(f"The new password must be at least {_MIN_PASSWORD} characters.")
+    if new_password != confirm_password:
+        return _err("The new passwords do not match.")
+    if new_password == current_password:
+        return _err("The new password must differ from the current one.")
+
+    await _set_password(request, user_id, new_password)
+    await limiter.clear(key)
+    logger.info("Password changed by user_id=%s", user_id)
+    await _audit(request, "user.password_change", "user", user_id)
+    return RedirectResponse(url="/account/password?done=1", status_code=303)
+
+
 @user_router.get("", response_class=HTMLResponse)
 async def user_list(request: Request) -> HTMLResponse:
     """List all users (admin only)."""
@@ -938,7 +1059,7 @@ async def user_create_submit(
             status_code=409,
         )
 
-    if len(password) < 8:
+    if len(password) < _MIN_PASSWORD:
         context = _ctx(
             request,
             error="Password must be at least 8 characters.",
@@ -1035,15 +1156,7 @@ async def user_edit_form(request: Request, user_id: str) -> HTMLResponse:
         request,
         target=target,
         roles=["admin", "contributor", "reviewer", "viewer"],
-        timeout_options=[
-            (900, "15 minutes"),
-            (1800, "30 minutes"),
-            (3600, "1 hour"),
-            (14400, "4 hours"),
-            (28800, "8 hours"),
-            (86400, "24 hours"),
-            (604800, "7 days"),
-        ],
+        timeout_options=_TIMEOUT_OPTIONS,
         error=None,
     )
     return _tmpl().TemplateResponse(request=request, name="user_edit.html", context=context)
@@ -1120,8 +1233,9 @@ async def user_edit_submit(
     role: str = Form("viewer"),
     session_timeout_seconds: int = Form(86400),
     is_active: str = Form(""),  # unticked checkboxes are not sent at all
+    new_password: str = Form(""),  # empty = keep the current one
 ) -> RedirectResponse | HTMLResponse:
-    """Update user role and session timeout (admin only)."""
+    """Update role, session timeout, active flag and optionally the password (admin only)."""
     _require_role(request, "admin")
 
     # Load the target user from DB first, fall back to in-memory
@@ -1155,6 +1269,17 @@ async def user_edit_submit(
     new_active = is_active == "on"
     new_role = role if role in ("admin", "contributor", "reviewer", "viewer") else "viewer"
     new_timeout = max(300, min(session_timeout_seconds, 604800))
+    if new_password and len(new_password) < _MIN_PASSWORD:
+        context = _ctx(
+            request,
+            target=target,
+            roles=["admin", "contributor", "reviewer", "viewer"],
+            timeout_options=_TIMEOUT_OPTIONS,
+            error=f"The new password must be at least {_MIN_PASSWORD} characters.",
+        )
+        return _tmpl().TemplateResponse(
+            request=request, name="user_edit.html", context=context, status_code=400
+        )
 
     # Protect the last admin: can't demote or deactivate the final active admin
     # (an admin that is already inactive is not one of them).
@@ -1165,15 +1290,7 @@ async def user_edit_submit(
                 request,
                 target=target,
                 roles=["admin", "contributor", "reviewer", "viewer"],
-                timeout_options=[
-                    (900, "15 minutes"),
-                    (1800, "30 minutes"),
-                    (3600, "1 hour"),
-                    (14400, "4 hours"),
-                    (28800, "8 hours"),
-                    (86400, "24 hours"),
-                    (604800, "7 days"),
-                ],
+                timeout_options=_TIMEOUT_OPTIONS,
                 error="Cannot demote or deactivate the last active admin account.",
             )
             return _tmpl().TemplateResponse(
@@ -1209,6 +1326,9 @@ async def user_edit_submit(
         mem_target["role"] = new_role
         mem_target["session_timeout_seconds"] = new_timeout
         mem_target["is_active"] = new_active
+    if new_password:
+        await _set_password(request, user_id, new_password)
+        await request.app.state.login_rate_limiter.clear(target["username"])
 
     logger.info("User updated: %s by=%s", target["username"], request.state.user_id)
     await _audit(
@@ -1220,6 +1340,7 @@ async def user_edit_submit(
             "role": [target.get("role"), new_role],
             "is_active": [target.get("is_active"), new_active],
             "session_timeout_seconds": new_timeout,
+            "password_reset": bool(new_password),
         },
     )
     return RedirectResponse(url="/users", status_code=303)
@@ -1334,9 +1455,16 @@ async def user_activate(request: Request, user_id: str) -> RedirectResponse:
 register_router = APIRouter(tags=["auth"])
 
 
+def _require_self_registration(request: Request) -> None:
+    """404 unless ``security.self_registration`` is on in app.yaml (default off)."""
+    if not getattr(request.app.state, "self_registration", False):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 @register_router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request) -> HTMLResponse:
     """Public registration form — creates a viewer account."""
+    _require_self_registration(request)
     return _tmpl().TemplateResponse(
         request=request,
         name="register.html",
@@ -1353,6 +1481,7 @@ async def register_submit(
     confirm_password: str = Form(...),
 ) -> RedirectResponse | HTMLResponse:
     """Create a new viewer account (public, no auth required)."""
+    _require_self_registration(request)
 
     def _err(msg: str) -> HTMLResponse:
         return _tmpl().TemplateResponse(

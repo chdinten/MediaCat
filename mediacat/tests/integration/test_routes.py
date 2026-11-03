@@ -614,6 +614,7 @@ async def test_create_user_validation(
 
 
 @pytest.mark.parametrize("endpoint", ["/users/new", "/register"])
+@pytest.mark.usefixtures("registration_open")
 async def test_duplicate_email_is_rejected(
     make_client: ClientFactory, users: dict[str, User], db: AsyncSession, endpoint: str
 ) -> None:
@@ -681,6 +682,47 @@ async def test_edit_changes_role_timeout_and_active(
     row = await _user(db, "viewer-user")
     assert row is not None
     assert row.session_timeout_seconds == 604800
+
+
+async def test_admin_sets_a_new_password_and_lifts_the_lock(
+    app: FastAPI,
+    admin: httpx.AsyncClient,
+    anon: httpx.AsyncClient,
+    users: dict[str, User],
+    db: AsyncSession,
+) -> None:
+    app.state.login_lockout = (3, 900)
+    for _ in range(3):
+        await _login(anon, "viewer-user", "wrong")
+    uid = users["viewer"].id
+    r = await admin.post(
+        f"/users/{uid}/edit", data={"role": "viewer", "is_active": "on", "new_password": "short"}
+    )
+    assert r.status_code == 400
+    assert "at least 8 characters" in r.text
+
+    r = await admin.post(
+        f"/users/{uid}/edit",
+        data={"role": "viewer", "is_active": "on", "new_password": "fresh-secret-1"},
+    )
+    assert r.status_code == 303
+    row = await _user(db, "viewer-user")
+    assert row is not None
+    assert (row.failed_login_count, row.locked_until) == (0, None)
+    assert verify_password("fresh-secret-1", row.password_hash)
+    assert (await _login(anon, "viewer-user", USER_PASSWORD)).status_code == 401
+    assert (await _login(anon, "viewer-user", "fresh-secret-1")).status_code == 303
+
+
+async def test_edit_without_password_keeps_it(
+    admin: httpx.AsyncClient, anon: httpx.AsyncClient, users: dict[str, User]
+) -> None:
+    r = await admin.post(
+        f"/users/{users['viewer'].id}/edit",
+        data={"role": "viewer", "is_active": "on", "new_password": ""},
+    )
+    assert r.status_code == 303
+    assert (await _login(anon, "viewer-user")).status_code == 303
 
 
 async def test_role_change_applies_at_next_login(
@@ -909,12 +951,32 @@ async def test_user_management_falls_back_to_the_memory_store(
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def registration_open(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn on ``security.self_registration`` (off by default) for one test."""
+    monkeypatch.setattr(app.state, "self_registration", True, raising=False)
+
+
+async def test_register_is_off_by_default(anon: httpx.AsyncClient, db: AsyncSession) -> None:
+    assert (await anon.get("/register")).status_code == 404
+    form = {
+        "username": "uninvited",
+        "email": "uninvited@test.invalid",
+        "password": "long-enough",
+        "confirm_password": "long-enough",
+    }
+    assert (await anon.post("/register", data=form)).status_code == 404
+    assert await _user(db, "uninvited") is None
+
+
+@pytest.mark.usefixtures("registration_open")
 async def test_register_page_is_public(anon: httpx.AsyncClient) -> None:
     r = await anon.get("/register")
     assert r.status_code == 200
     assert 'name="confirm_password"' in r.text
 
 
+@pytest.mark.usefixtures("registration_open")
 async def test_register_creates_an_active_viewer(
     app: FastAPI, anon: httpx.AsyncClient, db: AsyncSession
 ) -> None:
@@ -948,6 +1010,7 @@ async def test_register_creates_an_active_viewer(
     ],
     ids=["too-short", "bad-chars", "taken", "short-password", "mismatch"],
 )
+@pytest.mark.usefixtures("registration_open")
 async def test_register_validation(
     anon: httpx.AsyncClient,
     users: dict[str, User],
@@ -1808,3 +1871,102 @@ async def test_deciding_an_unknown_review_is_404(
     for rid in (uuid.uuid4(), "not-a-uuid"):
         assert (await reviewer.post(f"/reviews/{rid}/{verb}")).status_code == 404
     assert await _audit_rows(db) == []
+
+
+# ---------------------------------------------------------------------------
+# Changing your own password (/account/password)
+# ---------------------------------------------------------------------------
+
+
+def _pw_form(
+    current: str = USER_PASSWORD, new: str = "brand-new-pass", confirm: str = ""
+) -> dict[str, str]:
+    return {"current_password": current, "new_password": new, "confirm_password": confirm or new}
+
+
+@pytest.mark.parametrize("role", ["admin", "reviewer", "contributor", "viewer"])
+async def test_every_role_can_change_their_password(
+    make_client: ClientFactory, users: dict[str, User], db: AsyncSession, role: str
+) -> None:
+    client = await make_client(role)
+    page = await client.get("/account/password")
+    assert page.status_code == 200
+    assert 'name="current_password"' in page.text
+    r = await client.post("/account/password", data=_pw_form())
+    assert r.status_code == 303
+    assert r.headers["location"] == "/account/password?done=1"
+    row = await _user(db, users[role].username)
+    assert row is not None
+    assert verify_password("brand-new-pass", row.password_hash)
+    done = await client.get("/account/password?done=1")
+    assert "Your password has been changed" in done.text
+    anon = await make_client("anon")
+    assert (await _login(anon, users[role].username, "brand-new-pass")).status_code == 303
+
+
+@pytest.mark.parametrize(
+    ("form", "message"),
+    [
+        (_pw_form(current="wrong-one"), "The current password is not correct."),
+        (_pw_form(new="short"), "at least 8 characters"),
+        (_pw_form(confirm="something-else"), "The new passwords do not match."),
+        (_pw_form(new=USER_PASSWORD), "must differ from the current one"),
+    ],
+    ids=["wrong-current", "too-short", "mismatch", "unchanged"],
+)
+async def test_password_change_validation(
+    viewer: httpx.AsyncClient,
+    users: dict[str, User],
+    db: AsyncSession,
+    form: dict[str, str],
+    message: str,
+) -> None:
+    before = await _user(db, "viewer-user")
+    assert before is not None
+    old_hash = before.password_hash
+    r = await viewer.post("/account/password", data=form)
+    assert r.status_code == 400
+    assert message in r.text
+    row = await _user(db, "viewer-user")
+    assert row is not None
+    assert row.password_hash == old_hash
+
+
+async def test_password_change_guesses_are_rate_limited(
+    app: FastAPI, viewer: httpx.AsyncClient, users: dict[str, User], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        app.state, "login_rate_limiter", LoginRateLimiter(max_attempts=2, window_seconds=900)
+    )
+    for _ in range(2):
+        assert (
+            await viewer.post("/account/password", data=_pw_form(current="guess"))
+        ).status_code == 400
+    r = await viewer.post("/account/password", data=_pw_form())  # right password, but locked
+    assert r.status_code == 429
+    assert "Too many wrong attempts" in r.text
+
+
+async def test_password_change_needs_a_login(anon: httpx.AsyncClient) -> None:
+    r = await anon.get("/account/password")
+    assert r.status_code == 303
+    assert r.headers["location"] == "/login"
+
+
+async def test_role_chip_links_to_the_password_page(viewer: httpx.AsyncClient) -> None:
+    assert '<a href="/account/password" class="nav-role"' in (await viewer.get("/")).text
+
+
+# ---------------------------------------------------------------------------
+# API schema
+# ---------------------------------------------------------------------------
+
+
+async def test_swagger_ui_is_off_and_the_schema_needs_a_login(
+    anon: httpx.AsyncClient, viewer: httpx.AsyncClient
+) -> None:
+    r = await anon.get("/api/openapi.json")
+    assert r.status_code == 303
+    assert r.headers["location"] == "/login"
+    assert (await viewer.get("/api/openapi.json")).json()["info"]["title"] == "MediaCat"
+    assert (await viewer.get("/api/docs")).status_code == 404

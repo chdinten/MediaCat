@@ -44,7 +44,7 @@
                 <span class="theme-icon-dark">☀️</span>
             </button>
             {% if user and user.get('user_id') %}
-            <span class="nav-role">{{ user.get('role', '') }}</span>
+            <a href="/account/password" class="nav-role" title="Your account: change password">{{ user.get('role', '') }}</a>
             <a href="/logout" class="nav-logout">Logout</a>
             {% endif %}
         </div>

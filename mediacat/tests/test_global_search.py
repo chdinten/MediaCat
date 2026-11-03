@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -153,3 +154,12 @@ def test_templates_close_every_dialog() -> None:
     for path in (_WEB_DIR / "templates").rglob("*.html"):
         text = path.read_text(encoding="utf-8")
         assert text.count("<dialog") == text.count("</dialog>"), path.name
+
+
+def test_templates_have_no_inline_event_handlers() -> None:
+    # The CSP (script-src 'self') blocks onclick= and friends: wire handlers in
+    # static .js files (forms.js: data-confirm, data-mc-href, data-mc-empty).
+    handler = re.compile(r"\son[a-z]+\s*=\s*[\"']", re.IGNORECASE)
+    for path in (_WEB_DIR / "templates").rglob("*.html"):
+        text = path.read_text(encoding="utf-8")
+        assert not handler.search(text), path.name

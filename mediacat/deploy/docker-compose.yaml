@@ -244,6 +244,18 @@ services:
         condition: service_healthy
       opa:
         condition: service_healthy
+    # The image's healthcheck asks the web app's port, which the worker doesn't
+    # serve. The worker touches a heartbeat file every 5 s instead (worker.py).
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/mediacat-worker.heartbeat') > 60)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     cap_drop: [ALL]
     read_only: true
     tmpfs:

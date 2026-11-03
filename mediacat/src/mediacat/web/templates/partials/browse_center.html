@@ -5,8 +5,12 @@
     <div class="mc-toolbar">
         <h1 class="mc-toolbar-title">Catalogue</h1>
         <div class="mc-toolbar-actions">
+            {% if user.role in ('admin', 'reviewer', 'contributor') %}
             <a href="/catalogue/new" class="btn btn-primary btn-sm">+ Add pressing</a>
+            {% endif %}
+            {% if user.role in ('admin', 'reviewer') %}
             <a href="/catalogue/merge" class="btn btn-ghost btn-sm" id="merge-dup-btn">Merge duplicates</a>
+            {% endif %}
         </div>
     </div>
     <details class="external-search mc-external">

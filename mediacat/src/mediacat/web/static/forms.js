@@ -110,3 +110,44 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
     if (clear) clear.innerHTML = '';
   }
 });
+
+/* Replacements for inline event handlers, which the CSP (script-src 'self')
+ * blocks.  Every page loads forms.js, so these work everywhere:
+ *   button[data-confirm="text"]  asks first; Cancel stops the click / submit
+ *   [data-mc-href="/url"]        a clickable table row: click, Enter or Space opens the URL
+ *   [data-mc-empty="#a, #b"]     empties those elements (panel close buttons);
+ *     data-mc-deactivate="card"  also drops card--active from every .card
+ */
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest && e.target.closest('button[data-confirm]');
+  if (btn && !window.confirm(btn.getAttribute('data-confirm'))) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}, true);   /* capture phase: cancel before the submit fires */
+
+document.addEventListener('click', function (e) {
+  if (!e.target.closest) return;
+  var closer = e.target.closest('[data-mc-empty]');
+  if (closer) {
+    document.querySelectorAll(closer.dataset.mcEmpty).forEach(function (el) { el.innerHTML = ''; });
+    var base = closer.dataset.mcDeactivate;
+    if (base) {
+      document.querySelectorAll('.' + base).forEach(function (c) { c.classList.remove(base + '--active'); });
+    }
+    return;
+  }
+  var row = e.target.closest('[data-mc-href]');
+  if (row && !e.target.closest('a, button, input, select, textarea')) {
+    window.location.href = row.dataset.mcHref;
+  }
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var row = e.target.matches && e.target.matches('[data-mc-href]') ? e.target : null;
+  if (row) {
+    e.preventDefault();
+    window.location.href = row.dataset.mcHref;
+  }
+});

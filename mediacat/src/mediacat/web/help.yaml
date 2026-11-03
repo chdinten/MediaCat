@@ -35,7 +35,8 @@ sections:
         q: What can I do with my role?
         keywords: [permissions, rights, admin, reviewer, contributor, viewer, access, allowed]
         a: |
-          <p>Your role is shown in the top bar next to <em>Logout</em>. Each role can do everything the one before it can:</p>
+          <p>Your role is shown in the top bar next to <em>Logout</em>. Each role can do everything the one before it can,
+          and MediaCat only shows the buttons your role may use:</p>
           <ul>
             <li><strong>viewer</strong>: browse, search, open pressings, print album sheets, read the review queue, refresh artist biographies, fix streaming links.</li>
             <li><strong>contributor</strong>: also add pressings, edit genres and the <em>My copy</em> fields, load Discogs details and rate pressings.</li>
@@ -48,9 +49,9 @@ sections:
         q: I clicked a button and got a page saying “Insufficient permissions”. What happened?
         keywords: [403, forbidden, not allowed, error, detail, json]
         a: |
-          <p>Your role isn't allowed to do that. Some buttons, such as <em>Edit</em>, <em>Archive</em> and
-          <em>Merge…</em> on a pressing, are shown to everyone, but only reviewers and administrators can use
-          them. Go back with the browser's Back button; nothing was changed. See <a href="#roles">What can I do with my role?</a></p>
+          <p>Your role isn't allowed to do that, usually because a bookmarked or shared address leads to a page for
+          other roles (e.g. editing a pressing). Go back with the browser's Back button; nothing was changed.
+          See <a href="#roles">What can I do with my role?</a></p>
 
       - id: two-layouts
         q: Why does MediaCat look different on another computer or browser?
@@ -234,7 +235,7 @@ sections:
         keywords: [duplicate, merge, double, twice, combine]
         a: |
           <p>Open the pressing you want to keep and click <em>Merge…</em> (in the Classic layout also <em>Merge duplicates</em> on the
-          Catalogue page). Choose the duplicate, optionally give a reason, and click <em>Merge pressings</em>. The duplicate is retired,
+          Catalogue page). Choose the duplicate, optionally give a reason, click <em>Merge pressings</em> and confirm. The duplicate is retired,
           not erased, and the merge is recorded in the history. Merging needs the reviewer or admin role.</p>
 
       - id: edit-pressing
@@ -436,24 +437,34 @@ sections:
         keywords: [locked, lockout, too many attempts, password wrong, blocked]
         a: |
           <p>After 10 wrong passwords within 15 minutes, signing in is blocked for 15 minutes. Wait and try again. If you have
-          forgotten your password, see <a href="#password">How do I change my password?</a></p>
+          forgotten it, an administrator can set a new password, which also lifts the lock
+          (<a href="#forgot-password">I forgot my password</a>).</p>
 
       - id: password
         q: How do I change my password?
         keywords: [password, change password, reset, forgot]
         a: |
-          <p>MediaCat has no page for changing a password yet, not even for administrators. If you need a new one, ask the
-          person who looks after the installation; they can set it with a technical tool.</p>
+          <p>Click your role (e.g. <em>viewer</em>) in the top bar, next to <em>Logout</em>. Enter your current password and
+          the new one twice (at least 8 characters), then click <em>Change password</em>. Other browsers where you are signed in
+          stay signed in until their session ends.</p>
+          <p>Forgotten your password? An administrator can set a new one for you; see <a href="#forgot-password">the next answer</a>.</p>
+
+      - id: forgot-password
+        q: I forgot my password. What now?
+        keywords: [forgot, forgotten, lost password, reset, new password]
+        a: |
+          <p>Ask an administrator. Under <em>Admin → Users</em> → <em>Edit</em> they can enter a <em>New password</em> for you;
+          then sign in with it and change it to one only you know (<a href="#password">How do I change my password?</a>).</p>
 
   - id: admin
     title: For administrators
     entries:
       - id: admin-users
-        q: How do I create users, change roles or set the session time?
-        keywords: [users, create user, role, deactivate, timeout, session length]
+        q: How do I create users, change roles, reset a password or set the session time?
+        keywords: [users, create user, role, deactivate, timeout, session length, reset password, unlock]
         a: |
-          <p><em>Admin → Users</em>: <em>+ Create user</em> for a new account; <em>Edit</em> to change the role or the
-          <em>Session timeout</em> (applies at the user's next sign-in); <em>Deactivate</em> to block an account without deleting it.
+          <p><em>Admin → Users</em>: <em>+ Create user</em> for a new account; <em>Edit</em> to change the role, the
+          <em>Session timeout</em> (applies at the user's next sign-in) or set a <em>New password</em> (also lifts a sign-in lock); <em>Deactivate</em> to block an account without deleting it.
           The last active administrator can't be demoted or deactivated.</p>
 
       - id: admin-collection-import

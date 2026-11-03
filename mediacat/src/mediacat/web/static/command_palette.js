@@ -6,8 +6,16 @@
 
     // ── Command registries ────────────────────────────────────────
 
+    // Roles that may add pressings (GET /catalogue/new answers 403 to viewers).
+    var EDITORS = ['admin', 'reviewer', 'contributor'];
+
+    // role: one role name or a list of them; no role = everyone.
+    function allowed(c, role) {
+        return !c.role || [].concat(c.role).indexOf(role) !== -1;
+    }
+
     var STATIC_COMMANDS = [
-        { label: 'Add pressing',     url: '/catalogue/new' },
+        { label: 'Add pressing',     url: '/catalogue/new', role: EDITORS },
         { label: 'Browse catalogue', url: '/catalogue' },
         { label: 'Artists',          url: '/artists' },
         { label: 'Reviews',          url: '/reviews' },
@@ -23,7 +31,7 @@
         { name: 'track',     aliases: ['t', 'song'], url: '/catalogue',     argUrl: '/search?q={arg}&scope=tracks', argHint: 'song title',   desc: 'Search song titles' },
         { name: 'catalogue', aliases: ['c', 'cat'],  url: '/catalogue',     argUrl: '/catalogue?q={arg}', argHint: 'album or title', desc: 'Browse catalogue' },
         { name: 'review',    aliases: ['r'],          url: '/reviews',       argUrl: '/search?q={arg}', argHint: 'search term',   desc: 'Browse reviews' },
-        { name: 'add',       aliases: [],             url: '/catalogue/new', argUrl: null, argHint: null, desc: 'Add new pressing' },
+        { name: 'add',       aliases: [],             url: '/catalogue/new', argUrl: null, argHint: null, desc: 'Add new pressing', role: EDITORS },
         { name: 'admin',     aliases: [],             url: '/admin',         argUrl: null, argHint: null, desc: 'Admin panel', role: 'admin' },
         { name: 'help',      aliases: ['h', '?'],     url: '/help',          argUrl: '/help?q={arg}', argHint: 'question', desc: 'Questions and answers' },
     ];
@@ -36,12 +44,12 @@
 
     function allowedSlashCommands() {
         var role = getUserRole();
-        return SLASH_COMMANDS.filter(function (c) { return !c.role || c.role === role; });
+        return SLASH_COMMANDS.filter(function (c) { return allowed(c, role); });
     }
 
     function allowedStaticCommands() {
         var role = getUserRole();
-        return STATIC_COMMANDS.filter(function (c) { return !c.role || c.role === role; });
+        return STATIC_COMMANDS.filter(function (c) { return allowed(c, role); });
     }
 
     function historyCommands() {

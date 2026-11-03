@@ -217,7 +217,7 @@
 
     <div class="form-actions">
         <button type="submit" class="btn btn-danger"
-                onclick="return confirm('Merge these two pressings?\n\nWinner (kept): {{ winner.artist }} — {{ winner.title }}\nLoser (archived): {{ loser.artist }} — {{ loser.title }}\n\nThis cannot be undone.')">
+                data-confirm="Merge these two pressings?&#10;&#10;Winner (kept): {{ winner.artist }} — {{ winner.title }}&#10;Loser (archived): {{ loser.artist }} — {{ loser.title }}&#10;&#10;This cannot be undone.">
             Merge pressings
         </button>
         <a href="/catalogue" class="btn btn-ghost">Cancel</a>

@@ -33,7 +33,9 @@
         <h1>Welcome back{% if user.get('username') %}, {{ user.get('username') }}{% endif %}</h1>
         <p>Physical music catalogue — vinyl &amp; CD, catalogued with precision.</p>
         <div class="btn-group">
+            {% if user.role in ('admin', 'reviewer', 'contributor') %}
             <a href="/catalogue/new" class="btn btn-primary">+ Add pressing</a>
+            {% endif %}
             <a href="/catalogue" class="btn btn-ghost">Browse catalogue</a>
         </div>
     </div>
@@ -126,7 +128,9 @@
 {% else %}
 <div class="empty-state" style="margin-top:2rem">
     <p class="text-muted">No pressings catalogued yet.</p>
+    {% if user.role in ('admin', 'reviewer', 'contributor') %}
     <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+    {% endif %}
 </div>
 {% endif %}
 

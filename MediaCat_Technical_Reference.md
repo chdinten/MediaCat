@@ -453,7 +453,7 @@ In addition to automatic background analysis triggered on image upload or region
 
 #### Apply OCR Result
 
-After analysis, the **"Apply to token"** button calls `POST /catalogue/{id}/images/{image_id}/apply-ocr`. This writes the latest `OcrArtifact` for that image into the token's `matrix_runout` / `matrix_runout_b` text fields and into the structured `matrix_runout_parsed` / `matrix_runout_b_parsed` JSONB columns.
+After analysis, the **"✓ Apply to pressing"** button calls `POST /catalogue/{id}/images/{image_id}/apply-ocr`. This writes the latest `OcrArtifact` for that image into the token's `matrix_runout` / `matrix_runout_b` text fields and into the structured `matrix_runout_parsed` / `matrix_runout_b_parsed` JSONB columns.
 
 #### Structured Breakdown Table
 
@@ -829,7 +829,7 @@ Jobs use `BLMOVE` for atomic pending → processing transfer.
 2. **Login rate limiting** — Redis (in-memory fallback) lockout; 10 failures per username or IP in 15 min. In addition each failure increments `User.failed_login_count`; at `security.login.lockout_threshold` the row gets `locked_until` = now + `lockout_window_seconds`, and login answers 429 until then. A successful login clears both
 3. **User lookup** — The DB is the source of truth; the in-memory bootstrap store answers only for usernames the DB does not know
 4. **Session creation** — Signed cookie (`itsdangerous.TimestampSigner`); payload = `user_id|role|nonce|lifetime`. The lifetime is the user's session timeout (15 min – 7 days, default 24 h) and is enforced by the server, not only by the cookie's `Max-Age`; tokens without a lifetime get 24 h
-5. **Audit trail** — `audit_log` gets an entry for login / `login.failed` / `login.locked`, user create / update / deactivate / activate / register and review approve / reject (written in its own session; a failed audit write never fails the request)
+5. **Audit trail** — `audit_log` gets an entry for login / `login.failed` / `login.locked`, user create / update / deactivate / activate / register, `user.password_change` / `user.password_change_failed` and review approve / reject (written in its own session; a failed audit write never fails the request)
 6. **CSRF protection** — Per-session HMAC-SHA256 token validated from `X-CSRF-Token` header on all mutating requests
 7. **MFA scaffold** — `User.mfa_secret` stores TOTP secret; not yet wired into login flow
 
@@ -863,7 +863,7 @@ The `REVOKE UPDATE, DELETE ON audit_log FROM mediacat_app` restriction is enforc
 |---|---|
 | `static/theme.js` | Theme toggle; runs synchronously before first paint |
 | `static/pressing.js` | Pressing detail and edit: upload zone, image actions, correction modal; loaded on both `pressing_detail.html` and `token_edit.html` |
-| `static/forms.js` | Shared form utilities: CSRF header on native POSTs, confirmation dialogs, discography loading state, list-row highlighting (`data-mc-active`) |
+| `static/forms.js` | Shared form utilities: CSRF header on native POSTs, confirmation dialogs (`button[data-confirm]`), clickable table rows (`data-mc-href`), panel close buttons (`data-mc-empty`, `data-mc-deactivate`), discography loading state, list-row highlighting (`data-mc-active`) |
 | `static/search_history.js` | Top-bar search: scope picker and search history |
 | `static/command_palette.js` | Ctrl+K command palette and slash commands |
 | `static/bio_research.js` | "Research in progress" banner with timer during artist-bio lookups |
@@ -876,7 +876,7 @@ The `REVOKE UPDATE, DELETE ON audit_log FROM mediacat_app` restriction is enforc
 
 This means CSP can block all inline script execution without breaking any UI functionality.
 
-HTMX `hx-on` attributes are inline script too and are blocked by the same policy. List-row highlighting therefore uses `data-mc-active="row-class"` on the requesting element (the closest `.row-class` gets `row-class--active`; optional `data-mc-clear="#panel"` empties a dependent panel), handled in `forms.js`. The CSP itself is set in `SecurityHeadersMiddleware`; its `img-src` must list every external image host (Wikipedia uses `upload.` and `thumb.wikimedia.org`).
+HTMX `hx-on` attributes and `onclick=`-style attributes are inline script too and are blocked by the same policy; `tests/test_global_search.py` fails on any `on…=` attribute in a template. List-row highlighting therefore uses `data-mc-active="row-class"` on the requesting element (the closest `.row-class` gets `row-class--active`; optional `data-mc-clear="#panel"` empties a dependent panel), handled in `forms.js`. The CSP itself is set in `SecurityHeadersMiddleware`; its `img-src` must list every external image host (Wikipedia uses `upload.` and `thumb.wikimedia.org`).
 
 ### 9.5 Network Security
 
@@ -1008,7 +1008,7 @@ Open WebUI (`ghcr.io/open-webui/open-webui`) provides a browser-based chat inter
 | Section | Key Settings |
 |---|---|
 | `app` | name, environment, log_level |
-| `security` | session_secret (overridden by Docker secret), cookie_secure, login lockout thresholds |
+| `security` | session_secret (overridden by Docker secret), cookie_secure, login lockout thresholds, `self_registration` (public `/register`, default `false`) |
 | `postgres` | host, port, user, database, password_file (`/run/secrets/postgres_app_password`) |
 | `object_store` | endpoint, access_key, secret_key_file (`/run/secrets/minio_root_password`) |
 | `redis` | url template, password_file (`/run/secrets/redis_password`) |
@@ -1090,6 +1090,7 @@ With mirrored networking, ports bound to `127.0.0.1` inside WSL2 are directly ac
 | `redis` | `redis-cli -a <password> ping` |
 | `minio` | `mc ready local` |
 | `app` | `curl -f http://127.0.0.1:8000/healthz` |
+| `worker` | Heartbeat file `/tmp/mediacat-worker.heartbeat` touched every 5 s by the worker loop, at most 60 s old (compose override: the image's `HEALTHCHECK` probes the web port, which the worker doesn't serve) |
 | `ollama` | `ollama list >/dev/null 2>&1` (no curl in ollama image) |
 
 
@@ -1105,6 +1106,7 @@ All mutating endpoints require a valid session cookie and an `X-CSRF-Token` head
 | `GET` | `/readyz` | Readiness probe |
 | `GET` | `/login` | Login form |
 | `POST` | `/login` | Authenticate — creates session cookie |
+| `GET`, `POST` | `/register` | Self-registration (creates a viewer); 404 unless `security.self_registration: true` in `app.yaml` (default off) |
 | `GET` | `/logout` | Clear session cookie |
 | `GET` | `/site-media/background/{name}` | Uploaded login/dashboard background file (Range-aware, immutable cache) |
 
@@ -1202,8 +1204,17 @@ Template context returned by `GET /`:
 | `GET` | `/users` | List users |
 | `GET` | `/users/new` | Create-user form |
 | `POST` | `/users/new` | Create user |
+| `GET`, `POST` | `/users/{user_id}/edit` | Edit role, session timeout, active flag; optional `new_password` (≥ 8 characters) also clears `failed_login_count`, `locked_until` and the rate-limiter entry for the username |
 | `POST` | `/users/{user_id}/activate` | Activate user |
 | `POST` | `/users/{user_id}/deactivate` | Deactivate user |
+
+### 14.6a Own Account and API Schema (Any Logged-in Role)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/account/password[?done=1]` | Change-password form (linked from the role chip in the top bar) |
+| `POST` | `/account/password` | `current_password`, `new_password`, `confirm_password`; 303 to `?done=1`, 400 with a message, 429 after too many wrong current passwords (rate limiter key `pwchange:<user id>`). Other sessions stay valid until they expire |
+| `GET` | `/api/openapi.json` | OpenAPI schema (login required). Swagger UI (`/api/docs`) is off: the CSP blocks its scripts; the API reference is on the MkDocs site (pdoc) |
 
 ### 14.7 Background (Admin Role)
 
@@ -1374,12 +1385,12 @@ $MIGRATE current
 
 1. **Navigate to Catalogue** → **Add pressing** (`/catalogue/new`).
 2. Fill in artist, title, year, format, catalogue number, label, matrix runout.
-3. Optionally search Discogs or MusicBrainz to pre-fill fields — or click a search result's **Import** button to go straight to `GET /catalogue/import/discogs/{id}` for a preview before creating. For Discogs results, **Cards with images** shows each release's photos, label details, barcode and first matrix variant, which helps pick the right pressing.
-4. Alternatively, **scan a cover barcode** (`POST /catalogue/scan-cover`) to auto-fill the form from a photo of the barcode.
+3. Optionally search Discogs or MusicBrainz under **Find on Discogs or MusicBrainz** and click **Use this** on a result to pre-fill the form. For Discogs results, **Cards with images** shows each release's photos, label details, barcode and first matrix variant, which helps pick the right pressing. (In the Classic layout, the catalogue's **Search Discogs / MusicBrainz** panel also offers **Import into MediaCat**, which opens a preview, `GET /catalogue/import/discogs/{id}`, before creating.)
+4. Alternatively, **scan a cover barcode** (**Scan & search**, `POST /catalogue/scan-cover`, reviewer or admin) to search from a photo of the barcode.
 5. Submit — the pressing appears in the catalogue immediately.
 6. Upload scans on the pressing detail page or directly on the edit form (drag-and-drop or file picker).
 7. For runout images, click **Analyse with AI** to extract structured matrix fields.
-8. Review the breakdown table; click **Apply to token** to write the parsed fields into the token.
+8. Review the breakdown table; click **✓ Apply to pressing** to write the parsed fields into the pressing.
 9. Correct any mis-read fields using the per-field edit button (see [18.8](#188-vision-analysis-and-matrix-parsing-workflow)).
 10. Review any AI proposals in `/reviews` — approve or reject each field update.
 11. Confirm any symbol detections in the runout images.
@@ -1399,20 +1410,20 @@ $MIGRATE current
 
 ### 18.3 Editing and Archiving
 
-- On any pressing detail page, click **Edit** to open the form.
+- On any pressing detail page, click **Edit** to open the form (reviewer or admin; the sidebar shows each role only the buttons its routes allow).
 - Every save creates a new `TokenRevision` with `source=human` — nothing is lost.
 - Click **Archive** to mark a pressing as archived (hidden from browse by default).
 - Archived pressings can be found by searching with `status=archived`.
-- Click **Delete** on the pressing detail page to soft-delete (sets `deleted_at`; recoverable via DB).
-- Click **Flag for review** to manually send a pressing to the review queue.
+- Click **Delete** (admin) to soft-delete (sets `deleted_at`). **Admin → Housekeeping** → *Deleted pressings (last 30 days)* → **Recover** brings it back; **Purge expired** removes older ones for good.
+- Click **⚑ Flag for Review** to manually send a pressing to the review queue.
 
 ### 18.4 Merging Duplicate Pressings
 
-1. Navigate to `/catalogue/merge` (or click **Merge into…** from a detail page).
+1. Navigate to `/catalogue/merge` (or click **Merge…** on a detail page; reviewer or admin).
 2. Paste or confirm the **winner** token ID (the pressing you want to keep).
 3. Paste the **loser** token ID (the duplicate to retire).
 4. Add an optional comment explaining why these are duplicates.
-5. Click **Merge pressings** — the loser is marked `status=merged` and a merge revision is added to the winner's history.
+5. Click **Merge pressings** and confirm — the loser is marked `status=merged` and a merge revision is added to the winner's history.
 
 The loser is never hard-deleted; it remains in the database and can be recovered by directly updating its status if needed.
 
@@ -1429,6 +1440,8 @@ The loser is never hard-deleted; it remains in the database and can be recovered
 The `backup` sidecar runs `deploy/scripts/backup.sh` every day at **02:00 UTC** using the image's BusyBox `crond`. It installs nothing at start-up, because the `backend` network is `internal: true` and has no internet. Each run writes a compressed `pg_dump` (custom format) to `${MEDIACAT_DATA_ROOT}/backups/postgres/mediacat_<UTC timestamp>.dump` and deletes dumps older than 30 days. Output appears in `docker compose logs backup`.
 
 **Not included:** MinIO objects (cover and runout images). Dumps also sit on the same disk as the database; copy `backups/` elsewhere for off-host safety.
+
+**From the browser (Admin → Backup & Restore):** **⬇ Download backup** saves a ZIP of JSON exports of the catalogue tables (`_BACKUP_TABLES` in `web/admin.py`, including users, tokens, revisions, media metadata, reviews and streaming links; no image files). **⬆ Restore from backup** adds the rows of such a ZIP to the live database: rows whose primary key already exists are skipped, nothing is wiped, and text values are converted back by column type. Use it to move or merge catalogue data; use the `pg_dump` procedure below for a full restore.
 
 ```bash
 C="docker compose --env-file .env -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml"
@@ -1478,7 +1491,7 @@ Use this to designate a specific image as the catalogue thumbnail — for exampl
 3. Review the breakdown table:
    - Each field shows its value, a confidence badge (high / mid / low), and a source badge (AI / human / import).
    - Fields with low confidence (red badge) should be verified against the physical disc.
-4. Click **Apply to token** to write the parsed fields into `matrix_runout` (plain text) and `matrix_runout_parsed` (structured JSONB) on the token. A new `TokenRevision` is created with `source=vision`.
+4. Click **✓ Apply to pressing** to write the parsed fields into `matrix_runout` (plain text) and `matrix_runout_parsed` (structured JSONB) on the token. A new `TokenRevision` is created with `source=vision`.
 5. To correct an individual field:
    a. Click the **Edit** button next to the field.
    b. A modal appears with the current value, a corrected-value input, a mandatory **Reason** dropdown, and an optional **Notes** field.

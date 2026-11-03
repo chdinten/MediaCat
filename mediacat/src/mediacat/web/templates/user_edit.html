@@ -27,6 +27,12 @@
             {% endfor %}
         </select>
 
+        <label for="new_password">New password</label>
+        <input type="password" id="new_password" name="new_password"
+               autocomplete="new-password" minlength="8" maxlength="128"
+               placeholder="Leave empty to keep the current password">
+        <p class="form-hint">Setting one also lifts a lock from too many wrong sign-ins.</p>
+
         <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem">
             <input type="checkbox" name="is_active" value="on"
                    {% if target.is_active %}checked{% endif %}>

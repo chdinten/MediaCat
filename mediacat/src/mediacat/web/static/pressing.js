@@ -236,15 +236,7 @@ document.addEventListener('DOMContentLoaded', function () {
         );
     });
 
-    /* ── 4. Confirm dialogs for Archive / Delete ── */
-    document.addEventListener('click', function (e) {
-        var btn = e.target.closest('button[data-confirm]');
-        if (!btn) return;
-        if (!window.confirm(btn.getAttribute('data-confirm'))) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-    }, true);   /* capture phase so we can cancel before the submit fires */
+    /* Confirm dialogs (data-confirm) are handled by forms.js. */
 
     /* ── 4. Copy Token ID ── */
     var copyBtn = document.getElementById('copy-token-id-btn');
