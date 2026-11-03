@@ -1,35 +1,6 @@
 {% extends layout_base %}
+{# Classic layout only: the 3panel layout renders catalogue_browser.html instead. #}
 {% block title %}Catalogue — MediaCat{% endblock %}
-
-{% block sp_layout_class %}sp-layout--three{% endblock %}
-
-{# ── 3panel only: artist scroll list in left panel ── #}
-{% block sp_left %}
-{% if artists %}
-<div class="artist-list sp-catalogue-artist-list" id="artist-grid">
-    {% include 'partials/artist_rows.html' %}
-</div>
-{% elif not db_error %}
-<p class="text-muted" style="padding:1rem;font-size:0.85em">No artists yet.</p>
-{% endif %}
-{% endblock %}
-
-{% block sp_right %}
-<div class="peek-empty">
-    <span class="peek-empty-icon">💿</span>
-    <span class="peek-empty-text">Hover a pressing to preview</span>
-    <details class="peek-debug-panel">
-        <summary>Debug info</summary>
-        <dl class="peek-debug-dl">
-            <dt>Layout</dt><dd><code>{{ layout_base }}</code></dd>
-            <dt>Right panel</dt><dd style="color:var(--accent-light)">active ✓</dd>
-            <dt>Trigger</dt><dd>mouseenter delay:180ms</dd>
-            <dt>Target</dt><dd><code>#sp-right</code></dd>
-            <dt>Route</dt><dd><code>GET /catalogue/{id}/peek</code></dd>
-        </dl>
-    </details>
-</div>
-{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -224,20 +195,6 @@
 
 {% elif artists %}
 
-{% if layout_base == "base_3panel.html" %}
-{# ── 3panel: artist list lives in sp-left; center shows album/pressing drill-down ── #}
-{# ROLLBACK: remove this {% if %} branch and the {% else %} / {% endif %} below       #}
-<div class="sp-catalogue-drill" id="sp-catalogue-drill">
-    <div id="album-panel" class="album-panel-side"></div>
-    <div id="pressing-panel" class="pressing-panel"></div>
-    <div class="sp-catalogue-empty" id="sp-catalogue-empty">
-        <span class="sp-empty-icon">🎵</span>
-        <span class="sp-empty-text">Select an artist from the left to browse albums</span>
-    </div>
-</div>
-
-{% else %}
-{# ── Classic layout: original catalogue-split unchanged ── #}
 <div class="catalogue-split">
     <div class="artist-column">
         <div class="artist-list" id="artist-grid">
@@ -251,7 +208,6 @@
     {# Right: pressing list — loaded via HTMX when an album row is clicked #}
     <div id="pressing-panel" class="pressing-panel"></div>
 </div>
-{% endif %}
 
 <div class="pressing-merge-bar" id="pressing-merge-bar">
     <span class="pressing-merge-bar-label">Merge selected pressings:</span>

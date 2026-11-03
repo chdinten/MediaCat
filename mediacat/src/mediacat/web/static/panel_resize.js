@@ -98,6 +98,9 @@
     }
 
     document.addEventListener('DOMContentLoaded', init);
+    // Back can restore an htmx history snapshot of the panels, which replaces
+    // the resize handles: wire the new ones.
+    document.addEventListener('htmx:historyRestore', init);
 
     // Re-check sentinel after every HTMX settle (panel content swap, navigation)
     document.addEventListener('htmx:afterSettle', function () {

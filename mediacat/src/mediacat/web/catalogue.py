@@ -2,7 +2,7 @@
 
 URL structure
 -------------
-GET  /catalogue                                        artist browser
+GET  /catalogue                                        artist browser (3panel: catalogue_browser)
 GET  /catalogue/new                                    create form
 POST /catalogue/new                                    create Token + TokenRevision
 GET  /catalogue/search                                 Discogs / MusicBrainz HTMX search
@@ -61,7 +61,7 @@ from mediacat.ingestion.discogs_extras import (
     release_extra,
     variant_runout_fill,
 )
-from mediacat.web.routes import _ctx, _require_role, _tmpl
+from mediacat.web.routes import _ctx, _layout_base, _require_role, _tmpl
 
 logger = logging.getLogger(__name__)
 
@@ -640,8 +640,24 @@ async def catalogue_index(
     country_q: str = Query(""),
     page: int = Query(1, ge=1),
     artist: str = Query(""),
-) -> HTMLResponse:
-    """Browse artists grouped from the Token table."""
+    album: str | None = Query(None),
+    pressing: str = Query(""),
+) -> Response:
+    """Browse artists grouped from the Token table.
+
+    The 3panel layout gets the catalogue browser (``catalogue_browser``), which
+    opens the artist, album and pressing named in the URL.
+    """
+    if _layout_base(request) == "base_3panel.html":
+        from mediacat.web.catalogue_browser import BrowseFilters, browser_page
+
+        filters = BrowseFilters.clean(
+            q=q, fmt=fmt, genres=genres, year_from=year_from, year_to=year_to, country_q=country_q
+        )
+        return await browser_page(
+            request, filters=filters, artist=artist, album=album, pressing=pressing
+        )
+
     page_size = 24
     offset = (page - 1) * page_size
 
@@ -2620,6 +2636,7 @@ async def pressing_detail(request: Request, token_id: str) -> HTMLResponse:
     except Exception as _exc:
         logger.debug("sales_imports load skipped: %s", _exc)
 
+    from mediacat.web.catalogue_browser import detail_navigation
     from mediacat.web.discogs_details import running_discogs_import
 
     collection = collection_view(token.extra)
@@ -2645,6 +2662,7 @@ async def pressing_detail(request: Request, token_id: str) -> HTMLResponse:
         discogs_details_loaded=bool((token.extra or {}).get("discogs")),
         variant_runout_fill=variant_runout_fill,
         discogs_import=await running_discogs_import(request),
+        nav=await detail_navigation(request, token),
     )
     return _tmpl().TemplateResponse(request=request, name="pressing_detail.html", context=ctx)
 

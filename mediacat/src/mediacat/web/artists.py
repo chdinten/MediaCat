@@ -56,8 +56,9 @@ async def artists_index(
     request: Request,
     q: str = Query(""),
     sort: str = Query("name"),
+    artist: str = Query(""),
 ) -> HTMLResponse:
-    """Show a grid of all artists in the catalogue."""
+    """Show a grid of all artists in the catalogue; ``artist`` opens that one (default: the first)."""
     async with _sf(request)() as db:
         # Collect all distinct artists with stats
         base = (
@@ -144,7 +145,8 @@ async def artists_index(
         for r in rows
     ]
 
-    ctx = _ctx(request, artists=artists, query=q, sort=sort)
+    open_artist = next((a for a in artists if a["name"] == artist), artists[0] if artists else None)
+    ctx = _ctx(request, artists=artists, query=q, sort=sort, open_artist=open_artist)
     return _tmpl().TemplateResponse(request=request, name="artists.html", context=ctx)
 
 

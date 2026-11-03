@@ -1,0 +1,64 @@
+{# Centre panel of the catalogue browser.  Swapped whole into #sp-center when an
+   artist is picked (that response also empties the preview, out of band); the
+   album covers then swap only #mc-versions. #}
+<div class="mc-center">
+    <div class="mc-toolbar">
+        <h1 class="mc-toolbar-title">Catalogue</h1>
+        <div class="mc-toolbar-actions">
+            <a href="/catalogue/new" class="btn btn-primary btn-sm">+ Add pressing</a>
+            <a href="/catalogue/merge" class="btn btn-ghost btn-sm" id="merge-dup-btn">Merge duplicates</a>
+        </div>
+    </div>
+    <details class="external-search mc-external">
+        <summary>Search Discogs / MusicBrainz</summary>
+        <div id="ext-search-wrap" class="ext-search-row">
+            <input type="text" id="ext-q" name="q" placeholder="Artist, title, catalogue no…"
+                   class="search-input" autocomplete="off">
+            <select name="source" class="filter-select">
+                <option value="discogs">Discogs</option>
+                <option value="musicbrainz">MusicBrainz</option>
+            </select>
+            <select name="limit" class="filter-select" title="Number of results">
+                <option value="10">10 results</option>
+                <option value="25">25 results</option>
+                <option value="50">50 results</option>
+            </select>
+            <input type="number" name="year" placeholder="Year" title="Filter by year (Discogs only)"
+                   class="filter-select" min="1900" max="2100" style="width:6.5rem">
+            <input type="text" name="country" placeholder="Country" title="Filter by country (Discogs only)"
+                   class="filter-select" style="width:7.5rem" maxlength="100">
+            <button type="button" class="btn btn-ghost"
+                    hx-get="/catalogue/search"
+                    hx-include="#ext-search-wrap"
+                    hx-target="#ext-results"
+                    hx-indicator="#ext-spinner">Search</button>
+            <span id="ext-spinner" class="htmx-indicator text-muted">Searching…</span>
+        </div>
+        <div id="ext-results" class="ext-results"></div>
+    </details>
+
+    {% if db_error %}
+    <div class="alert alert-danger">
+        <strong>The catalogue could not be loaded.</strong>
+        <p>The database did not answer, or its tables do not exist yet. On a new installation, run the following command from the project root, then reload this page:</p>
+        <pre class="alert-cmd">make db-migrate</pre>
+    </div>
+    {% endif %}
+
+    <div class="mc-center-body">
+        {% if view %}
+        {% include "partials/browse_artist.html" %}
+        {% else %}
+        {% include "partials/browse_start.html" %}
+        {% endif %}
+    </div>
+
+    <div class="pressing-merge-bar mc-merge-bar" id="pressing-merge-bar">
+        <span class="pressing-merge-bar-label">Merge selected pressings:</span>
+        <button type="button" class="btn btn-primary btn-sm" id="catalogue-merge-open-btn">Open merge form →</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="catalogue-merge-clear-btn">Clear</button>
+    </div>
+</div>
+{% if oob_center %}
+<div id="sp-right" hx-swap-oob="innerHTML">{% include "partials/preview_empty.html" %}</div>
+{% endif %}

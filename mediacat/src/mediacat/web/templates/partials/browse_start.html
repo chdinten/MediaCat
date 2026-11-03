@@ -1,0 +1,51 @@
+{# Centre panel when no artist is open: the pressings that match the filters, or a start hint. #}
+<div class="mc-start" id="mc-start">
+{% if filters.active %}
+    <div class="mc-section-head">
+        <h2 class="mc-section-title">Pressings matching the filters</h2>
+        <span class="mc-section-count">{{ match_total }}</span>
+    </div>
+    {% if matches %}
+    <table class="mc-table mc-table--matches">
+        <caption class="sr-only">Pressings matching the filters</caption>
+        <thead>
+            <tr>
+                <th scope="col">Artist</th>
+                <th scope="col">Album</th>
+                <th scope="col">Year</th>
+                <th scope="col">Country</th>
+                <th scope="col">Cat. no.</th>
+                <th scope="col">Format</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in matches %}
+            <tr>
+                <td>{{ m.artist }}</td>
+                <td><a href="{{ m.url }}">{{ m.title }}</a></td>
+                <td class="mc-col-year">{{ m.year or '—' }}</td>
+                <td>{{ m.country or '—' }}</td>
+                <td class="mc-mono">{{ m.catno or '—' }}</td>
+                <td>{{ m.format }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if match_total > matches | length %}
+    <p class="mc-note">Showing the first {{ matches | length }}. Narrow the filters, or pick an artist on the left.</p>
+    {% endif %}
+    {% elif not db_error %}
+    <p class="mc-note">No pressings match the filters.</p>
+    {% endif %}
+{% elif not db_error %}
+    <div class="mc-start-empty">
+        {% if artist_total %}
+        <p class="mc-start-title">Pick an artist on the left</p>
+        <p class="mc-hint">{{ artist_total }} artist{{ '' if artist_total == 1 else 's' }} · {{ pressing_total }} pressing{{ '' if pressing_total == 1 else 's' }}. Type in the box above the list to filter it, or use the letters beside it to jump.</p>
+        {% else %}
+        <p class="mc-start-title">No pressings catalogued yet</p>
+        <a href="/catalogue/new" class="btn btn-primary">Add the first pressing</a>
+        {% endif %}
+    </div>
+{% endif %}
+</div>

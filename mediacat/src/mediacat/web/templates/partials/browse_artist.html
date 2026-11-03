@@ -1,0 +1,45 @@
+{# The open artist: header and album covers (their own scroll area), then the
+   pressings of the open album in #mc-versions.  A cover click pushes a history
+   entry and swaps only #mc-versions. #}
+<section class="mc-artist-top" id="mc-artist-top" aria-labelledby="mc-artist-name">
+    <header class="mc-artist-head">
+        <span class="mc-avatar" aria-hidden="true">{% if view.portrait_url %}<img src="{{ view.portrait_url }}" alt="" loading="lazy">{% else %}{{ view.initial }}{% endif %}</span>
+        <div class="mc-artist-heading">
+            <h2 class="mc-artist-title" id="mc-artist-name">{{ view.name }}</h2>
+            <p class="mc-artist-sub">
+                {{ view.count }} pressing{{ '' if view.count == 1 else 's' }}
+                · {{ view.album_count }} album{{ '' if view.album_count == 1 else 's' }}{% if view.years %} · {{ view.years }}{% endif %}
+                {% if filters.active %}· <span class="mc-filtered">filtered</span> <a href="{{ view.all_url }}">Show all</a>{% endif %}
+            </p>
+        </div>
+        <a class="btn btn-ghost btn-sm mc-artist-bio" href="{{ view.bio_url }}">Biography &amp; discography</a>
+    </header>
+    {% if view.albums %}
+    <div class="mc-albums">
+        {% for a in view.albums %}
+        <a class="mc-album{% if a.active %} mc-album--active{% endif %}" href="{{ a.url }}"
+           hx-get="{{ a.hx_url }}" hx-target="#mc-versions" hx-swap="innerHTML scroll:top"
+           hx-push-url="{{ a.url }}" data-mc-active="mc-album"{% if a.active %} aria-current="true"{% endif %}>
+            {% if a.cover_url %}
+            <img class="mc-album-cover" src="{{ a.cover_url }}" alt="" loading="lazy">
+            {% else %}
+            <span class="mc-album-cover mc-album-cover--empty" aria-hidden="true">{{ a.initial }}</span>
+            {% endif %}
+            <span class="mc-album-title">{{ a.display }}</span>
+            <span class="mc-album-meta">{% if a.year %}{{ a.year }} · {% endif %}{{ a.count }} pressing{{ '' if a.count == 1 else 's' }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% elif filters.active %}
+    <p class="mc-note">No pressings by {{ view.name }} match the filters. <a href="{{ view.all_url }}">Show all of them</a></p>
+    {% else %}
+    <p class="mc-note">There are no pressings by {{ view.name }} in the catalogue.</p>
+    {% endif %}
+</section>
+<section class="mc-versions" id="mc-versions" aria-label="Pressings">
+    {% if versions %}
+    {% include "partials/browse_versions.html" %}
+    {% elif view.albums %}
+    <p class="mc-note">Pick an album to list its pressings.</p>
+    {% endif %}
+</section>

@@ -1,0 +1,20 @@
+{% extends "base_3panel.html" %}
+{# Catalogue browser (3panel layout); see web/catalogue_browser.py.
+   The selection lives in the URL (?artist=&album=&pressing= plus the filters).
+   Left: artist index.  Centre: the open artist's albums and the open album's
+   pressings.  Right: preview of the selected pressing. #}
+{% block title %}{% if view %}{{ view.name }} — {% endif %}Catalogue — MediaCat{% endblock %}
+{% block body_class %}mc-browser-page{% endblock %}
+{% block sp_layout_class %}sp-layout--three{% endblock %}
+{% block head %}
+<script src="/static/catalogue.js" defer></script>
+<script src="/static/catalogue_browser.js" defer></script>
+{% endblock %}
+
+{% block sp_left %}{% include "partials/browse_index.html" %}{% endblock %}
+
+{% block sp_center %}{% include "partials/browse_center.html" %}{% endblock %}
+
+{% block sp_right %}
+{% if preview %}{% include "partials/pressing_preview.html" %}{% else %}{% include "partials/preview_empty.html" %}{% endif %}
+{% endblock %}

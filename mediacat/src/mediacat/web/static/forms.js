@@ -87,8 +87,10 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
 /* Active-row highlight for HTMX lists (replaces inline hx-on handlers, which
  * the CSP blocks).  data-mc-active="row-class" on the element that sends the
  * request: the closest .row-class gets row-class--active and every other
- * .row-class loses it.  data-mc-clear="#selector" empties that element first
- * (e.g. a dependent detail panel).
+ * .row-class loses it; aria-current="true" moves to the sending element (screen
+ * readers announce it, panel_state.js scrolls it into view).
+ * data-mc-clear="#selector" empties that element first (e.g. a dependent
+ * detail panel).
  */
 document.addEventListener('htmx:beforeRequest', function (evt) {
   var src = evt.detail && evt.detail.elt;
@@ -99,6 +101,10 @@ document.addEventListener('htmx:beforeRequest', function (evt) {
     c.classList.remove(base + '--active');
   });
   row.classList.add(base + '--active');
+  document.querySelectorAll('[data-mc-active="' + base + '"][aria-current]').forEach(function (c) {
+    c.removeAttribute('aria-current');
+  });
+  src.setAttribute('aria-current', 'true');
   if (src.dataset.mcClear) {
     var clear = document.querySelector(src.dataset.mcClear);
     if (clear) clear.innerHTML = '';

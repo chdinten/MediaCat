@@ -1006,3 +1006,35 @@ document.addEventListener('click', function (e) {
         document.querySelectorAll('.js-find-results').forEach(function (box) { setView(box, 'cards'); });
     });
 }());
+
+/* ── Back link and previous / next pressing ─────────────────────────────────
+ * "← Back to …" (data-mc-back) points at the page the pressing was opened
+ * from.  When that is exactly the previous history entry, use the browser's
+ * Back instead of a new visit: the back/forward cache then restores the view
+ * as it was, and Back from there still leaves the catalogue.  J / K step to
+ * the next / previous pressing of the album (rel="next" / rel="prev").
+ */
+(function () {
+    'use strict';
+
+    document.addEventListener('click', function (e) {
+        var a = e.target.closest ? e.target.closest('a[data-mc-back]') : null;
+        if (!a || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (document.referrer && document.referrer === a.href && window.history.length > 1) {
+            e.preventDefault();
+            window.history.back();
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+        var t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        var rel = e.key === 'j' ? 'next' : (e.key === 'k' ? 'prev' : '');
+        var link = rel && document.querySelector('.detail-nav a[rel="' + rel + '"]');
+        if (link) {
+            e.preventDefault();
+            window.location.href = link.href;
+        }
+    });
+}());

@@ -336,8 +336,11 @@ def create_app() -> FastAPI:
 
     # Catalogue router imported here to avoid circular imports at module level.
     from mediacat.web.catalogue import catalogue_router
+    from mediacat.web.catalogue_browser import catalogue_browser_router
     from mediacat.web.discogs_details import discogs_details_router
 
+    # Before catalogue_router, so /catalogue/browse/... never meets /catalogue/{token_id}/...
+    app.include_router(catalogue_browser_router)
     app.include_router(catalogue_router)
     app.include_router(discogs_details_router)
 

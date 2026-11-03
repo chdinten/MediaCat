@@ -1,0 +1,48 @@
+{# Pressings of the open album.  Clicking a row, or ↑/↓, previews the pressing in
+   the right panel and replaces the URL (no new Back step); Enter opens it.  The
+   album route also empties the preview, out of band. #}
+<div class="mc-section-head">
+    <h3 class="mc-section-title">{{ versions.display }}</h3>
+    {% if versions.summary %}<span class="mc-section-count">{{ versions.summary }}</span>{% endif %}
+</div>
+{% if versions.rows %}
+<table class="mc-table">
+    <caption class="sr-only">Pressings of {{ versions.display }}</caption>
+    <thead>
+        <tr>
+            <th scope="col" class="mc-col-check"><span class="sr-only">Merge</span></th>
+            <th scope="col">Year</th>
+            <th scope="col">Country</th>
+            <th scope="col">Label</th>
+            <th scope="col">Cat. no.</th>
+            <th scope="col">Format</th>
+            <th scope="col" title="Media / sleeve, from your Discogs collection">Condition</th>
+            <th scope="col" class="mc-col-dots"><span class="sr-only">Data complete</span></th>
+        </tr>
+    </thead>
+    <tbody id="catalogue-pressing-list">
+        {% for r in versions.rows %}
+        <tr class="mc-version{% if r.active %} mc-version--active{% endif %}">
+            <td class="mc-col-check"><input type="checkbox" class="pressing-merge-check" data-id="{{ r.id }}" aria-label="Select {{ r.name }} to merge"></td>
+            <td class="mc-col-year">{{ r.year or '—' }}</td>
+            <td>{{ r.country or '—' }}</td>
+            <td class="mc-col-label">{{ r.label or '—' }}</td>
+            <td><a class="mc-version-link" href="{{ r.open_url }}"
+                   hx-get="{{ r.preview_url }}" hx-target="#sp-right"
+                   hx-replace-url="{{ r.state_url }}" hx-sync="#mc-versions:replace"
+                   data-mc-active="mc-version"{% if r.active %} aria-current="true"{% endif %}
+                   title="Preview {{ r.name }}; Enter opens it">{{ r.catno or 'No cat. no.' }}</a></td>
+            <td>{{ r.format }}</td>
+            <td>{{ r.condition or '—' }}</td>
+            <td class="mc-col-dots"><span class="completeness-dots" title="{{ r.completeness }}/4 filled in: cover, tracklist, country, matrix">{% for i in range(4) %}<span class="dot{% if i < r.completeness %} dot--filled{% endif %}"></span>{% endfor %}</span></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="mc-hint">Click a row or use <kbd>↑</kbd> <kbd>↓</kbd> to preview · <kbd>Enter</kbd> or double-click opens the pressing · tick two to merge duplicates</p>
+{% else %}
+<p class="mc-note">No pressings of {{ versions.display }} match the filters.</p>
+{% endif %}
+{% if oob_versions %}
+<div id="sp-right" hx-swap-oob="innerHTML">{% include "partials/preview_empty.html" %}</div>
+{% endif %}

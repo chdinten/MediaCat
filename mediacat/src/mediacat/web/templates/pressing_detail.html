@@ -86,17 +86,35 @@
 <div class="alert alert-warning">This pressing has no Discogs release ID.</div>
 {% endif %}
 
-<nav class="breadcrumb">
+{# Breadcrumb = where the pressing sits (each crumb opens the catalogue at that
+   level); the back link = the exact view it was opened from.  See
+   catalogue_browser.detail_navigation. #}
+<nav class="breadcrumb" aria-label="Breadcrumb">
     <a href="/catalogue">Catalogue</a>
-    {% if token.artist %}
+    {% if nav and nav.artist_url %}
     <span class="sep">›</span>
-    <a href="/catalogue?artist={{ token.artist | urlencode }}">{{ token.artist }}</a>
-    {% endif %}
-    {% if token.title %}
+    <a href="{{ nav.artist_url }}">{{ token.artist }}</a>
+    <span class="sep">›</span>
+    <a href="{{ nav.album_url }}">{{ token.title or 'Untitled' }}</a>
+    <span class="sep">›</span>
+    <span aria-current="page">{{ nav.label }}</span>
+    {% elif token.title %}
     <span class="sep">›</span>
     <span>{{ token.title }}</span>
     {% endif %}
 </nav>
+{% if nav %}
+<div class="detail-nav">
+    <a href="{{ nav.back_url }}" class="detail-back" data-mc-back>← {{ nav.back_label }}</a>
+    {% if nav.total > 1 %}
+    <span class="detail-siblings">
+        {% if nav.prev %}<a href="{{ nav.prev.url }}" rel="prev" title="Previous pressing of this album (K)">‹ {{ nav.prev.label }}</a>{% endif %}
+        <span class="detail-position">{{ nav.position }} of {{ nav.total }}</span>
+        {% if nav.next %}<a href="{{ nav.next.url }}" rel="next" title="Next pressing of this album (J)">{{ nav.next.label }} ›</a>{% endif %}
+    </span>
+    {% endif %}
+</div>
+{% endif %}
 
 <div class="detail-layout">
     <aside class="detail-sidebar">

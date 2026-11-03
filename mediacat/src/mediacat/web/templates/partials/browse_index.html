@@ -1,0 +1,105 @@
+{# Left panel of the catalogue browser: search box, filters, A–Z artist index.
+   Typing filters the list in the page; Enter searches album titles too (?q=).
+   Filter links and forms keep the open artist and album. #}
+<div class="mc-index">
+    <div class="mc-index-head">
+        <form class="mc-index-search" action="/catalogue" method="get" role="search">
+            {% for name, value in search_hidden %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+            <input type="search" name="q" id="mc-index-filter" class="sp-artist-filter-input"
+                   value="{{ filters.q }}" placeholder="Filter artists…" autocomplete="off" spellcheck="false"
+                   aria-label="Filter artists (Enter also searches album titles)"
+                   title="Type to filter the list; press Enter to search album titles too">
+        </form>
+
+        <details class="mc-filters"{% if chips %} open{% endif %}>
+            <summary>Filters{% if chips %} <span class="mc-filters-count">{{ chips | length }}</span>{% endif %}</summary>
+            {% if facets.formats %}
+            <div class="mc-facet">
+                <span class="mc-facet-label">Format</span>
+                <div class="filter-pills">
+                    {% for f in facets.formats %}
+                    <a href="{{ f.url }}" class="filter-pill{% if f.active %} filter-pill--active{% endif %}"{% if f.active %} aria-current="true"{% endif %}>{{ f.label }} <span class="filter-pill-count">{{ f.count }}</span></a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if facets.genres %}
+            <div class="mc-facet">
+                <span class="mc-facet-label">Genre</span>
+                <div class="filter-pills">
+                    {% for g in facets.genres %}
+                    <a href="{{ g.url }}" class="filter-pill{% if g.active %} filter-pill--active{% endif %}"{% if g.active %} aria-current="true"{% endif %}>{{ g.label }} <span class="filter-pill-count">{{ g.count }}</span></a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            {% if facets.decades %}
+            <div class="mc-facet">
+                <span class="mc-facet-label">Decade</span>
+                <div class="filter-pills">
+                    {% for d in facets.decades %}
+                    <a href="{{ d.url }}" class="filter-pill{% if d.active %} filter-pill--active{% endif %}"{% if d.active %} aria-current="true"{% endif %}>{{ d.label }} <span class="filter-pill-count">{{ d.count }}</span></a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            <form class="mc-range" action="/catalogue" method="get">
+                {% for name, value in range_hidden %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+                <div class="mc-range-field">
+                    <span class="mc-facet-label">Years</span>
+                    <span class="mc-range-row">
+                        <input type="number" name="year_from" value="{{ filters.year_from }}" placeholder="From"
+                               min="1900" max="2100" aria-label="Year from" class="mc-range-input">
+                        <span aria-hidden="true">–</span>
+                        <input type="number" name="year_to" value="{{ filters.year_to }}" placeholder="To"
+                               min="1900" max="2100" aria-label="Year to" class="mc-range-input">
+                    </span>
+                </div>
+                <div class="mc-range-field">
+                    <label class="mc-facet-label" for="mc-country">Country</label>
+                    <input type="text" name="country_q" id="mc-country" value="{{ filters.country_q }}" placeholder="e.g. Germany"
+                           maxlength="100" autocomplete="off" list="mc-country-list" class="mc-range-input mc-range-input--wide"
+                           hx-get="/catalogue/autocomplete/countries" hx-trigger="input changed delay:250ms"
+                           hx-target="#mc-country-list" hx-swap="innerHTML" hx-include="this">
+                    <datalist id="mc-country-list"></datalist>
+                </div>
+                <button type="submit" class="btn btn-ghost btn-sm">Apply</button>
+            </form>
+        </details>
+
+        {% if chips %}
+        <div class="mc-chips" aria-label="Filters in use">
+            {% for c in chips %}
+            <a class="mc-chip" href="{{ c.url }}" title="Remove this filter">{{ c.label }} <span aria-hidden="true">✕</span></a>
+            {% endfor %}
+            <a class="mc-chip-clear" href="{{ clear_url }}">Clear all</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="mc-index-body">
+        <ul class="mc-index-list" id="mc-index-list" aria-label="Artists">
+            {% for group in index_groups %}
+            <li class="mc-letter" id="mc-letter-{{ group.anchor }}" aria-hidden="true">{{ group.letter }}</li>
+            {% for a in group.artists %}
+            <li class="mc-artist{% if a.active %} mc-artist--active{% endif %}" data-fold="{{ a.fold }}">
+                <a class="mc-artist-link" href="{{ a.url }}"
+                   hx-get="{{ a.hx_url }}" hx-target="#sp-center" hx-push-url="{{ a.url }}"
+                   data-mc-active="mc-artist"{% if a.active %} aria-current="true"{% endif %}>
+                    <span class="mc-artist-name">{{ a.name }}</span>
+                    <span class="mc-artist-meta">{{ a.count }} pressing{{ '' if a.count == 1 else 's' }}{% if a.years %} · {{ a.years }}{% endif %}</span>
+                </a>
+            </li>
+            {% endfor %}
+            {% endfor %}
+            <li class="mc-index-empty" id="mc-index-nomatch"{% if index_groups %} hidden{% endif %}>
+                {% if chips or index_groups %}No artists match.{% else %}No artists yet.{% endif %}
+            </li>
+        </ul>
+        <nav class="mc-rail" aria-label="Jump to letter">
+            {% for r in rail %}
+            {% if r.enabled %}<button type="button" data-letter="{{ r.anchor }}" aria-label="Jump to {{ r.letter }}">{{ r.letter }}</button>{% else %}<span aria-hidden="true">{{ r.letter }}</span>{% endif %}
+            {% endfor %}
+        </nav>
+    </div>
+</div>

@@ -19,6 +19,7 @@ PostgreSQL 16, MinIO, Redis, OPA. Docker Compose deployment on WSL2.
 - LLMs are advisory only, never autonomous
 - Dark-first UI: CSS custom properties, [data-theme="light"] override, no build step
 - Catalogue: Artist→Album→Pressing derived from Token table (no separate tables)
+- Catalogue browser (3panel layout, `web/catalogue_browser.py`): the selection lives in the URL (`/catalogue?artist=&album=&pressing=` + filters; `album=` empty = untitled) and the server renders any such URL. Artist/album clicks `hx-push-url`, pressing rows `hx-replace-url`. htmx history snapshots cover `#sp-layout-root` only (`hx-history-elt`): JS that binds to elements inside the panels must use delegation or re-run on `htmx:historyRestore`. Panel scroll positions per URL in `static/panel_state.js`. The pressing page's back link accepts only `/catalogue` and `/search` URLs (`safe_back`)
 - `--env-file .env` required on all docker compose commands (Compose v2 resolves .env from compose file dir)
 - Secret file modes: postgres_password=0600 (root only), others=0644 (app uid 10001 readable)
 - WSL2 mirrored networking required for Windows browser access to 127.0.0.1

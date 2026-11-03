@@ -1,0 +1,40 @@
+{# Right panel of the catalogue browser: one pressing.  The header takes its
+   colour from the cover (catalogue_browser.js); below 1100 px the panel is a
+   drawer with a close button. #}
+<article class="mc-preview" aria-labelledby="mc-preview-title">
+    <header class="mc-preview-head">
+        {% if preview.cover_url %}
+        <img class="mc-preview-cover" src="{{ preview.cover_url }}" alt="Front cover">
+        {% else %}
+        <span class="mc-preview-cover mc-preview-cover--empty" aria-hidden="true">{{ preview.format }}</span>
+        {% endif %}
+        <div class="mc-preview-heading">
+            <p class="mc-preview-artist">{{ preview.artist }}</p>
+            <h2 class="mc-preview-title" id="mc-preview-title">{{ preview.title }}</h2>
+        </div>
+        <button type="button" class="mc-preview-close" aria-label="Close the preview">✕</button>
+    </header>
+    <div class="mc-preview-body">
+        <div class="mc-tags">
+            <span class="mc-tag">{{ preview.format }}</span>
+            {% if preview.country %}<span class="mc-tag">{{ preview.country }}</span>{% endif %}
+            {% if preview.year %}<span class="mc-tag">{{ preview.year }}</span>{% endif %}
+            {% if preview.catno %}<span class="mc-tag mc-tag--id">{{ preview.catno }}</span>{% endif %}
+        </div>
+        <dl class="mc-preview-dl">
+            {% if preview.label %}<dt>Label</dt><dd>{{ preview.label }}</dd>{% endif %}
+            {% if preview.matrix_a %}<dt>Matrix A</dt><dd class="mc-mono">{{ preview.matrix_a }}</dd>{% endif %}
+            {% if preview.matrix_b %}<dt>Matrix B</dt><dd class="mc-mono">{{ preview.matrix_b }}</dd>{% endif %}
+            {% if preview.media or preview.sleeve %}<dt>Condition</dt><dd>{{ preview.media or '—' }} / {{ preview.sleeve or '—' }} <span class="mc-dim">media / sleeve</span></dd>{% endif %}
+            {% if preview.signed %}<dt>Signed</dt><dd class="dc-signed">✍ {{ preview.signed_by or 'Yes' }}</dd>{% endif %}
+            {% if preview.genres %}<dt>Genres</dt><dd>{{ preview.genres }}</dd>{% endif %}
+            {% if preview.rating %}<dt>My rating</dt><dd>★ {{ "%.1f" | format(preview.rating / 2) }}</dd>{% endif %}
+        </dl>
+        <div class="mc-preview-actions">
+            <a class="btn btn-primary btn-sm" href="{{ preview.open_url }}">Open pressing</a>
+            {% if user and user.get('role') in ('admin', 'reviewer') %}<a class="btn btn-ghost btn-sm" href="{{ preview.edit_url }}">Edit</a>{% endif %}
+            {% if preview.discogs_url %}<a class="btn btn-ghost btn-sm" href="{{ preview.discogs_url }}" target="_blank" rel="noopener noreferrer">Discogs ↗</a>{% endif %}
+        </div>
+        <p class="mc-hint"><kbd>Enter</kbd> opens · <kbd>↑</kbd> <kbd>↓</kbd> other pressings of the album</p>
+    </div>
+</article>

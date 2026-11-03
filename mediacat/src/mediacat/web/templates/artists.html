@@ -26,7 +26,7 @@
 {% if artists %}
 <div class="sp-artist-list" id="sp-artist-list">
     {% for a in artists %}
-    <div class="sp-artist-item {% if loop.first %}sp-artist-item--active{% endif %}"
+    <div class="sp-artist-item {% if a.name == open_artist.name %}sp-artist-item--active{% endif %}"{% if a.name == open_artist.name %} aria-current="true"{% endif %}
          id="sp-aitem-{{ loop.index }}"
          hx-get="/artists/detail?artist={{ a.enc }}"
          hx-target="#sp-center"
@@ -62,13 +62,13 @@
 {% block sp_center %}
 {% if artists %}
 <div id="sp-artist-detail-init"
-     hx-get="/artists/detail?artist={{ artists[0].enc }}"
+     hx-get="/artists/detail?artist={{ open_artist.enc }}"
      hx-trigger="load"
      hx-swap="outerHTML"
      hx-target="#sp-artist-detail-init">
     <div class="sp-empty">
         <span class="sp-empty-icon">🎵</span>
-        <span class="sp-empty-text">Loading {{ artists[0].name }}…</span>
+        <span class="sp-empty-text">Loading {{ open_artist.name }}…</span>
     </div>
 </div>
 {% else %}
@@ -118,7 +118,7 @@
 <div class="artists-layout">
     <div class="artists-grid" id="artists-grid">
         {% for a in artists %}
-        <div class="artist-card-lg {% if loop.first %}artist-card-lg--active{% endif %}"
+        <div class="artist-card-lg {% if a.name == open_artist.name %}artist-card-lg--active{% endif %}"
              id="acard-{{ loop.index }}"
              hx-get="/artists/detail?artist={{ a.enc }}"
              hx-target="#artist-detail-panel"
@@ -147,7 +147,7 @@
     </div>
 
     <div id="artist-detail-panel" class="artist-detail-panel"
-         hx-get="/artists/detail?artist={{ artists[0].enc }}"
+         hx-get="/artists/detail?artist={{ open_artist.enc }}"
          hx-trigger="load"
          hx-swap="innerHTML"></div>
 </div>

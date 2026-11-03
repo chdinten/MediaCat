@@ -327,7 +327,10 @@ Token (one per unique physical pressing)
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/catalogue` | Artist browser — grouped by `artist`, paginated |
+| `GET` | `/catalogue` | Artist browser. Classic layout: grouped by `artist`, paginated. 3panel layout: the catalogue browser ([3.3](#33-htmx-drill-down-pattern)), opening `?artist=&album=&pressing=` plus the filters |
+| `GET` | `/catalogue/browse/artist?artist=` | Catalogue browser: centre panel for one artist (HTMX; empties the preview out of band) |
+| `GET` | `/catalogue/browse/album?artist=&album=` | Catalogue browser: pressings of one album as a versions table (HTMX) |
+| `GET` | `/catalogue/{token_id}/preview` | Catalogue browser: right-panel preview of one pressing (HTMX) |
 | `GET` | `/catalogue/new` | Create-pressing form |
 | `POST` | `/catalogue/new` | Create Token + initial TokenRevision (source=human) |
 | `GET` | `/catalogue/search` | External search (Discogs / MusicBrainz) — HTMX partial |
@@ -356,17 +359,28 @@ Token (one per unique physical pressing)
 | `POST` | `/catalogue/{token_id}/images/{image_id}/set-cover` | Mark image as primary cover (clears flag on all others for this token) |
 | `POST` | `/catalogue/{token_id}/correct-matrix-field` | Apply a human correction to one parsed matrix field with a mandatory reason code + optional notes |
 
-> **Route ordering:** Static path segments (`/new`, `/search`, `/merge`, `/scan-cover`, `/import/...`, `/artists/...`) are resolved before the parametric `/{token_id}` catch-all. This is guaranteed by Starlette's routing which prioritises literal segments over path parameters.
+> **Route ordering:** Static path segments (`/new`, `/search`, `/merge`, `/scan-cover`, `/import/...`, `/artists/...`) are resolved before the parametric `/{token_id}` catch-all. This is guaranteed by Starlette's routing which prioritises literal segments over path parameters. The browser routes (`web/catalogue_browser.py`, `catalogue_browser_router`) are included before `catalogue_router` in `app.py`.
 
 ### 3.3 HTMX Drill-down Pattern
 
-The catalogue browse works as a three-level accordion using HTMX:
+**Classic layout.** The catalogue browse works as a three-level accordion using HTMX:
 
 1. **Artist grid** (`catalogue.html`) — each artist card has `hx-get="/catalogue/artists/{enc}/albums"` targeting a `<div class="album-drawer">` directly below.
 2. **Album list** (`partials/album_list.html`) — each album row has `hx-get="/catalogue/artists/{enc_artist}/albums/{enc_title}/pressings"` targeting a `<div class="pressing-drawer">` below.
 3. **Pressing list** (`partials/pressing_list.html`) — each pressing links to the full detail page `GET /catalogue/{token_id}`.
 
-Artist and title values in URLs are `urllib.parse.quote()`-encoded and decoded at the route handler.
+Artist and title values in URLs are `urllib.parse.quote()`-encoded and decoded at the route handler. `catalogue.js` reopens the artist and album named in `?artist=&album=` (the pressing page's breadcrumb links there).
+
+**3panel layout: catalogue browser** (`web/catalogue_browser.py`, `catalogue_browser.html`, `static/catalogue_browser.js`). `catalogue_index` hands the request to `catalogue_browser.browser_page` when the `mc_layout` cookie selects the 3panel layout. Left: every matching artist A–Z with a letter rail. Centre: the open artist's header and album covers above the open album's pressings in a versions table. Right: a preview of the selected pressing (a drawer below 1100 px).
+
+- **State in the URL.** `/catalogue?artist=&album=&pressing=` plus the filter parameters (`q`, `fmt`, `genres`, `year_from`, `year_to`, `country_q`) describe the whole view, and the server renders all three panels from it: reload, bookmarks, the pressing page's links and htmx history misses all land on the same view. `album=` (empty) is the album without a title (`coalesce(title, '')`); `?pressing=` alone redirects to the full selection; an artist with one album opens it.
+- **History.** Artist links (into `#sp-center`) and album covers (into `#mc-versions`) use `hx-push-url`; pressing rows (`/catalogue/{token_id}/preview` into `#sp-right`) use `hx-replace-url`, so stepping through the pressings adds no Back steps. Artist and album responses empty the preview out of band (`hx-swap-oob`).
+- **Snapshots.** `base_3panel.html` marks `#sp-layout-root` with `hx-history-elt`, so Back restores only the panels and the top bar keeps its event handlers. Code that binds to elements inside the panels must use event delegation or re-run on `htmx:historyRestore` (as `panel_resize.js` does).
+- **Scroll.** The panels scroll inside a fixed-height shell, so `static/panel_state.js` saves each scrolling area's position per URL in `sessionStorage` (on `pagehide` and `htmx:beforeHistorySave`) and restores it (`pageshow`, `htmx:historyRestore`). Without a saved position it scrolls the `aria-current="true"` row into view.
+- **Filters** narrow the index, the albums and the pressings; filter links and forms keep the open artist and album. With filters set but no artist open, the centre lists the first 100 matching pressings.
+- **Index order.** A leading "The" and accents are ignored ("The Cure" under C); names that do not start with A–Z go under "#", first. Typing in the box filters the list in the page; Enter searches album titles too (`?q=`).
+- **Keyboard.** ↑ ↓ move through the index and through the pressings (previewing each); Enter opens the previewed pressing; Esc closes the preview drawer.
+- **Pressing page.** `catalogue_browser.detail_navigation` builds the breadcrumb (Catalogue › artist › album › pressing; each crumb opens the browser at that level), the back link and previous / next links through the album's pressings (`J` / `K`). The back link goes to the `back` parameter, else to a same-site Referer, when it is a `/catalogue` or `/search` page (with `pressing=` pointed at this pressing), else to the album in the browser. When it equals the referrer, `pressing.js` uses `history.back()` so the back/forward cache can restore the view as it was.
 
 ### 3.4 External Search
 
@@ -786,6 +800,9 @@ The `REVOKE UPDATE, DELETE ON audit_log FROM mediacat_app` restriction is enforc
 | `static/command_palette.js` | Ctrl+K command palette and slash commands |
 | `static/bio_research.js` | "Research in progress" banner with timer during artist-bio lookups |
 | `static/panel_resize.js` | 3panel layout switching and drag-resizable panels |
+| `static/panel_state.js` | 3panel layout: each panel's scroll position per URL, restored on Back and reload |
+| `static/catalogue_browser.js` | Catalogue browser: type-to-filter index, A–Z rail, ↑ ↓ / Enter keys, cover tint and preview drawer |
+| `static/catalogue.js` | Catalogue: merge-duplicates selection; classic layout reopens `?artist=&album=` |
 | `static/background.js` | Login/dashboard background video: pauses in hidden tabs and under reduced motion |
 
 This means CSP can block all inline script execution without breaking any UI functionality.
@@ -1056,7 +1073,10 @@ Template context returned by `GET /`:
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/catalogue` | Artist browser |
+| `GET` | `/catalogue` | Artist browser (3panel: `?artist=&album=&pressing=` opens that selection) |
+| `GET` | `/catalogue/browse/artist` | Catalogue browser: one artist's albums (HTMX) |
+| `GET` | `/catalogue/browse/album` | Catalogue browser: one album's pressings (HTMX) |
+| `GET` | `/catalogue/{token_id}/preview` | Catalogue browser: pressing preview (HTMX) |
 | `GET` | `/catalogue/new` | Create-pressing form |
 | `POST` | `/catalogue/new` | Create pressing |
 | `GET` | `/catalogue/search` | External search (Discogs/MusicBrainz) |
@@ -1271,7 +1291,10 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 ### 18.2 Browsing the Catalogue
 
 - Navigate to `/catalogue` — artists are grouped alphabetically.
-- Click an artist to expand its albums; click an album to expand its pressings.
+- **3panel layout** (Admin → Layout): the left panel lists every artist A–Z. Type in the box to filter it (Enter also searches album titles) or click a letter to jump. *Filters* holds the format, genre and decade pills, a year range and a country; the filters in use show as chips you can remove.
+- Click an artist to see their albums as covers; click an album to list its pressings (year, country, label, catalogue number, format, condition). Click a pressing, or use ↑ ↓, to preview it on the right; Enter, a double-click or *Open pressing* opens the full page.
+- The address bar always holds the current view, so Back, reload and bookmarks return to it. On a pressing page, *← Back to …* returns to the exact view it was opened from, the breadcrumb opens the artist or the album, and ‹ › (or K / J) step through the album's pressings.
+- **Classic layout:** click an artist to expand its albums; click an album to expand its pressings.
 - Click any pressing to see the full detail page with revision history.
 - Use the search bar to filter by artist/title; use the format dropdown for vinyl or CD.
 - In the 3panel layout, use the top-bar search to find artists, album titles or song titles (see [18.9](#189-searching-artists-albums-and-songs)).
