@@ -10,7 +10,7 @@ comparison, anomaly detection, translation (British English), and text generatio
 ## Key capabilities
 
 - **Catalogue browser** — Artist → Album → Pressing hierarchy with HTMX drill-down; create, edit, archive, merge, soft-delete, and flag pressings for review
-- **Artists tab** — Grid of all artists with portrait images (Wikipedia), pressing counts, and year ranges; click-through to album list, biography (Wikipedia via MusicBrainz or LLM-verified search → Discogs profile if clearly fuller → official homepage AI summary → "not found" statement; looked up in the background with a progress timer), and discography (MusicBrainz primary → Wikipedia fallback, enriched with Spotify album URLs, cached daily); Spotify links appear in the discography list and on the pressing detail page
+- **Artists tab** — Grid of all artists with portrait images (Wikipedia), pressing counts, and year ranges; click-through to album list, biography (Wikipedia via MusicBrainz or LLM-verified search → Discogs profile if clearly fuller → official homepage AI summary → "not found" statement; looked up in the background with a progress timer), and discography (MusicBrainz primary → Wikipedia fallback, enriched with Spotify album URLs, cached daily)
 - **Direct import** — Create a Token directly from a Discogs or MusicBrainz release ID with a one-click preview-and-import flow; scan a barcode from a cover photo to pre-fill the form
 - **Bulk collection import** — Import an entire Discogs user collection via the Admin panel; paginated, resumable, skip-existing-by-default, with live progress tracking and per-release error recovery
 - **Image management** — Drag-and-drop upload on both the detail page and the edit form; assign region labels; delete images; primary cover selection (is_primary_cover flag) for Japanese OBI and similar multi-image cases
@@ -19,13 +19,14 @@ comparison, anomaly detection, translation (British English), and text generatio
 - **External search** — Discogs and MusicBrainz lookup directly from the catalogue UI
 - **Global search** — Top-bar search with a scope picker: artists and album titles / catalogue numbers together, or artists, albums or song titles (tracks) on their own; album and track hits open the album page (a single hit opens it directly); Ctrl+K palette with `/album` and `/track`
 - **Discogs pressing details** — Release identifiers grouped by pressing variant and LP side; pick a variant, tick matrix codes and copy them into *My copy* (your Discogs collection fields: runout per LP side, autographed, signed by…), with write-back to Discogs; A4 album sheet PDF; image lightbox; banner while a Discogs import runs
+- **Streaming links** — Small Spotify, Deezer and Apple Music icons under albums (dashboard cards, catalogue browser, pressing page, discography) open the album in the user's own app or web player, reusing one window per service; matched by barcode first, then artist + title (only confident matches), looked up lazily and cached; any user can correct a link or mark an album "not on this service"; Admin → Streaming turns services on/off, sets the country and runs "Match all albums". Deezer and Apple Music need no account; Spotify uses the client credentials from Admin → API Tokens
 - **Revision history** — Every change is a new `TokenRevision`; nothing is overwritten
 - **Vision pipeline** — Ollama (local-first) or Anthropic API transcribes labels, OBI strips, runout etchings; can be triggered interactively per image or automatically on upload/region reassignment
 - **Symbol registry** — 26 seeded runout / dead-wax symbols (EMI △, PRS ▽, Porky, etc.) with slug-based indexing
 - **Review queue** — All AI proposals land here first; humans approve before any token is updated
 - **Ratings & genres** — Personal rating (0–10), Discogs community rating/votes, JSONB genre tags, full tracklist storage per token
 - **Price history** — Discogs market data snapshots per pressing (lowest price, median, num for sale)
-- **Admin panel** — Tabbed interface for user management (create/edit/role/timeout), bulk Discogs collection import, catalogue ZIP backup/restore, and debug info
+- **Admin panel** — Tabbed interface for user management (create/edit/role/timeout), bulk Discogs collection import, catalogue ZIP backup/restore, API tokens, streaming services, and debug info
 - **3panel-style layout** — Optional 3-column UI (selectable in Admin → Layout): persistent left panel (artist/search list), wide centre (detail), narrow right (pressing brief); panel widths drag-resizable and memorised per-page in localStorage; global top-bar search switches to artist-panel view; classic single-column layout retained as alternative
 - **Late Night Hi-Fi UI** — Dark-first theme with hero dashboard, stats overlay, genre counts, and oldest-year badge; `[data-theme="light"]` override available
 - **Animated background** — Login page and dashboard show a looping turntable video (still image under reduced motion); in Admin → Layout switch between animation and still, fit to width or fill the screen, and upload replacements (JPEG/PNG/WebP, MP4 H.264, WebM VP9) with a content-based format check
@@ -97,13 +98,13 @@ mediacat/
 ├── scripts/          Bootstrap & lifecycle scripts
 ├── config/           Non-secret YAML config (examples checked in; live files host-mounted)
 ├── deploy/           Dockerfiles, Docker Compose, Caddy, OPA bundles, backup scripts
-├── alembic/          Database migrations (0001–0014: schema, symbols, matrix, covers, genres/ratings, contributors, price history, vinyl material, artist bios, countries, site settings, Spotify URL)
+├── alembic/          Database migrations (0001–0016: schema, symbols, matrix, covers, genres/ratings, contributors, price history, vinyl material, artist bios, countries, site settings, Spotify URL, Discogs sales imports, streaming links)
 ├── src/mediacat/     Python application package
 │   ├── db/           ORM models, enums, migrations engine
 │   ├── web/          FastAPI app, routes, auth, middleware, templates, static assets
 │   ├── vision/       VLM adapter, task prompts, candidate matcher
 │   ├── llm/          LLM adapter, tasks, safety, Ollama & Anthropic backends
-│   ├── ingestion/    Connector base, Discogs, MusicBrainz, Spotify, Wikipedia, Redis queue, drift detector
+│   ├── ingestion/    Connector base, Discogs, MusicBrainz, Spotify, Wikipedia, streaming links (Spotify/Deezer/Apple Music), Redis queue, drift detector
 │   ├── rules/        OPA adapter, local Python fallback
 │   └── storage/      MinIO wrapper, image pipeline, OCR, translation
 ├── tests/            Pytest suite

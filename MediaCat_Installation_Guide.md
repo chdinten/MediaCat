@@ -223,14 +223,19 @@ docker compose --env-file .env -f deploy/docker-compose.yaml logs app --tail=50
 
 ```bash
 docker compose --env-file .env -f deploy/docker-compose.yaml \
-    exec app python -m alembic -c alembic/alembic.ini upgrade head
+    exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat \
+    app alembic -c alembic.ini upgrade head
 ```
 
 Expected output:
 ```
-INFO  [alembic.runtime.migration] Running upgrade  -> 0001_base, base schema
-INFO  [alembic.runtime.migration] Running upgrade 0001_base -> 0002_symbols, symbol registry
+INFO  [alembic.runtime.migration] Running upgrade  -> 0001, initial schema
+INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, graphical symbol support
+…
+INFO  [alembic.runtime.migration] Running upgrade 0015 -> 0016, Streaming-service album links
 ```
+
+Run it from the `mediacat/` directory. Migrations run as `mediacat_migrator` (the app role `mediacat_app` may not change the schema); the service is `app`, not `worker`.
 
 Verify:
 ```bash
@@ -238,7 +243,7 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
     exec postgres psql -U postgres -d mediacat -c "\dt"
 ```
 
-You should see tables: `tokens`, `symbols`, `symbol_variants`, `token_symbols`, `users`, etc.
+You should see tables: `tokens`, `symbols`, `symbol_variants`, `token_symbols`, `users`, `streaming_links`, etc.
 
 
 
@@ -316,7 +321,14 @@ make test
 # 8. Caddy serves the app on 8443
 curl -sk -o /dev/null -w "%{http_code}\n" https://mediacat.localhost:8443/login
 # Expected: 200
+
+# 9. Streaming links: the app container reaches Deezer and Apple Music (no keys needed)
+docker compose --env-file .env -f deploy/docker-compose.yaml \
+    exec app python -c "import httpx; print(httpx.get('https://api.deezer.com/album/302127').status_code, httpx.get('https://itunes.apple.com/lookup?id=697194953&country=CH').status_code)"
+# Expected: 200 200
 ```
+
+Streaming icons for Spotify additionally need the Spotify Client ID and Secret in **Admin → API Tokens**; services are switched on and off, and the country set, in **Admin → Streaming**.
 
 Finally, open `https://mediacat.localhost:8443/` in a Windows browser: the MediaCat login page appears.
 
@@ -387,7 +399,8 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 
 ```bash
 docker compose --env-file .env -f deploy/docker-compose.yaml \
-    exec app python -m alembic -c alembic/alembic.ini upgrade head
+    exec -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat \
+    app alembic -c alembic.ini upgrade head
 ```
 
 ### Open an app shell
@@ -430,7 +443,7 @@ The harness refuses any database not named `mediacat_test`.
 
 **Isolation:** before every test all tables are emptied and the rows the migrations seed (countries, symbols) are restored from a snapshot taken after `upgrade head`. Tests do not depend on each other or on their order.
 
-**External services are never called.** Discogs, MusicBrainz, Wikipedia and Spotify are stubbed per test (`FakeHttp` or monkeypatched fetchers), MinIO is an in-memory store with the same interface, and the vision/LLM backends are stubs. Every outbound connection is blocked; a test that reaches the network without a stub fails.
+**External services are never called.** Discogs, MusicBrainz, Wikipedia, Spotify, Deezer and the iTunes (Apple Music) API are stubbed per test (`FakeHttp` or monkeypatched fetchers), MinIO is an in-memory store with the same interface, and the vision/LLM backends are stubs. Every outbound connection is blocked; a test that reaches the network without a stub fails.
 
 **Known bugs** that are not fixed yet are pinned as strict `xfail` tests (`reason="BUG: …"`; none at the moment). Fixing one makes its test pass unexpectedly, which fails the run as a reminder to remove the marker.
 

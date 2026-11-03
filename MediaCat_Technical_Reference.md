@@ -502,6 +502,42 @@ Bios are sized to roughly a quarter to half a page (1,200–2,500 characters, wh
 
 The text LLM is `app.state.llm` (HybridLlm: Ollama `OLLAMA_TEXT_MODEL` / `llm.text_model`, defaulting to the vision model; Anthropic API fallback). Untrusted page text passes through `llm.safety.build_prompt`.
 
+### 3.13 Streaming-Service Links (`web/streaming.py`, `ingestion/streaming.py`)
+
+Albums show a small icon per streaming service that has them (Spotify, Deezer, Apple Music). A click opens the album page in the user's own app or web player, in one named window per service (`target="mediacat-spotify"`, `mediacat-deezer`, `mediacat-apple`): the first click opens it, the next album replaces the previous one in that window instead of opening another. Reusing a window needs the opener relationship, so the links carry no `rel="noopener"` (the service page could navigate the MediaCat tab, not read it; links only ever point to the three service hosts); `referrerpolicy="no-referrer"` keeps the MediaCat URL from being sent. None of the three sites sends `Cross-Origin-Opener-Policy`, which would break the reuse. MediaCat stores no streaming logins and has no in-page player.
+
+**Where icons appear.** Under the dashboard cards (Recently added, Top rated, genre carousels; the icon row sits *below* the card because the card is itself a link), in the three-panel browser's album header (`partials/browse_versions.html`) and preview panel (`partials/pressing_preview.html`), on the pressing page ("Listen"), and in the artist discography for albums in the collection (other discography rows keep the Spotify link from the discography enrichment). Each place renders an empty slot (`partials/streaming_slot.html`, macro `streaming_slot`) that loads `GET /streaming/icons?artist=&album=` with `hx-trigger="intersect once"`, so lookups never block a page. Untitled albums get no slot.
+
+**Which services show.** Those switched on in Admin → Streaming (all by default) whose API needs no account (Deezer, Apple Music), plus those that need one (Spotify) once their credentials are set in Admin → API Tokens (`spotify_client_id` / `spotify_client_secret`). An icon shows only when that service has the album.
+
+**Lookups per service**
+
+| Service | API | Barcode | Text search | Rate limit (process-wide `Throttle`) |
+|---|---|---|---|---|
+| Spotify | Web API, client credentials (`SpotifyClient.search_albums`) | `q=upc:<code>` | `q=album:<title> artist:<artist>` | 1 call/s |
+| Deezer | `api.deezer.com`, no key | `/album/upc:<code>` | `/search/album?q=artist:"…" album:"…"` | ~7 calls/s (quota 50 / 5 s) |
+| Apple Music | iTunes Search API, no key (not MusicKit) | `/lookup?upc=&entity=album&country=` | `/search?term=&entity=album&media=music&country=&limit=50` | 1 call / 3.1 s (~20/min) |
+
+Spotify gets no `market` parameter (see the Spotify note in CLAUDE.md); a candidate whose `available_markets` lacks the storefront country is skipped instead. Deezer has no country filter. The iTunes Search API mirrors the iTunes Store catalogue, which occasionally lacks an album Apple Music streams; such albums show no Apple icon until a user pastes the link.
+
+**Matching.** Barcodes first: `Token.barcode` plus the Discogs "Barcode" identifiers (`Token.extra["discogs"]["identifiers"]`) of every live pressing of the album, at most 3, each tried as UPC-12 and EAN-13. A barcode hit still needs the artist to match (vinyl barcodes are often mistyped or differ from the digital release). Then one text search; a candidate counts only when the artist matches (`match_artist`: folded, accents stripped, `&` = "and", leading "The" and the Discogs "(N)" suffix dropped) and the title scores at least **0.88** (`title_score`: 1.0 same title, 0.97 same after edition suffixes such as "(Remastered 2011)", "[Deluxe Edition]", "- 2018 Remix", "- EP" are dropped, else 0.95 × similarity). Ties go to the exact title, then the year closest to the album's earliest pressing. Anything less is cached as "not found": no icon is better than a wrong album.
+
+**Storage.** Table `streaming_links` (see [4.5](#45-streaminglink-table)), keyed by `artist_key` + `album_key` + `service`. Status `found` (auto), `not_found` (cached miss, looked up again after **30 days**) or `manual` (set by a user; `url` NULL = "not on this service"; never overwritten by auto-matching — the upsert's `ON CONFLICT … WHERE status <> 'manual'`). A failed lookup (network, quota, 5xx) is not stored and is not retried for 10 minutes. `tokens.spotify_url` is kept in step with the album's Spotify row (all live pressings of the album); an existing `tokens.spotify_url` is reused as the album's Spotify link instead of a new search, and the artist-discography enrichment records its Spotify matches for owned albums in `streaming_links` (never replacing an existing row).
+
+**Lookups in the background.** A lookup is an `asyncio` task per album (`_lookup_tasks`) that saves its result even when the browser leaves; concurrent requests for the same album join it. The icons request waits up to 6 s (`WAIT_S`, shielded), then answers with the icons found so far and "Looking up streaming links…", which asks again after 3 s (`hx-trigger="load delay:3s"`).
+
+**Edit links.** The ✎ after the icons opens `GET /streaming/edit?artist=&album=&back=` for **any logged-in user**. Per service: *Automatic* (drop a manual entry; looked up again on the next view), *This link* (a pasted album URL, checked and normalised by `parse_service_url`: `open.spotify.com/album/…` or `spotify:album:…`, `deezer.com/album/…`, `music.apple.com/<cc>/album/…`), or *Not on <service>*. An invalid link re-shows the form (400) and saves nothing. Saves are audited (`streaming_links.edit`). `back` is reduced to a same-site path (`safe_back`).
+
+**Admin → Streaming** (`/admin?tab=streaming`). Per-service on/off and the storefront country (two letters, default **CH**), stored as SiteSetting `streaming` (JSON `{"services": {"spotify": bool, "deezer": bool, "apple": bool}, "country": "CH"}`); per-service counts of found / not found / set by hand. **Match all albums** runs a background job (one per process) over every distinct artist + title, skipping cached albums (option: re-check "not found" ones); progress is polled every 2 s and the job can be stopped. An app restart ends it; the next run carries on where it stopped because results are cached.
+
+**Logos.** Official, unaltered files in `web/static/streaming/` (served locally, so CSP `img-src` is unchanged), 22 px, each link labelled "Open in <service>":
+
+| File | Source |
+|---|---|
+| `spotify-white.svg`, `spotify-black.svg` | Spotify design guidelines, "Spotify icon" kit (`developer.spotify.com/documentation/design`, `Primary_Logo_White_RGB.svg` / `Primary_Logo_Black_RGB.svg`). White on the dark theme, black on the light theme: the green icon is only for black or white backgrounds. Minimum 21 px. |
+| `deezer.png` | Deezer's own icon (heart), 144 × 144 favicon from `deezer.com` (the press kit at `newsroom-deezer.com/press-kit/` has only the wordmark logos) |
+| `apple-music.svg` | Apple Music identity guidelines, "Apple Music Icons" kit (`marketing.services.apple`, `Apple_Music_Icon_RGB_sm_073120.svg`, the colour icon for small sizes) |
+
 ## 4 · Database Schema
 
 PostgreSQL 16 is the primary data store. All tables use UUID primary keys (server-generated via `uuid_generate_v4()`). Timestamps are UTC with timezone. Schema is managed exclusively via Alembic migrations.
@@ -522,6 +558,7 @@ PostgreSQL 16 is the primary data store. All tables use UUID primary keys (serve
 | `IngestionJob` | Background connector job tracking |
 | `AuditLog` | Append-only immutable action trail (BIGINT PK) |
 | `User` | Application user with role-based access |
+| `StreamingLink` | An album's page on a streaming service, a cached "not found", or a user's correction (migration 0016) |
 
 ### 4.2 Token Table (key columns)
 
@@ -590,6 +627,26 @@ created_at · deleted_at
 
 This two-level precedence enables Japanese pressings (and similar cases) to nominate a specific image as the catalogue cover independently of region tagging. For example, an OBI strip image tagged `obi_front` can be designated the primary cover while the album art image retains its own `cover_front` region label.
 
+
+### 4.5 StreamingLink Table
+
+One row per album and service (see [3.13](#313-streaming-service-links-webstreamingpy-ingestionstreamingpy)). Albums have no table of their own, so the row is keyed by the normalised artist and title.
+
+| Column | Type | Notes |
+|---|---|---|
+| `artist_key` | VARCHAR(500) | `ingestion.streaming.artist_key`: casefolded, accents stripped, whitespace collapsed, Discogs "(N)" / "*" suffix dropped |
+| `album_key` | VARCHAR(500) | `album_key`: casefolded, accents stripped (editions stay distinct albums) |
+| `service` | VARCHAR(20) | `spotify` \| `deezer` \| `apple` — unique together with the two keys (`uq_streaming_links_album`) |
+| `artist_name`, `album_title` | VARCHAR(500) | Artist / title as last looked up (for reading the table) |
+| `url` | VARCHAR(500) | Album page; NULL for `not_found` and for manual "not on this service" |
+| `external_id` | VARCHAR(100) | The service's album id |
+| `match_method` | VARCHAR(20) | `barcode` \| `search` \| `manual` |
+| `match_score` | FLOAT | 1.0 barcode / exact title, 0.97 edition-suffix match, else 0.95 × title similarity |
+| `status` | VARCHAR(20) | `found` \| `not_found` \| `manual` |
+| `checked_at` | TIMESTAMPTZ | Last lookup or edit; `not_found` is re-checked after 30 days |
+| `updated_by` | UUID → `users.id` | Who set a manual row (SET NULL on delete) |
+
+The table is part of the backup export (`_BACKUP_TABLES`). `tokens.spotify_url` (migration 0014) stays and is kept filled from this table, so older backups that contain the column still restore.
 
 ## 5 · Vision & OCR Pipeline
 
@@ -1067,7 +1124,7 @@ Template context returned by `GET /`:
 | `GET` | `/artists` | Artist grid / list |
 | `GET` | `/artists/detail?artist=` | Artist page: biography, albums in the collection, discography |
 | `GET` | `/artists/info?artist=[&refresh=1]` | Biography partial; runs or joins a background lookup (see [3.12](#312-artist-biographies-ingestionartist_biopy)) |
-| `GET` | `/artists/discography?artist=` | Discography partial (MusicBrainz → Wikipedia, Spotify links) |
+| `GET` | `/artists/discography?artist=` | Discography partial (MusicBrainz → Wikipedia; streaming icons for owned albums, Spotify links for the rest) |
 
 ### 14.3 Catalogue (Auth Required)
 
@@ -1148,20 +1205,35 @@ Each answers with a redirect to `/admin?tab=layout` carrying `bg_msg=` or `bg_er
 | `POST` | `/admin/background/reset` | Back to the built-in files, animation, fit to width |
 
 
+### 14.8 Streaming Links
+
+See [3.13](#313-streaming-service-links-webstreamingpy-ingestionstreamingpy). The first three need a login (any role); the admin routes need the admin role.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/streaming/icons?artist=&album=` | Icons partial; looks up what isn't cached, waits up to 6 s, else answers "still looking" and polls |
+| `GET` | `/streaming/edit?artist=&album=&back=` | Edit-links page |
+| `POST` | `/streaming/edit` | Form: `artist`, `album`, `back`, per service `mode_<service>` = `auto` \| `url` \| `none` and `url_<service>`; 303 to `back`, 400 with the form on an invalid link |
+| `POST` | `/admin/streaming/settings` | `service_<service>=on`, `country=XX`; 303 to `/admin?tab=streaming` with `st_msg=saved` or `st_error=country\|db` |
+| `POST` | `/admin/streaming/match` | Start "Match all albums" (`recheck=on` also re-checks "not found"); no-op while one runs; answers the progress partial |
+| `POST` | `/admin/streaming/match/stop` | Stop the running job after the current album |
+| `GET` | `/admin/streaming/match/status` | Progress partial (polls itself every 2 s while running) |
+
 ## 15 · Alembic Migrations
 
 ```bash
+# Run from mediacat/. Migrations run as mediacat_migrator; the service is `app`.
+MIGRATE="docker compose --env-file .env -f deploy/docker-compose.yaml exec \
+    -e PGHOST=postgres -e PGUSER=mediacat_migrator -e PGDATABASE=mediacat app alembic -c alembic.ini"
+
 # Apply all pending migrations (inside running container)
-docker compose --env-file .env -f deploy/docker-compose.yaml \
-    exec app python -m alembic -c alembic/alembic.ini upgrade head
+$MIGRATE upgrade head
 
 # Roll back one migration
-docker compose --env-file .env -f deploy/docker-compose.yaml \
-    exec app python -m alembic -c alembic/alembic.ini downgrade -1
+$MIGRATE downgrade -1
 
-# Show current revision
-docker compose --env-file .env -f deploy/docker-compose.yaml \
-    exec app python -m alembic -c alembic/alembic.ini current
+# Show current revision (expected: 0016 (head))
+$MIGRATE current
 ```
 
 ### Migration 0001 — initial_schema
@@ -1196,6 +1268,12 @@ docker compose --env-file .env -f deploy/docker-compose.yaml \
 - Cover selection logic: `is_primary_cover = TRUE` takes precedence over `region = cover_front`
 - Supports Japanese OBI and similar multi-image cover scenarios
 
+
+### Migration 0016 — streaming_links
+
+- New table `streaming_links` (see [4.5](#45-streaminglink-table)) with unique constraint `uq_streaming_links_album` (`artist_key`, `album_key`, `service`) and FK `updated_by → users.id ON DELETE SET NULL`
+- `status` / `match_method` are VARCHAR, not PG enums, so services can be added without DDL
+- No data migration: existing `tokens.spotify_url` values are taken over on an album's first lookup
 
 ## 16 · Make Targets
 
@@ -1426,5 +1504,13 @@ The `_build_full_runout_text()` helper reconstructs the display string from all 
 
 Good animations are short, silent, seamless loops with little motion, e.g. steam, a turning record, a flickering lamp. Users whose system asks for reduced motion always see the still.
 
+
+### 18.13 Listening on Spotify, Deezer and Apple Music
+
+1. Albums show small service icons under the dashboard cards, in the catalogue browser's album header and preview, on the pressing page and in the artist discography. Click one to open the album in your own app or web player (you stay logged in there; MediaCat never sees that login).
+2. The icons appear a moment after the album scrolls into view. "Looking up streaming links…" means the services are still being asked; Apple Music allows only about 20 lookups a minute.
+3. No icon means the service doesn't have the album, or MediaCat wasn't sure. Live albums, bootlegs and Japanese editions often have no match.
+4. **Wrong or missing link:** click **✎** next to the icons. For each service choose **This link** and paste the album's address from the app's *Share → Copy link*, or **Not on <service>**. Your choice is kept for good; **Automatic** hands the album back to the automatic match. Every logged-in user can do this.
+5. **Admins:** Admin → Streaming switches services on or off, sets the country (default CH) and runs **Match all albums**, which looks up the whole collection in the background. Spotify needs its Client ID and Secret in Admin → API Tokens; Deezer and Apple Music need no account.
 
 *MediaCat · Technical Reference · v0.5 · November 2026*
