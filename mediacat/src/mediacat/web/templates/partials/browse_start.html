@@ -21,7 +21,7 @@
         <tbody>
             {% for m in matches %}
             <tr>
-                <td>{{ m.artist }}</td>
+                <td>{{ m.artist | artist_display }}</td>
                 <td><a href="{{ m.url }}">{{ m.title }}</a></td>
                 <td class="mc-col-year">{{ m.year or '—' }}</td>
                 <td>{{ m.country or '—' }}</td>

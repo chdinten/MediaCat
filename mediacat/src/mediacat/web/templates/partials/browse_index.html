@@ -86,7 +86,7 @@
                 <a class="mc-artist-link" href="{{ a.url }}"
                    hx-get="{{ a.hx_url }}" hx-target="#sp-center" hx-push-url="{{ a.url }}"
                    data-mc-active="mc-artist"{% if a.active %} aria-current="true"{% endif %}>
-                    <span class="mc-artist-name">{{ a.name }}</span>
+                    <span class="mc-artist-name">{{ a.name | artist_display }}</span>
                     <span class="mc-artist-meta">{{ a.count }} pressing{{ '' if a.count == 1 else 's' }}{% if a.years %} · {{ a.years }}{% endif %}</span>
                 </a>
             </li>

@@ -1,7 +1,7 @@
 {% if tokens %}
 <div class="pressing-panel-header">
     <span class="pressing-panel-title">{{ album_title }}</span>
-    <span class="pressing-panel-meta">by {{ artist }} &nbsp;&middot;&nbsp; {{ tokens|length }} pressing{% if tokens|length != 1 %}s{% endif %}</span>
+    <span class="pressing-panel-meta">by {{ artist | artist_display }} &nbsp;&middot;&nbsp; {{ tokens|length }} pressing{% if tokens|length != 1 %}s{% endif %}</span>
     <button class="album-panel-close" type="button" style="margin-left:auto"
             onclick="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.album-grid-card').forEach(c=>c.classList.remove('album-grid-card--active'))">&times;</button>
 </div>
@@ -12,7 +12,7 @@
     <div class="pressing-item-wrap">
         <label class="pressing-merge-label" title="Select for merge duplicates">
             <input type="checkbox" class="pressing-merge-check" data-id="{{ token.id }}"
-                   aria-label="Select {{ token.artist or 'Unknown' }} &mdash; {{ token.title or 'Untitled' }} for merge">
+                   aria-label="Select {{ token.artist | artist_display or 'Unknown' }} &mdash; {{ token.title or 'Untitled' }} for merge">
         </label>
         <a href="/catalogue/{{ token.id }}" class="pressing-item"
            hx-get="/catalogue/{{ token.id }}/peek"
@@ -64,7 +64,7 @@
 {% else %}
 <div class="pressing-panel-header">
     <span class="pressing-panel-title">{{ album_title }}</span>
-    <span class="pressing-panel-meta">by {{ artist }}</span>
+    <span class="pressing-panel-meta">by {{ artist | artist_display }}</span>
     <button class="album-panel-close" type="button" style="margin-left:auto"
             onclick="document.getElementById('pressing-panel').innerHTML='';document.querySelectorAll('.album-grid-card').forEach(c=>c.classList.remove('album-grid-card--active'))">&times;</button>
 </div>

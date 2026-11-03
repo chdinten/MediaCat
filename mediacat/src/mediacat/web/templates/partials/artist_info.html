@@ -6,9 +6,9 @@
 <div class="artist-wiki{% if not_found %} artist-wiki--none{% endif %}">
     {% if not not_found %}
     {% if summary.thumbnail_url %}
-    <img src="{{ summary.thumbnail_url }}" alt="{{ artist }}" class="artist-wiki-thumb" loading="lazy">
+    <img src="{{ summary.thumbnail_url }}" alt="{{ artist | artist_display }}" class="artist-wiki-thumb" loading="lazy">
     {% elif fallback_cover_url %}
-    <img src="{{ fallback_cover_url }}" alt="{{ artist }}" class="artist-wiki-thumb" loading="lazy">
+    <img src="{{ fallback_cover_url }}" alt="{{ artist | artist_display }}" class="artist-wiki-thumb" loading="lazy">
     {% endif %}
     {% endif %}
     <div class="artist-wiki-text">
@@ -38,7 +38,7 @@
 {% else %}
 <div class="artist-wiki artist-wiki--none">
     <div class="artist-wiki-text">
-        <p class="artist-wiki-none">No biography found for {{ artist }}.</p>
+        <p class="artist-wiki-none">No biography found for {{ artist | artist_display }}.</p>
         <div class="artist-wiki-actions">
             <button type="button" class="btn btn-ghost btn-sm js-bio-refresh"
                     hx-get="/artists/info?artist={{ artist | urlencode }}&amp;refresh=true"

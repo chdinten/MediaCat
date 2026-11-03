@@ -3,7 +3,7 @@
 
     {# ── Header ── #}
     <div class="artist-detail-header">
-        <h2 class="artist-detail-name">{{ artist }}</h2>
+        <h2 class="artist-detail-name"{% if artist | artist_note %} title="{{ artist | artist_note }}"{% endif %}>{{ artist | artist_display }}{% if artist | artist_note %}<a class="help-hint" href="/help#artist-number" title="Why does the name differ from Discogs?" aria-label="Help: artist numbers from Discogs">?</a>{% endif %}</h2>
         <a href="/catalogue?artist={{ enc_artist }}" class="btn btn-ghost btn-sm">View in Catalogue</a>
     </div>
 
@@ -50,7 +50,7 @@
         </div>
         {% else %}
         <p class="text-muted" style="font-style:italic">
-            You have no albums by {{ artist }} in the database yet.
+            You have no albums by {{ artist | artist_display }} in the database yet.
         </p>
         {% endif %}
     </div>

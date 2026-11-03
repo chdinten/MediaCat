@@ -1,7 +1,7 @@
 {% if albums %}
 <div class="album-panel-header">
     <div class="album-panel-title-row">
-        <span class="album-panel-artist">{{ artist }}</span>
+        <span class="album-panel-artist">{{ artist | artist_display }}</span>
         <span class="album-panel-count">{{ albums|length }} album{% if albums|length != 1 %}s{% endif %}</span>
     </div>
     <button class="album-panel-close" type="button"
@@ -24,9 +24,9 @@
 </div>
 {% else %}
 <div class="album-panel-header">
-    <span class="album-panel-artist">{{ artist }}</span>
+    <span class="album-panel-artist">{{ artist | artist_display }}</span>
     <button class="album-panel-close" type="button"
             onclick="document.getElementById('album-panel').innerHTML='';document.querySelectorAll('.artist-card').forEach(c=>c.classList.remove('artist-card--active'))">&times;</button>
 </div>
-<p class="text-muted" style="padding:1rem 1.25rem">No albums found for {{ artist }}.</p>
+<p class="text-muted" style="padding:1rem 1.25rem">No albums found for {{ artist | artist_display }}.</p>
 {% endif %}

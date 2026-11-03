@@ -15,7 +15,7 @@
     <tbody>
         {% for t in tokens %}
         <tr>
-            <td>{{ t.artist or '' }}</td>
+            <td>{{ t.artist | artist_display or '' }}</td>
             <td><a href="/catalogue/{{ t.id }}">{{ t.title or 'Untitled' }}</a></td>
             <td><span class="badge badge-{{ t.media_format.value }}">{{ t.media_format.value }}</span></td>
             <td>{{ t.year or '' }}</td>

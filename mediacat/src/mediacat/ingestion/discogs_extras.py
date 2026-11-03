@@ -52,6 +52,35 @@ _YES = {"yes", "y", "ja", "j", "oui", "si", "sí", "true", "1", "x", "✓", "✔
 
 
 # ---------------------------------------------------------------------------
+# Artist names
+# ---------------------------------------------------------------------------
+
+# Discogs numbers artists who share a name: "Saga (3)" is the third "Saga".
+# The number ends a name, also inside a list ("A, John Williams (4) & B").
+_ARTIST_NUMBER_RE = re.compile(r"\s*\(\d+\)(?=\s*(?:$|[,&/]))")
+
+
+def display_artist(name: str | None) -> str:
+    """The artist name as shown: without Discogs' disambiguation numbers.
+
+    Only for display; the stored name keeps the number (URLs, Discogs search).
+    """
+    if not name:
+        return ""
+    return _ARTIST_NUMBER_RE.sub("", name).strip() or name
+
+
+def artist_note(name: str | None) -> str:
+    """Tooltip explaining a hidden Discogs number, or "" when there is none."""
+    if not name or display_artist(name) == name:
+        return ""
+    return (
+        f"Listed on Discogs as “{name}”: Discogs adds a number to tell apart "
+        "different artists with the same name."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Sides and LPs
 # ---------------------------------------------------------------------------
 

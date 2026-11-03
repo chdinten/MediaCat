@@ -37,9 +37,9 @@
         <span class="search-result-title">
             {% if r.track_title %}
             <strong>{% if r.position %}{{ r.position }} {% endif %}{{ r.track_title }}</strong>
-            <span style="color:var(--text-muted)"> — {{ r.artist or '—' }} — {{ r.title or '—' }}</span>
+            <span style="color:var(--text-muted)"> — {{ r.artist | artist_display or '—' }} — {{ r.title or '—' }}</span>
             {% else %}
-            <strong>{{ r.artist or '—' }}</strong>
+            <strong>{{ r.artist | artist_display or '—' }}</strong>
             <span style="color:var(--text-muted)"> — {{ r.title or '—' }}</span>
             {% endif %}
         </span>

@@ -3,7 +3,7 @@
    The selection lives in the URL (?artist=&album=&pressing= plus the filters).
    Left: artist index.  Centre: the open artist's albums and the open album's
    pressings.  Right: preview of the selected pressing. #}
-{% block title %}{% if view %}{{ view.name }} — {% endif %}Catalogue — MediaCat{% endblock %}
+{% block title %}{% if view %}{{ view.name | artist_display }} — {% endif %}Catalogue — MediaCat{% endblock %}
 {% block body_class %}mc-browser-page{% endblock %}
 {% block sp_layout_class %}sp-layout--three{% endblock %}
 {% block head %}

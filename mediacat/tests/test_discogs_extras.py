@@ -11,8 +11,10 @@ import pytest
 
 from mediacat.ingestion.discogs import DiscogsConnector
 from mediacat.ingestion.discogs_extras import (
+    artist_note,
     classify_field,
     collection_view,
+    display_artist,
     format_qty,
     group_runouts,
     is_yes,
@@ -557,3 +559,27 @@ async def test_refresh_rides_out_short_rate_limit(monkeypatch: pytest.MonkeyPatc
     with pytest.raises(httpx.HTTPStatusError):
         await discogs_details._fetch_release_patiently(9689531)
     assert len(calls) == len(discogs_details.RATE_LIMIT_WAITS) + 1
+
+
+@pytest.mark.parametrize(
+    ("stored", "shown"),
+    [
+        ("Saga (3)", "Saga"),
+        ("Adele (3)", "Adele"),
+        ("Anne-Sophie Mutter, John Williams (4)", "Anne-Sophie Mutter, John Williams"),
+        ("Nazareth (2) & Friends (5)", "Nazareth & Friends"),
+        ("AC/DC", "AC/DC"),
+        ("Sunn O)))", "Sunn O)))"),
+        ("Live (1999) Band", "Live (1999) Band"),  # a number inside the name stays
+        ("(2)", "(2)"),  # nothing would be left
+        (None, ""),
+    ],
+)
+def test_display_artist(stored: str | None, shown: str) -> None:
+    assert display_artist(stored) == shown
+
+
+def test_artist_note() -> None:
+    assert artist_note("Saga (3)").startswith("Listed on Discogs as “Saga (3)”")
+    assert artist_note("Saga") == ""
+    assert artist_note(None) == ""

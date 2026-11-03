@@ -109,7 +109,7 @@
             </div>
             <div class="recent-card-body">
                 <div class="recent-title">{{ token.title or 'Untitled' }}</div>
-                <div class="recent-artist">{{ token.artist or 'Unknown Artist' }}</div>
+                <div class="recent-artist">{{ token.artist | artist_display or 'Unknown Artist' }}</div>
                 <div class="recent-meta">
                     {% if token.year %}{{ token.year }}{% endif %}
                     {% if token.year and token.label %} · {% endif %}
@@ -163,7 +163,7 @@
             </div>
             <div class="recent-card-body">
                 <div class="recent-title">{{ token.title or 'Untitled' }}</div>
-                <div class="recent-artist">{{ token.artist or 'Unknown Artist' }}</div>
+                <div class="recent-artist">{{ token.artist | artist_display or 'Unknown Artist' }}</div>
                 <div class="recent-meta">
                     {% set stars = (token.personal_rating / 2) %}
                     ★ {{ "%.1f"|format(stars) }}/5
@@ -213,7 +213,7 @@
             </div>
             <div class="recent-card-body">
                 <div class="recent-title">{{ token.title or 'Untitled' }}</div>
-                <div class="recent-artist">{{ token.artist or 'Unknown Artist' }}</div>
+                <div class="recent-artist">{{ token.artist | artist_display or 'Unknown Artist' }}</div>
                 <div class="recent-meta">
                     {% if token.year %}{{ token.year }}{% endif %}
                     {% if token.year and token.label %} · {% endif %}

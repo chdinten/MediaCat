@@ -386,3 +386,37 @@ async def test_back_parameter_is_kept_through_previous_and_next(
         html = (await viewer.get(f"/catalogue/{t['c'].id}", params={"back": bad})).text
         assert "evil.example" not in html, bad
         assert f'href="{_EDEN}&amp;pressing={t["c"].id}" class="detail-back"' in html, bad
+
+
+async def test_discogs_artist_number_is_hidden_but_kept_in_links(
+    browser: httpx.AsyncClient, db: AsyncSession
+) -> None:
+    """ "Saga (3)" shows as "Saga" (with a tooltip on headings); URLs keep the stored name."""
+    token = await seed_token(db, artist="Saga (3)", title="Worlds Apart")
+    note = "Listed on Discogs as “Saga (3)”: Discogs adds a number"
+
+    page = (await browser.get("/catalogue", params={"artist": "Saga (3)"})).text
+    assert '<span class="mc-artist-name">Saga</span>' in page
+    assert re.search(
+        r'<h2 class="mc-artist-title" id="mc-artist-name" title="[^"]*">Saga<a class="help-hint"',
+        page,
+    )
+    assert note in page
+    assert "artist=Saga+%283%29" in page  # links still use the stored name
+    assert "<title>Saga — Catalogue" in page
+
+    detail = (await browser.get("/artists/detail", params={"artist": "Saga (3)"})).text
+    assert '<h2 class="artist-detail-name" title="' in detail
+    assert '>Saga<a class="help-hint" href="/help#artist-number"' in detail
+
+    pressing = (await browser.get(f"/catalogue/{token.id}")).text
+    assert '>Saga<a class="help-hint" href="/help#artist-number"' in pressing
+    assert note in pressing
+    assert "<title>Saga — Worlds Apart" in pressing
+    back = "/catalogue?artist=Saga+%283%29&album=Worlds+Apart"
+    pressing = (await browser.get(f"/catalogue/{token.id}", params={"back": back})).text
+    assert "← Back to Saga · Worlds Apart</a>" in pressing
+
+    dash = (await browser.get("/")).text
+    assert '<div class="recent-artist">Saga</div>' in dash
+    assert "artist=Saga%20%283%29" in dash  # the streaming slot looks up the stored name

@@ -34,6 +34,7 @@
             {% if user.get('role') == 'admin' %}
             <a href="/admin" {% if request.url.path.startswith('/admin') or request.url.path.startswith('/users') %}class="active"{% endif %}>Admin</a>
             {% endif %}
+            <a href="/help" {% if request.url.path.startswith('/help') %}class="active"{% endif %}>Help</a>
         </div>
         {% endif %}
 

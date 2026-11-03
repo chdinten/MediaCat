@@ -10,7 +10,7 @@
         <span class="mc-preview-cover mc-preview-cover--empty" aria-hidden="true">{{ preview.format }}</span>
         {% endif %}
         <div class="mc-preview-heading">
-            <p class="mc-preview-artist">{{ preview.artist }}</p>
+            <p class="mc-preview-artist">{{ preview.artist | artist_display }}</p>
             <h2 class="mc-preview-title" id="mc-preview-title">{{ preview.title }}</h2>
         </div>
         <button type="button" class="mc-preview-close" aria-label="Close the preview">✕</button>

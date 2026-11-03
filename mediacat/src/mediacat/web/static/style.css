@@ -4216,3 +4216,51 @@ dialog.mc-lightbox::backdrop { background: hsl(0 0% 0% / 0.72); backdrop-filter:
 .bg-upload-rules { font-size: 0.82rem; margin: 0.5rem 0 0.9rem 1.1rem; }
 .bg-upload-rules li { margin-bottom: 0.25rem; }
 .bg-reset { margin-top: 0.75rem; }
+
+/* ============================================================
+   HELP (/help, help.html + help.js)
+   ============================================================ */
+.help-page { max-width: 52rem; margin: 0 auto; padding: 0.5rem 0 3rem; }
+.help-head h1 { font-family: var(--font-serif); letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+.help-tools { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 1rem; }
+.help-search {
+    flex: 1 1 18rem; min-width: 0;
+    padding: 0.55rem 0.8rem; font-size: 0.95rem;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+}
+.help-search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.help-count { min-height: 1.2em; margin: 0.4rem 0 0; font-size: 0.82rem; }
+.help-toc { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; margin: 0.75rem 0 0.5rem; font-size: 0.88rem; }
+.help-section { margin-top: 2rem; scroll-margin-top: 4.5rem; }
+.help-section h2 {
+    font-family: var(--font-serif); font-size: 1.3rem;
+    padding-bottom: 0.35rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+}
+.help-entry { border-bottom: 1px solid var(--border); scroll-margin-top: 4.5rem; }
+.help-entry > summary {
+    cursor: pointer; padding: 0.65rem 0.25rem; font-weight: 500; color: var(--text);
+    list-style-position: outside; margin-left: 1rem;
+}
+.help-entry > summary:hover { color: var(--accent-light); }
+.help-entry[open] > summary { color: var(--accent); }
+.help-answer { padding: 0 0.25rem 0.9rem 1rem; color: var(--text-muted); line-height: 1.6; }
+.help-answer p { margin: 0 0 0.6rem; }
+.help-answer ul, .help-answer ol { margin: 0 0 0.6rem 1.2rem; }
+.help-answer li { margin-bottom: 0.25rem; }
+.help-answer strong, .help-answer em { color: var(--text); }
+.help-answer kbd {
+    font-size: 0.8em; padding: 0.05rem 0.35rem;
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+}
+.help-permalink { display: inline-block; font-size: 0.78rem; color: var(--text-dim); }
+.help-none { margin-top: 1.5rem; }
+.help-dev p { color: var(--text-muted); line-height: 1.6; }
+/* "?" after an artist name whose Discogs number is hidden (links to /help#artist-number) */
+.help-hint {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.1rem; height: 1.1rem; margin-left: 0.4rem; vertical-align: super;
+    font-family: var(--font); font-style: normal; font-size: 0.7rem; font-weight: 600;
+    color: var(--text-muted); border: 1px solid var(--border); border-radius: 50%;
+}
+.help-hint:hover { color: var(--accent-light); border-color: var(--accent); }

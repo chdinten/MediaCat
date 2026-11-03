@@ -20,6 +20,6 @@
 </div>
 {% else %}
 <p class="text-muted" style="font-style:italic">
-    You have no albums by {{ artist }} in the database.
+    You have no albums by {{ artist | artist_display }} in the database.
 </p>
 {% endif %}

@@ -8,7 +8,7 @@
     {% endif %}
 
     <div class="sp-brief-meta">
-        <div class="sp-brief-artist">{{ token.artist or '—' }}</div>
+        <div class="sp-brief-artist">{{ token.artist | artist_display or '—' }}</div>
         <div class="sp-brief-title">{{ token.title or 'Untitled' }}</div>
         {% if token.year %}
         <div class="sp-brief-year text-muted">{{ token.year }}</div>

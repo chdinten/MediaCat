@@ -49,7 +49,7 @@
             {% endif %}
         </div>
         <div class="sp-artist-item-body">
-            <div class="sp-artist-item-name">{{ a.name }}</div>
+            <div class="sp-artist-item-name">{{ a.name | artist_display }}</div>
             <div class="sp-artist-item-meta">
                 {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
                 {% if a.year_range %} · {{ a.year_range }}{% endif %}
@@ -67,7 +67,7 @@
         <div class="sp-artist-item-body">
             <div class="sp-artist-item-name">{{ h.title or 'Untitled' }}</div>
             <div class="sp-artist-item-meta">
-                {{ h.artist or '—' }}{% if h.year %} · {{ h.year }}{% endif %}{% if h.media_format %} · {{ h.media_format }}{% endif %}
+                {{ h.artist | artist_display or '—' }}{% if h.year %} · {{ h.year }}{% endif %}{% if h.media_format %} · {{ h.media_format }}{% endif %}
                 {% if h.catalog_number %} · {{ h.catalog_number }}{% endif %}
             </div>
         </div>
@@ -85,7 +85,7 @@
                 {% if h.position %}<span class="sp-hit-pos">{{ h.position }}</span>{% endif %}{{ h.track_title }}
             </div>
             <div class="sp-artist-item-meta">
-                {{ h.artist or '—' }} — {{ h.title or 'Untitled' }}{% if h.year %} · {{ h.year }}{% endif %}
+                {{ h.artist | artist_display or '—' }} — {{ h.title or 'Untitled' }}{% if h.year %} · {{ h.year }}{% endif %}
             </div>
         </div>
     </a>
@@ -111,7 +111,7 @@
      hx-target="#sp-search-artist-init">
     <div class="sp-empty">
         <span class="sp-empty-icon">&#x1F3B5;</span>
-        <span class="sp-empty-text">Loading {{ first.name }}&hellip;</span>
+        <span class="sp-empty-text">Loading {{ first.name | artist_display }}&hellip;</span>
     </div>
 </div>
 {% elif artists or albums or tracks %}

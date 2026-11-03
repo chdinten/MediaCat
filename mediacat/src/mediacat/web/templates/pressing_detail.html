@@ -1,6 +1,6 @@
 {% extends layout_base %}
 {% from "partials/streaming_slot.html" import streaming_slot %}
-{% block title %}{{ token.artist or 'Unknown' }} — {{ token.title or 'Untitled' }} — MediaCat{% endblock %}
+{% block title %}{{ token.artist | artist_display or 'Unknown' }} — {{ token.title or 'Untitled' }} — MediaCat{% endblock %}
 
 {% block content %}
 {% if request.query_params.get('uploaded') %}
@@ -94,7 +94,7 @@
     <a href="/catalogue">Catalogue</a>
     {% if nav and nav.artist_url %}
     <span class="sep">›</span>
-    <a href="{{ nav.artist_url }}">{{ token.artist }}</a>
+    <a href="{{ nav.artist_url }}">{{ token.artist | artist_display }}</a>
     <span class="sep">›</span>
     <a href="{{ nav.album_url }}">{{ token.title or 'Untitled' }}</a>
     <span class="sep">›</span>
@@ -136,7 +136,7 @@
             <a href="/catalogue/{{ token.id }}/edit" class="btn btn-primary btn-block">Edit</a>
             <button type="button" class="btn btn-ghost btn-block js-print-sheet"
                     data-url="/catalogue/{{ token.id }}/print.pdf"
-                    data-filename="{{ ((token.artist or '') ~ ' - ' ~ (token.title or 'album')) | replace('/', '_') | trim(' -') }}.pdf"
+                    data-filename="{{ ((token.artist | artist_display or '') ~ ' - ' ~ (token.title or 'album')) | replace('/', '_') | trim(' -') }}.pdf"
                     title="Create an A4 album sheet (cover, tracks, runouts) and save it as PDF">🖨 Print sheet (PDF)</button>
             {% if token.status.value != 'archived' %}
             <form method="post" action="/catalogue/{{ token.id }}/archive">
@@ -173,7 +173,7 @@
 
     <div class="detail-main">
         <div class="detail-header">
-            <h2 class="artist-name">{{ token.artist or 'Unknown Artist' }}</h2>
+            <h2 class="artist-name"{% if token.artist | artist_note %} title="{{ token.artist | artist_note }}"{% endif %}>{{ token.artist | artist_display or 'Unknown Artist' }}{% if token.artist | artist_note %}<a class="help-hint" href="/help#artist-number" title="Why does the name differ from Discogs?" aria-label="Help: artist numbers from Discogs">?</a>{% endif %}</h2>
             <h1>{{ token.title or 'Untitled' }}</h1>
             <span class="badge badge-{{ token.status.value }}">{{ token.status.value }}</span>
         </div>

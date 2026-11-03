@@ -12,6 +12,7 @@
         { label: 'Artists',          url: '/artists' },
         { label: 'Reviews',          url: '/reviews' },
         { label: 'Admin',            url: '/admin', role: 'admin' },
+        { label: 'Help',             url: '/help' },
     ];
 
     // Slash commands: type /cmd [arg] for direct navigation or contextual search.
@@ -24,6 +25,7 @@
         { name: 'review',    aliases: ['r'],          url: '/reviews',       argUrl: '/search?q={arg}', argHint: 'search term',   desc: 'Browse reviews' },
         { name: 'add',       aliases: [],             url: '/catalogue/new', argUrl: null, argHint: null, desc: 'Add new pressing' },
         { name: 'admin',     aliases: [],             url: '/admin',         argUrl: null, argHint: null, desc: 'Admin panel', role: 'admin' },
+        { name: 'help',      aliases: ['h', '?'],     url: '/help',          argUrl: '/help?q={arg}', argHint: 'question', desc: 'Questions and answers' },
     ];
 
     // ── Helpers ───────────────────────────────────────────────────

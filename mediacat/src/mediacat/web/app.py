@@ -360,4 +360,8 @@ def create_app() -> FastAPI:
 
     app.include_router(streaming_router)
 
+    from mediacat.web.help import help_router
+
+    app.include_router(help_router)
+
     return app

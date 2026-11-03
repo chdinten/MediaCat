@@ -33,7 +33,7 @@ from sqlalchemy.orm import selectinload
 
 from mediacat.db.enums import ImageRegion, MediaFormat, TokenStatus
 from mediacat.db.models import ArtistBio, Country, MediaObject, Token
-from mediacat.ingestion.discogs_extras import collection_view
+from mediacat.ingestion.discogs_extras import collection_view, display_artist
 from mediacat.web.catalogue import _fetch_facets
 from mediacat.web.routes import _ctx, _tmpl
 
@@ -864,9 +864,10 @@ async def detail_navigation(request: Request, token: Token) -> dict[str, Any]:
     if back_parts.path == "/search":
         back_label = "Back to search results"
     elif back_params.get("artist") and "album" in back_params:
-        back_label = f"Back to {back_params['artist']} · {back_params['album'] or 'Untitled'}"
+        back_artist = display_artist(back_params["artist"])
+        back_label = f"Back to {back_artist} · {back_params['album'] or 'Untitled'}"
     elif back_params.get("artist"):
-        back_label = f"Back to {back_params['artist']}"
+        back_label = f"Back to {display_artist(back_params['artist'])}"
     else:
         back_label = "Back to the catalogue"
     nav: dict[str, Any] = {

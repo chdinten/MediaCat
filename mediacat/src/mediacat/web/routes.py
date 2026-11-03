@@ -49,10 +49,20 @@ search_router = APIRouter(tags=["search"])
 _templates: Jinja2Templates | None = None
 
 
+def add_template_filters(t: Jinja2Templates) -> Jinja2Templates:
+    """Register MediaCat's own Jinja filters on *t* (also used by tests that build an env)."""
+    from mediacat.ingestion.discogs_extras import artist_note, display_artist
+
+    # Artist names without Discogs' "(N)" numbers; the stored name keeps them.
+    t.env.filters["artist_display"] = display_artist
+    t.env.filters["artist_note"] = artist_note
+    return t
+
+
 def set_templates(t: Jinja2Templates) -> None:
     """Called by the app factory to set the shared template engine."""
     global _templates  # noqa: PLW0603
-    _templates = t
+    _templates = add_template_filters(t)
 
 
 def _tmpl() -> Jinja2Templates:

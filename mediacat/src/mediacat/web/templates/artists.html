@@ -42,7 +42,7 @@
             {% endif %}
         </div>
         <div class="sp-artist-item-body">
-            <div class="sp-artist-item-name">{{ a.name }}</div>
+            <div class="sp-artist-item-name">{{ a.name | artist_display }}</div>
             <div class="sp-artist-item-meta">
                 {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
                 {% if a.year_range %} · {{ a.year_range }}{% endif %}
@@ -68,7 +68,7 @@
      hx-target="#sp-artist-detail-init">
     <div class="sp-empty">
         <span class="sp-empty-icon">🎵</span>
-        <span class="sp-empty-text">Loading {{ open_artist.name }}…</span>
+        <span class="sp-empty-text">Loading {{ open_artist.name | artist_display }}…</span>
     </div>
 </div>
 {% else %}
@@ -127,15 +127,15 @@
              style="cursor:pointer">
             <div class="artist-card-img">
                 {% if a.portrait_url %}
-                <img src="{{ a.portrait_url }}" alt="{{ a.name }}" loading="lazy">
+                <img src="{{ a.portrait_url }}" alt="{{ a.name | artist_display }}" loading="lazy">
                 {% elif a.cover_url %}
-                <img src="{{ a.cover_url }}" alt="{{ a.name }}" loading="lazy">
+                <img src="{{ a.cover_url }}" alt="{{ a.name | artist_display }}" loading="lazy">
                 {% else %}
                 <div class="artist-card-no-img"><span>{{ a.name[0] | upper }}</span></div>
                 {% endif %}
             </div>
             <div class="artist-card-body">
-                <div class="artist-card-name">{{ a.name }}</div>
+                <div class="artist-card-name">{{ a.name | artist_display }}</div>
                 <div class="artist-card-meta text-muted">
                     {{ a.pressing_count }} pressing{% if a.pressing_count != 1 %}s{% endif %}
                     {% if a.year_range %}&nbsp;·&nbsp;{{ a.year_range }}{% endif %}

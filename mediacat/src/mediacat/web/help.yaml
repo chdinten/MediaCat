@@ -1,0 +1,551 @@
+# In-app help (/help), read by web/help.py.
+#
+# sections: id (anchor), title, entries.
+# entry:    id  — anchor, lower-case slug, unique across the file; pages link to /help#<id>
+#           q   — the question, worded as a user would ask it
+#           a   — the answer, HTML (p, ul/ol/li, strong, em, kbd, a)
+#           keywords — optional; extra search words not shown (synonyms, other spellings)
+# Use the labels exactly as the screens show them. MediaCat addresses always
+# carry :8443 (port 443 on this PC belongs to Kasm).
+
+sections:
+  - id: getting-started
+    title: Getting started
+    entries:
+      - id: what-is-mediacat
+        q: What is MediaCat?
+        keywords: [about, overview, purpose, catalogue, collection, vinyl, cd]
+        a: |
+          <p>MediaCat catalogues a collection of vinyl records and CDs. Each copy you own is a
+          <strong>pressing</strong>: a specific release (year, country, label, catalogue number, runout codes).
+          Pressings are grouped by <strong>artist</strong> and <strong>album</strong>.</p>
+          <p>Details can be filled in by hand or imported from Discogs and MusicBrainz, and photos of the
+          cover, labels and runout groove can be added. AI tools can read runout codes and write
+          artist biographies, but they only make suggestions: nothing is changed without a person confirming it.</p>
+
+      - id: address
+        q: What is MediaCat's address?
+        keywords: [url, link, bookmark, port, 8443, kasm, login page, wrong page]
+        a: |
+          <p><a href="https://mediacat.localhost:8443/">https://mediacat.localhost:8443/</a>, always with
+          <strong>:8443</strong>. Without it the browser lands on a different application's login page
+          (Kasm Workspaces), which has nothing to do with MediaCat.</p>
+
+      - id: roles
+        q: What can I do with my role?
+        keywords: [permissions, rights, admin, reviewer, contributor, viewer, access, allowed]
+        a: |
+          <p>Your role is shown in the top bar next to <em>Logout</em>. Each role can do everything the one before it can:</p>
+          <ul>
+            <li><strong>viewer</strong>: browse, search, open pressings, print album sheets, read the review queue, refresh artist biographies, fix streaming links.</li>
+            <li><strong>contributor</strong>: also add pressings, edit genres and the <em>My copy</em> fields, load Discogs details and rate pressings.</li>
+            <li><strong>reviewer</strong>: also edit, archive and merge pressings, manage images, run the AI runout analysis, write back to Discogs and approve or reject reviews.</li>
+            <li><strong>admin</strong>: also the <em>Admin</em> pages (users, imports, backups, layout, API keys), deleting pressings and choosing the screen layout.</li>
+          </ul>
+          <p>To get a different role, ask an administrator.</p>
+
+      - id: insufficient-permissions
+        q: I clicked a button and got a page saying “Insufficient permissions”. What happened?
+        keywords: [403, forbidden, not allowed, error, detail, json]
+        a: |
+          <p>Your role isn't allowed to do that. Some buttons, such as <em>Edit</em>, <em>Archive</em> and
+          <em>Merge…</em> on a pressing, are shown to everyone, but only reviewers and administrators can use
+          them. Go back with the browser's Back button; nothing was changed. See <a href="#roles">What can I do with my role?</a></p>
+
+      - id: two-layouts
+        q: Why does MediaCat look different on another computer or browser?
+        keywords: [layout, 3panel, three panel, classic, columns, design, view, switch]
+        a: |
+          <p>There are two screen layouts. <strong>Classic</strong> shows one page at a time; <strong>3panel</strong>
+          shows artists, albums and pressings side by side and adds the top-bar search and the
+          <kbd>Ctrl K</kbd> command palette. The layout is remembered per browser, not per person.</p>
+          <p>Only an administrator can switch it, under <em>Admin → Layout</em>, and it applies to the browser
+          they do it in. A browser where nobody has chosen gets Classic.</p>
+
+      - id: dark-light
+        q: How do I switch between dark and light mode?
+        keywords: [theme, colours, colors, dark mode, light mode, moon, sun, bright]
+        a: |
+          <p>Click the moon / sun button at the top right. The choice is remembered in this browser only.</p>
+
+  - id: finding
+    title: Finding and browsing
+    entries:
+      - id: browse-catalogue
+        q: How do I browse the catalogue?
+        keywords: [catalogue, catalog, list, artists, albums, pressings, navigate]
+        a: |
+          <p>Click <em>Catalogue</em> in the top bar.</p>
+          <ul>
+            <li><strong>3panel layout:</strong> the left panel lists every artist A–Z; click a letter to jump. Click an
+            artist to see their albums as covers, then an album to list its pressings. Click a pressing to preview it
+            on the right; <em>Open pressing</em>, <kbd>Enter</kbd> or a double-click opens the full page.</li>
+            <li><strong>Classic layout:</strong> click an artist to expand its albums, then an album to expand its pressings.</li>
+          </ul>
+
+      - id: search
+        q: How do I search for an artist, album or song?
+        keywords: [find, lookup, track, song title, album title, scope, search box]
+        a: |
+          <p>In the 3panel layout, use the search box at the top. The menu at its left chooses what to search:
+          <em>Artists &amp; albums</em>, <em>Artists</em>, <em>Albums</em> or <em>Tracks</em> (song titles from the track lists).
+          Type and press <kbd>Enter</kbd>. When exactly one album or song matches, its page opens straight away.</p>
+          <p>In the Classic layout, use <em>Search artist or title…</em> on the Catalogue page, or the
+          <em>Tokens</em> page, which also searches barcodes and catalogue numbers.</p>
+
+      - id: filters
+        q: How do I show only CDs, one genre, a decade or a country?
+        keywords: [filter, format, genre, decade, year, country, vinyl, cd, chips, clear]
+        a: |
+          <p>On the Catalogue page, open <em>Filters</em> (3panel) or use the pills at the top (Classic):
+          <em>Format</em>, <em>Genre</em>, <em>Decade</em>, a year range and a country. In 3panel, click
+          <em>Apply</em>; the filters in use show as chips, and ✕ on a chip removes it. <em>Clear all</em> removes them all.</p>
+
+      - id: keyboard
+        q: Which keyboard shortcuts are there?
+        keywords: [keys, shortcuts, hotkeys, ctrl k, j, k, arrow, enter, esc]
+        a: |
+          <ul>
+            <li><kbd>Ctrl K</kbd> (3panel): open the command palette. See <a href="#command-palette">the command palette</a>.</li>
+            <li>Catalogue browser (3panel): <kbd>↓</kbd> from the filter box into the artist list; <kbd>↑</kbd> <kbd>↓</kbd> move
+            through artists or pressings; <kbd>Enter</kbd> opens.</li>
+            <li>Pressing page: <kbd>J</kbd> next and <kbd>K</kbd> previous pressing of the same album.</li>
+            <li>Image viewer: <kbd>←</kbd> <kbd>→</kbd> step through the photos; <kbd>Esc</kbd> closes it.</li>
+          </ul>
+
+      - id: command-palette
+        q: What is the command palette (Ctrl K)?
+        keywords: [ctrl k, commands, quick, jump, slash, /track, /album, /artist, /help]
+        a: |
+          <p>In the 3panel layout, press <kbd>Ctrl K</kbd> or click <em>Commands</em> in the top bar. Type to jump to a
+          page or a recent search, or type a command:</p>
+          <ul>
+            <li><code>/artist abba</code>, <code>/album wish you</code>, <code>/track money</code>: search artists, album titles or songs</li>
+            <li><code>/add</code>: add a pressing</li>
+            <li><code>/help brackets</code>: search this help page</li>
+          </ul>
+          <p><kbd>Tab</kbd> completes a command, <kbd>Esc</kbd> closes the palette.</p>
+
+      - id: bookmarks
+        q: Can I bookmark or share a view?
+        keywords: [bookmark, link, url, address bar, share, back button, reload]
+        a: |
+          <p>Yes. In the catalogue browser the address bar always holds what you are looking at (artist, album,
+          selected pressing and filters), so Back, reload and bookmarks bring you back to the same view. Any
+          answer on this page can be shared too: open it and use <em>Link to this answer</em>.</p>
+
+      - id: back-link
+        q: On a pressing page, what is the difference between the breadcrumb and “← Back to …”?
+        keywords: [breadcrumb, back, return, navigation, previous page]
+        a: |
+          <p>The <strong>breadcrumb</strong> (Catalogue › artist › album › pressing) shows where the pressing sits; each
+          part opens the catalogue at that level. <strong>← Back to …</strong> returns to exactly the view you came from,
+          including your search or filters. ‹ and › (or <kbd>K</kbd> / <kbd>J</kbd>) step through the album's other pressings.</p>
+
+      - id: tokens-page
+        q: What is the Tokens page?
+        keywords: [tokens, registry, table, list, all pressings]
+        a: |
+          <p>A plain table of every pressing (artist, title, format, year, country, label, catalogue number, status),
+          searchable by artist, title, barcode or catalogue number. “Token” is MediaCat's internal word for a pressing.
+          Click a title to open the pressing.</p>
+
+  - id: artists
+    title: Artists
+    entries:
+      - id: artist-number
+        q: Why do some artists have a number in brackets, like “Saga (3)”?
+        keywords: [brackets, parentheses, number, suffix, discogs, "(2)", "(3)", disambiguation, same name, duplicate name, artist name]
+        a: |
+          <p>The number comes from Discogs. When different artists share a name, Discogs numbers them:
+          “Saga (3)” is the third artist called Saga on Discogs, a different artist from “Saga” or “Saga (2)”.
+          Records imported from Discogs keep that name.</p>
+          <p>MediaCat keeps the full name, because Discogs and the streaming services need it to find the right
+          artist, but shows just <strong>Saga</strong> on screen. A small <strong>?</strong> next to the artist's
+          name leads here, and hovering the name shows the Discogs spelling.</p>
+          <p>You still see the number where the exact stored name matters: the edit form, the Discogs import, merging,
+          the review queue and the administration pages. Please don't remove it there, or the Discogs link to the
+          right artist is lost.</p>
+
+      - id: artist-bio
+        q: Where does an artist's biography come from?
+        keywords: [biography, bio, wikipedia, discogs, website, source, text]
+        a: |
+          <p>MediaCat looks in this order: Wikipedia (via MusicBrainz), the artist's Discogs profile, and finally the
+          artist's official website, summarised by the local AI. The link under the text shows the source
+          (<em>Wikipedia ↗</em>, <em>Discogs ↗</em> or <em>Source ↗</em>).</p>
+          <p>A biography marked as written by the local AI comes from the official website only; check it before relying on it.</p>
+
+      - id: bio-wrong
+        q: The biography is wrong, missing or about another artist. What can I do?
+        keywords: [refresh bio, try again, not found, wrong artist, update, reload]
+        a: |
+          <p>Click <em>↻ Refresh bio</em> (or <em>↻ Try again</em> after “No biography found”) to repeat the lookup.
+          Lesser-known artists often have no biography anywhere. If the text is about a different artist with the
+          same name, the artist's name in MediaCat may not match Discogs or Wikipedia closely enough; tell an administrator.</p>
+
+      - id: research-in-progress
+        q: What does “Research in progress” mean? Can I leave the page?
+        keywords: [banner, timer, waiting, slow, loading, biography lookup]
+        a: |
+          <p>The biography is being looked up: MusicBrainz, Wikipedia and Discogs are checked, and reading an official
+          website with the AI can take up to a minute. You can leave the page; the lookup finishes on the server and
+          the result is shown next time you open the artist.</p>
+
+      - id: discography
+        q: What is the Discography list on an artist page?
+        keywords: [discography, albums, releases, musicbrainz, owned, tick, check mark]
+        a: |
+          <p>All albums the artist released, from MusicBrainz (or Wikipedia when MusicBrainz has none). A ✓ marks
+          the albums you own. <em>In your collection</em> above it lists your pressings. <em>↻ Reload</em> fetches the list again.</p>
+
+  - id: adding
+    title: Adding and editing pressings
+    entries:
+      - id: add-pressing
+        q: How do I add a record or CD?
+        keywords: [add pressing, new, create, catalogue a record, enter]
+        a: |
+          <ol>
+            <li>Click <em>+ Add pressing</em> on the Catalogue page (or <code>/add</code> in the command palette).</li>
+            <li>Under <em>Find on Discogs or MusicBrainz</em>, type the artist and title, a catalogue number, a barcode or a
+            Discogs / MusicBrainz ID and click <em>Search</em>.</li>
+            <li>Click <em>Use this</em> on the matching result to fill in the form, check the fields and click <em>Add pressing</em>.</li>
+          </ol>
+          <p>You can also skip the search and fill in the form by hand. Adding needs the contributor role or higher.</p>
+
+      - id: right-pressing
+        q: There are dozens of Discogs results. How do I pick the right pressing?
+        keywords: [cards with images, choose, release, version, compare, photos, matrix]
+        a: |
+          <p>Switch the results to <em>Cards with images</em>: each card shows the release's photos, label details,
+          barcode and runout code, so you can compare them with your copy. Narrow the search with the year and country
+          fields. Results you already have say <em>Already in your catalogue</em>.</p>
+
+      - id: scan-barcode
+        q: Can I add a pressing from a photo of the barcode?
+        keywords: [barcode, scan, photo, camera, ean, upc, scan & search]
+        a: |
+          <p>Yes: on the Add pressing page, choose the photo under <em>or scan a barcode from a cover photo</em> and click
+          <em>Scan &amp; search</em>. MediaCat reads the barcode and searches for that release. This needs the reviewer or admin role.</p>
+
+      - id: duplicate
+        q: I added the same record twice. How do I fix it?
+        keywords: [duplicate, merge, double, twice, combine]
+        a: |
+          <p>Open the pressing you want to keep and click <em>Merge…</em> (in the Classic layout also <em>Merge duplicates</em> on the
+          Catalogue page). Choose the duplicate, optionally give a reason, and click <em>Merge pressings</em>. The duplicate is retired,
+          not erased, and the merge is recorded in the history. Merging needs the reviewer or admin role.</p>
+
+      - id: edit-pressing
+        q: How do I correct the details of a pressing?
+        keywords: [edit, change, correct, fix, update, mistake]
+        a: |
+          <p>Open the pressing and click <em>Edit</em>, change the fields and click <em>Save changes</em>. Editing needs the
+          reviewer or admin role; contributors can change the genres and the <em>My copy</em> fields.</p>
+
+      - id: history
+        q: Can I see who changed what, and undo a change?
+        keywords: [history, revisions, undo, changes, audit, previous version]
+        a: |
+          <p>Every save keeps the previous version. The revision history at the bottom of the pressing page lists each
+          change with its number, source (person, AI or import), date and comment. There is no undo button: to go back,
+          edit the pressing again with the old values.</p>
+
+      - id: archive-delete
+        q: What is the difference between Archive and Delete? Can I get a deleted pressing back?
+        keywords: [archive, delete, remove, recover, restore, undelete, bin, trash]
+        a: |
+          <ul>
+            <li><strong>Archive</strong> (reviewer, admin) keeps the pressing but hides it from browsing, e.g. a record you sold.</li>
+            <li><strong>Delete</strong> (admin only) removes it from MediaCat. An administrator can bring it back within
+            30 days under <em>Admin → Housekeeping</em> → <em>Recover</em>; after that it is gone.</li>
+          </ul>
+
+      - id: flag-review
+        q: What does “Flag for Review” do?
+        keywords: [flag, review, check, verify, doubt]
+        a: |
+          <p>It puts the pressing on the review queue so that someone checks it. See <a href="#review-queue">What is the review queue?</a></p>
+
+      - id: print-sheet
+        q: How do I print an album sheet?
+        keywords: [print, pdf, sheet, a4, paper]
+        a: |
+          <p>On the pressing page click <em>🖨 Print sheet (PDF)</em>. It downloads an A4 sheet of the album to print or keep.
+          Any role can do this.</p>
+
+  - id: images
+    title: Images and runout codes
+    entries:
+      - id: upload-images
+        q: How do I add photos of a record?
+        keywords: [upload, photo, picture, image, scan, drag, drop]
+        a: |
+          <p>On the pressing page, under <em>Add images</em>, choose the <em>Image type</em> (cover, label, runout…) and drop
+          the files on <em>Drop images here or browse</em>. JPEG, PNG, TIFF and WebP are accepted, up to 30 MB each,
+          several at once. Images can also be added on the edit page. This needs the reviewer or admin role.</p>
+
+      - id: cover-image
+        q: How do I choose which picture is the cover?
+        keywords: [cover, thumbnail, primary, main picture, obi, set as cover]
+        a: |
+          <p>Click <em>☆ Set as cover</em> on the image; it then shows <em>★ Primary cover</em>. This picture is used in lists
+          and on the dashboard, for example the OBI strip of a Japanese pressing instead of the bare sleeve.</p>
+
+      - id: image-type
+        q: I uploaded an image with the wrong type. How do I change it?
+        keywords: [image type, region, label, relabel, wrong type, crop]
+        a: |
+          <p>Pick the right type in the image's dropdown and click <em>Save</em>. Runout images get the <em>⚙ Analyse with AI</em> button. <em>✂ Crop region</em> saves a part of a photo as a new image, e.g. one label
+          out of a photo of the whole disc.</p>
+
+      - id: delete-image
+        q: Can I get a deleted image back?
+        keywords: [delete image, remove photo, undo]
+        a: |
+          <p>No. <em>✕ Delete</em> on an image asks for confirmation and then removes the file for good.</p>
+
+      - id: runout
+        q: What is the runout (matrix) and why does it matter?
+        keywords: [runout, matrix, dead wax, wax, etching, codes, pressing plant, mastering]
+        a: |
+          <p>The runout, or dead wax, is the smooth band between the last track and the label. The codes etched or stamped
+          there identify the exact pressing: plant, mastering engineer, stamper. They are the most reliable way to tell
+          pressings of the same album apart, and Discogs lists them for each release.</p>
+
+      - id: analyse-ai
+        q: How does “Analyse with AI” work, and can I trust it?
+        keywords: [ai, vision, analyse, analyze, read, ocr, runout, apply to pressing, confidence]
+        a: |
+          <p>On a runout image, click <em>⚙ Analyse with AI</em>. After a few seconds a table shows each code the AI read,
+          with a confidence badge (high / mid / low). Nothing is saved yet. Check it against the record, especially the
+          low-confidence fields, then click <em>✓ Apply to pressing</em>.</p>
+          <p>The AI only makes suggestions. If the button is missing, the AI service isn't set up on this installation.</p>
+
+      - id: correct-field
+        q: The AI misread one code. How do I correct it?
+        keywords: [correct, fix, misread, wrong, field, pencil, reason]
+        a: |
+          <p>Click <em>✎</em> next to the field, enter the <em>Corrected value</em>, choose a <em>Reason for correction</em>
+          (for example “Inspected the physical record”), optionally add notes, and click <em>Save correction</em>.
+          The field is then marked as checked by a person, and the correction is kept in the history.</p>
+
+  - id: discogs
+    title: Discogs
+    entries:
+      - id: discogs-variants
+        q: How do I record which exact variant of a Discogs release I own?
+        keywords: [variants, pressing variants, my copy, matrix, copy to my copy, load variants]
+        a: |
+          <ol>
+            <li>On a pressing imported from Discogs, open <em>Pressing variants</em>; if it is empty, click <em>Load variants</em>.</li>
+            <li>Select the variant that matches your copy, tick the codes you want (or <em>All</em>) and click <em>Copy to My copy</em>.</li>
+            <li>Check the <em>My copy</em> fields and click <em>Save in MediaCat</em>, or <em>Save &amp; write back to Discogs</em>.</li>
+          </ol>
+
+      - id: discogs-writeback
+        q: Does MediaCat change my Discogs collection?
+        keywords: [write back, sync, discogs collection, upload, save to discogs]
+        a: |
+          <p>Only when someone with the reviewer or admin role clicks <em>Save &amp; write back to Discogs</em>. That updates the
+          custom fields (runout, matrix, autographed…) of your entry in your Discogs collection, nothing else. Releases that
+          aren't in your Discogs collection can't be written back; the values then stay in MediaCat only.</p>
+
+      - id: discogs-import-running
+        q: A banner says “A Discogs collection import is running”. What does that mean?
+        keywords: [import, banner, rate limit, slow, discogs busy, 429]
+        a: |
+          <p>An administrator is importing the whole Discogs collection. That uses all of Discogs' allowance for requests, so
+          Discogs actions (<em>Refresh from Discogs</em>, <em>Load variants</em>, <em>Save &amp; write back to Discogs</em>) may be
+          slow or fail until it finishes. Everything else, including editing and saving in MediaCat, works normally.</p>
+
+      - id: discogs-refresh
+        q: What does “Refresh from Discogs” do?
+        keywords: [refresh, update, reload, discogs images, fetch]
+        a: |
+          <p>It fetches the release again from Discogs, including its images, for pressings that have a Discogs ID. Use it
+          when Discogs has been corrected or has new photos. It needs the reviewer or admin role.</p>
+
+  - id: streaming
+    title: Listening on Spotify, Deezer and Apple Music
+    entries:
+      - id: streaming-icons
+        q: What are the small Spotify, Deezer and Apple Music icons?
+        keywords: [spotify, deezer, apple music, listen, play, stream, icons, logo]
+        a: |
+          <p>They open the album on that service, in your own app or web player, where you are logged in with your own
+          account. MediaCat never sees that login. Each service opens in its own browser window, and the next album you
+          click reuses that window.</p>
+
+      - id: streaming-missing
+        q: Why is there no icon for an album, or only some of them?
+        keywords: [missing, no icon, not found, looking up, slow, empty]
+        a: |
+          <p>The icons appear a moment after the album scrolls into view; <em>Looking up streaming links…</em> means the
+          services are still being asked (Apple Music allows only about 20 lookups a minute). No icon means the service
+          doesn't have the album, or MediaCat wasn't sure it was the same album: a missing icon is better than a wrong one.
+          Live albums, bootlegs and Japanese editions often have no match.</p>
+
+      - id: streaming-wrong
+        q: An icon opens the wrong album, or a link is missing. Can I fix it?
+        keywords: [wrong album, edit links, fix link, pencil, manual, share link]
+        a: |
+          <p>Yes, anyone can. Click <em>✎</em> next to the icons. For each service choose <em>This link</em> and paste the album's
+          address from the app's <em>Share → Copy link</em>, or <em>Not on</em> the service. Your choice is never overwritten;
+          <em>Automatic</em> hands the album back to the automatic search.</p>
+
+  - id: reviews
+    title: Reviews
+    entries:
+      - id: review-queue
+        q: What is the review queue?
+        keywords: [reviews, queue, pending, approve, reject, check]
+        a: |
+          <p><em>Reviews</em> lists pressings and suggested changes that a person should check, for example AI proposals or
+          pressings flagged with <em>⚑ Flag for Review</em>. Filter by <em>Pending</em>, <em>In progress</em>, <em>Approved</em> or
+          <em>Rejected</em>. Everyone can read the queue; reviewers and administrators decide.</p>
+
+      - id: review-decide
+        q: How do I approve or reject a review?
+        keywords: [approve, reject, decision, comment, reason]
+        a: |
+          <p>Open the review, use the checklist and <em>View pressing →</em> to check it, then under <em>Decision</em> click
+          <em>✓ Approve</em> (with an optional comment) or <em>✗ Reject</em> (with a reason).</p>
+
+  - id: account
+    title: Your account and signing in
+    entries:
+      - id: get-account
+        q: How do I get an account?
+        keywords: [account, register, sign up, new user, create user, login]
+        a: |
+          <p>Ask an administrator. They create accounts under <em>Admin → Users</em> → <em>+ Create user</em> and choose the role,
+          including the first password.</p>
+
+      - id: logged-out
+        q: Why was I logged out, or why did the sign-in page appear inside a panel?
+        keywords: [logged out, session, timeout, expired, sign in again, login inside]
+        a: |
+          <p>Each sign-in lasts a fixed time, 24 hours unless an administrator set a different one for your account
+          (from 15 minutes to 7 days). It counts from the moment you signed in, not from your last click. After that, the next
+          click leads to the sign-in page. If the sign-in page appears inside a panel, reload the page (<kbd>F5</kbd>) and sign in.</p>
+
+      - id: locked
+        q: It says “Account temporarily locked”. What now?
+        keywords: [locked, lockout, too many attempts, password wrong, blocked]
+        a: |
+          <p>After 10 wrong passwords within 15 minutes, signing in is blocked for 15 minutes. Wait and try again. If you have
+          forgotten your password, see <a href="#password">How do I change my password?</a></p>
+
+      - id: password
+        q: How do I change my password?
+        keywords: [password, change password, reset, forgot]
+        a: |
+          <p>MediaCat has no page for changing a password yet, not even for administrators. If you need a new one, ask the
+          person who looks after the installation; they can set it with a technical tool.</p>
+
+  - id: admin
+    title: For administrators
+    entries:
+      - id: admin-users
+        q: How do I create users, change roles or set the session time?
+        keywords: [users, create user, role, deactivate, timeout, session length]
+        a: |
+          <p><em>Admin → Users</em>: <em>+ Create user</em> for a new account; <em>Edit</em> to change the role or the
+          <em>Session timeout</em> (applies at the user's next sign-in); <em>Deactivate</em> to block an account without deleting it.
+          The last active administrator can't be demoted or deactivated.</p>
+
+      - id: admin-collection-import
+        q: How do I import my whole Discogs collection?
+        keywords: [collection import, discogs import, bulk, all records, pause, resume]
+        a: |
+          <p><em>Admin → Collection Import</em>: enter the Discogs username and click <em>Start import</em>. A large collection
+          takes a while; <em>⏸ Pause</em> and <em>▶ Resume</em> are in the import history. While it runs, other Discogs
+          actions are slow (see <a href="#discogs-import-running">the import banner</a>).</p>
+
+      - id: admin-api-tokens
+        q: Where do the Discogs and Spotify keys go?
+        keywords: [api tokens, api keys, credentials, discogs token, spotify client id, secret]
+        a: |
+          <p><em>Admin → API Tokens</em>. The <em>Discogs Personal Access Token</em> is needed for Discogs searches and write-back;
+          the Spotify Client ID and Secret for Spotify album links and icons. Leave a field empty to keep the saved value.</p>
+
+      - id: admin-backup
+        q: How are backups made, and how do I restore one?
+        keywords: [backup, restore, export, download, zip, recover, database]
+        a: |
+          <ul>
+            <li>The database is backed up automatically every night; these copies are kept for 30 days.</li>
+            <li><em>Admin → Backup &amp; Restore</em> → <em>⬇ Download backup</em> saves a ZIP of the catalogue data.
+            <em>⬆ Restore from backup</em> adds the records from such a ZIP; records that already exist are left alone.</li>
+          </ul>
+          <p>Neither includes the image files. Keep a copy of backups on another disk.</p>
+
+      - id: admin-housekeeping
+        q: How do I recover a deleted pressing or delete many at once?
+        keywords: [housekeeping, recover, undelete, purge, bulk delete]
+        a: |
+          <p><em>Admin → Housekeeping</em>: <em>Deleted pressings (last 30 days)</em> has <em>Recover</em>; <em>Find &amp; delete pressings</em>
+          deletes several at once. <em>Purge expired</em> removes deleted pressings older than 30 days for good.</p>
+
+      - id: admin-layout-background
+        q: How do I change the layout or the login and dashboard background?
+        keywords: [layout, background, video, image, animation, login page, dashboard]
+        a: |
+          <p><em>Admin → Layout</em>: <em>Activate</em> under Classic or 3panel sets the layout for the browser you're using.
+          Under <em>Background</em>, upload a still image and/or a short video and activate it; <em>Restore the built-in
+          background</em> brings back the original.</p>
+
+      - id: admin-streaming
+        q: How do I switch streaming services on or off, or match all albums at once?
+        keywords: [streaming settings, country, match all albums, spotify, deezer, apple]
+        a: |
+          <p><em>Admin → Streaming</em>: tick the services, set the <em>Country / storefront</em> (default CH) and click <em>Save</em>. <em>Match all albums</em>
+          looks up the whole collection in the background. Spotify also needs its keys in <em>Admin → API Tokens</em>.</p>
+
+  - id: problems
+    title: When something goes wrong
+    entries:
+      - id: old-page
+        q: After an update, a page looks wrong or a button does nothing.
+        keywords: [cache, refresh, ctrl f5, outdated, broken, button not working, old version]
+        a: |
+          <p>The browser is probably still using the previous version of MediaCat's scripts and styles. Press
+          <kbd>Ctrl F5</kbd> (or <kbd>Ctrl Shift R</kbd>) once to reload them.</p>
+
+      - id: not-reachable
+        q: MediaCat doesn't open at all, or shows “Service unavailable”.
+        keywords: [down, not working, cannot connect, 502, 503, unavailable, offline, control panel, restart]
+        a: |
+          <p>Check that the address has <strong>:8443</strong> (see <a href="#address">the address</a>). If it does, MediaCat
+          may be stopped or busy restarting. On the PC that runs MediaCat, open the control panel at
+          <a href="http://127.0.0.1:8810/">http://127.0.0.1:8810/</a>: it shows each service's status. <em>Start stack (dev)</em>
+          starts everything; <em>Restart: app container</em> helps when only the web application hangs.</p>
+
+      - id: not-secure
+        q: The browser says the connection is “not secure”.
+        keywords: [certificate, https, not secure, warning, ssl, tls, privacy error]
+        a: |
+          <p>MediaCat uses its own certificate for <em>mediacat.localhost</em>. If the warning appears after the PC woke from
+          sleep, reload the page. If it stays, or appears on a new PC or browser, MediaCat's certificate authority hasn't been
+          installed there yet; the installation guide describes that step.</p>
+
+      - id: page-error
+        q: I see a short technical message like {"detail":"Not found"}.
+        keywords: [error, json, detail, not found, 404, csrf, 413, too large]
+        a: |
+          <ul>
+            <li><em>Not found</em>: the pressing or page no longer exists, e.g. it was deleted or merged.</li>
+            <li><em>Insufficient permissions</em>: see <a href="#insufficient-permissions">this answer</a>.</li>
+            <li><em>CSRF validation failed</em>: the page was open too long or you signed in elsewhere. Reload it and try again.</li>
+            <li><em>Image exceeds 30 MB limit</em>: make the photo smaller and upload it again.</li>
+          </ul>
+          <p>Use the browser's Back button to return.</p>
+
+      - id: report-problem
+        q: Something still doesn't work. Whom do I tell?
+        keywords: [bug, report, support, contact, developer, problem]
+        a: |
+          <p>Tell the administrator what you did, what you expected and what happened, ideally with the page address and a
+          screenshot. Developers find the technical documentation <a href="#developers">at the end of this page</a>.</p>

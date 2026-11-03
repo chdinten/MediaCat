@@ -10,7 +10,7 @@
     {% endif %}
 
     <div class="peek-meta">
-        <div class="peek-artist">{{ token.artist or '—' }}</div>
+        <div class="peek-artist">{{ token.artist | artist_display or '—' }}</div>
         <div class="peek-title">{{ token.title or 'Untitled' }}</div>
         {% if token.media_format %}
         <span class="peek-format-badge">{{ token.media_format.value }}</span>

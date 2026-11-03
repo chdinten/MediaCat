@@ -5,7 +5,7 @@
     <header class="mc-artist-head">
         <span class="mc-avatar" aria-hidden="true">{% if view.portrait_url %}<img src="{{ view.portrait_url }}" alt="" loading="lazy">{% else %}{{ view.initial }}{% endif %}</span>
         <div class="mc-artist-heading">
-            <h2 class="mc-artist-title" id="mc-artist-name">{{ view.name }}</h2>
+            <h2 class="mc-artist-title" id="mc-artist-name"{% if view.name | artist_note %} title="{{ view.name | artist_note }}"{% endif %}>{{ view.name | artist_display }}{% if view.name | artist_note %}<a class="help-hint" href="/help#artist-number" title="Why does the name differ from Discogs?" aria-label="Help: artist numbers from Discogs">?</a>{% endif %}</h2>
             <p class="mc-artist-sub">
                 {{ view.count }} pressing{{ '' if view.count == 1 else 's' }}
                 · {{ view.album_count }} album{{ '' if view.album_count == 1 else 's' }}{% if view.years %} · {{ view.years }}{% endif %}
@@ -31,9 +31,9 @@
         {% endfor %}
     </div>
     {% elif filters.active %}
-    <p class="mc-note">No pressings by {{ view.name }} match the filters. <a href="{{ view.all_url }}">Show all of them</a></p>
+    <p class="mc-note">No pressings by {{ view.name | artist_display }} match the filters. <a href="{{ view.all_url }}">Show all of them</a></p>
     {% else %}
-    <p class="mc-note">There are no pressings by {{ view.name }} in the catalogue.</p>
+    <p class="mc-note">There are no pressings by {{ view.name | artist_display }} in the catalogue.</p>
     {% endif %}
 </section>
 <section class="mc-versions" id="mc-versions" aria-label="Pressings">

@@ -253,6 +253,8 @@ All route handlers call `_ctx(request, **extra)` which builds:
 }
 ```
 
+**Artist names.** Discogs numbers artists who share a name ("Saga (3)" is the third "Saga" on Discogs), and imported names keep that number. Templates show names through the Jinja filter `artist_display` (`discogs_extras.display_artist`), which drops a trailing "(N)", also after each name in a list ("Anne-Sophie Mutter, John Williams (4)"); numbers inside a name ("Live (1999) Band") stay. The main artist headings (catalogue browser, artist page, pressing page) carry a tooltip from `artist_note` naming the Discogs spelling and a **?** link to `/help#artist-number`. The pressing page's "← Back to …" label goes through `display_artist` in `catalogue_browser.detail_navigation`. Display only: the stored `Token.artist`, URLs, `hx-get` / `data-` values, the Discogs artist search and the streaming-link lookups use the full name; editing and data tools (edit form, Discogs import form, merge, review queue, admin housekeeping) show it as stored. The album-sheet PDF uses the display name. Both filters are registered by `routes.set_templates` (`add_template_filters`).
+
 ### 2.5 HTMX Integration
 
 HTMX is loaded from `/static/htmx.min.js`. The `<body>` tag includes `hx-headers` with the CSRF token:
@@ -309,6 +311,15 @@ The login page and the dashboard share one fixed page background (`templates/par
   - It only serves names matching `<64 hex>.(jpg|png|webp|mp4|webm)` from that prefix, so no catalogue images are exposed.
   - It answers single `Range` requests (206), as browsers fetch video with `Range: bytes=0-`.
   - It sends `Cache-Control: immutable` (the name is the content hash) and keeps up to 150 MB of files in memory.
+
+### 2.8 In-app Help (`GET /help`, `web/help.py`)
+
+Questions and answers for users who aren't developers, linked as **Help** in both top bars and as `/help` (`/h`, `/?`) in the command palette; any logged-in role.
+
+- **Content:** `web/help.yaml`, sections of entries with `id` (the URL anchor, a lower-case slug unique across the file), `q`, `a` (HTML, rendered with `|safe`) and optional `keywords` (search synonyms that are not shown, e.g. "brackets" / "parentheses"). `load_help` re-reads the file when its modification time changes, so wording fixes need no restart; `parse_help` rejects missing text and bad or duplicate ids. Write answers with the on-screen labels, and MediaCat addresses with `:8443`.
+- **Page:** `help.html` lists the sections as `<details>` entries under a topic list. `static/help.js` filters them as you type (every word must occur in the question, answer or keywords; accents and case ignored), opens the entry named by `#<id>`, and takes `?q=` from the command palette's `/help <words>`.
+- **Links into it:** other pages link to `/help#<id>`, e.g. the **?** after an artist name whose Discogs number is hidden (`/help#artist-number`, see [2.4](#24-template-context)). `tests/test_help.py` checks that every `#id` link inside the help resolves.
+- **Developers:** the last section links to the MkDocs site at `docs.` + the host the browser used (`help.docs_url`, from the `Host` and `X-Forwarded-Proto` headers) and explains that it answers only while the docs server runs (control panel `http://127.0.0.1:8810/` → *Start docs server*).
 
 ## 3 · Catalogue Feature
 
@@ -861,6 +872,7 @@ The `REVOKE UPDATE, DELETE ON audit_log FROM mediacat_app` restriction is enforc
 | `static/catalogue_browser.js` | Catalogue browser: type-to-filter index, A–Z rail, ↑ ↓ / Enter keys, cover tint and preview drawer |
 | `static/catalogue.js` | Catalogue: merge-duplicates selection; classic layout reopens `?artist=&album=` |
 | `static/background.js` | Login/dashboard background video: pauses in hidden tabs and under reduced motion |
+| `static/help.js` | Help page: type-to-filter, open the answer named in `#<id>`, open / close all |
 
 This means CSP can block all inline script execution without breaking any UI functionality.
 
@@ -1219,6 +1231,12 @@ See [3.13](#313-streaming-service-links-webstreamingpy-ingestionstreamingpy). Th
 | `POST` | `/admin/streaming/match/stop` | Stop the running job after the current album |
 | `GET` | `/admin/streaming/match/status` | Progress partial (polls itself every 2 s while running) |
 
+### 14.9 Help
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/help[?q=]` | Questions and answers (any logged-in role); `q` pre-fills the search box (see [2.8](#28-in-app-help-get-help-webhelppy)) |
+
 ## 15 · Alembic Migrations
 
 ```bash
@@ -1374,6 +1392,7 @@ $MIGRATE current
 - The address bar always holds the current view, so Back, reload and bookmarks return to it. On a pressing page, *← Back to …* returns to the exact view it was opened from, the breadcrumb opens the artist or the album, and ‹ › (or K / J) step through the album's pressings.
 - **Classic layout:** click an artist to expand its albums; click an album to expand its pressings.
 - Click any pressing to see the full detail page with revision history.
+- Artist names are shown without Discogs' numbers: "Saga (3)" appears as "Saga". Hover the artist heading to see the Discogs spelling, or click the **?** after it for the explanation in Help; the edit form shows the name as stored.
 - Use the search bar to filter by artist/title; use the format dropdown for vinyl or CD.
 - In the 3panel layout, use the top-bar search to find artists, album titles or song titles (see [18.9](#189-searching-artists-albums-and-songs)).
 - Use the Discogs/MusicBrainz search panel to look up releases externally.
@@ -1512,5 +1531,12 @@ Good animations are short, silent, seamless loops with little motion, e.g. steam
 3. No icon means the service doesn't have the album, or MediaCat wasn't sure. Live albums, bootlegs and Japanese editions often have no match.
 4. **Wrong or missing link:** click **✎** next to the icons. For each service choose **This link** and paste the album's address from the app's *Share → Copy link*, or **Not on <service>**. Your choice is kept for good; **Automatic** hands the album back to the automatic match. Every logged-in user can do this.
 5. **Admins:** Admin → Streaming switches services on or off, sets the country (default CH) and runs **Match all albums**, which looks up the whole collection in the background. Spotify needs its Client ID and Secret in Admin → API Tokens; Deezer and Apple Music need no account.
+
+### 18.14 Getting Help in the App
+
+- Click **Help** in the top bar (or type `/help` and a few words in the command palette, **Ctrl+K**). Type in the search box to find an answer, or pick a topic; **Open all** / **Close all** expand or fold every answer.
+- *Link to this answer* under each answer gives an address that opens it directly, handy for pointing someone to it.
+- The last section, **For developers**, links to the technical documentation site, which works only while its server is started from the control panel.
+- To add or correct an answer, edit `mediacat/src/mediacat/web/help.yaml` (see [2.8](#28-in-app-help-get-help-webhelppy)); the page shows the change on the next reload.
 
 *MediaCat · Technical Reference · v0.5 · November 2026*

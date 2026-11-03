@@ -169,7 +169,7 @@
     <tbody>
         {% for p in genre_pressings %}
         <tr class="genre-results-row" onclick="location.href='/catalogue/{{ p.id }}'" onkeydown="if(event.key==='Enter'||event.key===' ')location.href='/catalogue/{{ p.id }}'" tabindex="0">
-            <td>{{ p.artist }}</td>
+            <td>{{ p.artist | artist_display }}</td>
             <td><a class="genre-result-link" href="/catalogue/{{ p.id }}">{{ p.title }}</a></td>
             <td>{{ p.year or '—' }}</td>
             <td>{{ p.fmt }}</td>

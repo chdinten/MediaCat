@@ -1,0 +1,66 @@
+{% extends layout_base %}
+{% block title %}Help — MediaCat{% endblock %}
+
+{% block content %}
+{# Questions and answers from web/help.yaml (web/help.py); filtering, the
+   open-by-#anchor and expand/collapse are in static/help.js. #}
+<div class="help-page">
+    <header class="help-head">
+        <h1>Help</h1>
+        <p class="text-muted">Questions and answers about using MediaCat. Type a few words to find an answer, or pick a topic.</p>
+        <div class="help-tools">
+            <input id="help-search" type="search" class="help-search" value="{{ query }}"
+                   placeholder="e.g. number in brackets, upload images, wrong Spotify link…"
+                   aria-label="Search the help" autocomplete="off" spellcheck="false">
+            <button type="button" class="btn btn-ghost btn-sm" data-help-expand>Open all</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-help-collapse>Close all</button>
+        </div>
+        <p id="help-count" class="help-count text-muted" aria-live="polite"></p>
+        <nav class="help-toc" aria-label="Topics">
+            {% for section in sections %}<a href="#{{ section.id }}">{{ section.title }}</a>{% endfor %}
+            <a href="#developers">For developers</a>
+        </nav>
+    </header>
+
+    {% for section in sections %}
+    <section class="help-section" id="{{ section.id }}">
+        <h2>{{ section.title }}</h2>
+        {% for entry in section.entries %}
+        <details class="help-entry" id="{{ entry.id }}" data-keywords="{{ entry.keywords }}">
+            <summary>{{ entry.question }}</summary>
+            <div class="help-answer">
+                {{ entry.answer | safe }}
+                <a class="help-permalink" href="#{{ entry.id }}" title="Link to this answer">Link to this answer</a>
+            </div>
+        </details>
+        {% endfor %}
+    </section>
+    {% endfor %}
+
+    <p id="help-none" class="help-none text-muted" hidden>
+        No answer matches. Try other words, or <a href="#developers">ask a developer</a>.
+    </p>
+
+    <section class="help-section help-dev" id="developers">
+        <h2>For developers</h2>
+        <p>
+            The technical documentation (architecture, database, configuration, API reference and runbooks)
+            is a separate site: <a href="{{ docs_url }}" target="_blank" rel="noopener">{{ docs_url }}</a>.
+        </p>
+        <p>
+            That site only answers while its server is running. If the link shows an error, start it first:
+            open the <strong>control panel</strong> at <a href="{{ control_panel_url }}" target="_blank" rel="noopener">{{ control_panel_url }}</a>
+            (on the PC that runs MediaCat), go to <em>Docs server</em> and click <em>Start docs server</em>.
+            Starting the Docker stack from the control panel starts it too.
+        </p>
+        <p class="text-muted">
+            The full manuals are in the MediaCat project folder: <em>MediaCat_Technical_Reference</em>
+            and <em>MediaCat_Installation_Guide</em> (Word and Markdown).
+        </p>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/help.js" defer></script>
+{% endblock %}

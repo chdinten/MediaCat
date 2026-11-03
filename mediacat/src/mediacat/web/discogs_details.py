@@ -33,6 +33,7 @@ from mediacat.db.models import Token
 from mediacat.ingestion.discogs_extras import (
     clean_field_defs,
     collection_view,
+    display_artist,
     lp_letters,
     merge_collection,
     release_extra,
@@ -373,7 +374,7 @@ def build_sheet_data(token: Token) -> dict[str, Any]:
             )
 
     return {
-        "artist": token.artist,
+        "artist": display_artist(token.artist) or None,
         "title": token.title,
         "year": token.year,
         "country": token.country.name if token.country else None,

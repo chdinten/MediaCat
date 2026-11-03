@@ -95,7 +95,7 @@ async def test_album_search_matches_title_and_catalogue_number_only() -> None:
 
 
 def _render_hits(**ctx: Any) -> str:
-    env = Jinja2Templates(directory=str(_WEB_DIR / "templates")).env
+    env = routes.add_template_filters(Jinja2Templates(directory=str(_WEB_DIR / "templates"))).env
     base: dict[str, Any] = {
         "q": "money",
         "scope": "all",
