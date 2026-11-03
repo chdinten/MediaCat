@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mediacat.db.enums import ImageRegion, MediaFormat, TokenStatus
-from mediacat.db.models import ArtistBio, MediaObject, SiteSetting, Token
+from mediacat.db.models import ArtistBio, MediaObject, SiteSetting, StreamingLink, Token
 from mediacat.ingestion import spotify as spotify_mod
 from mediacat.ingestion import wikipedia as wikipedia_mod
 from mediacat.ingestion.artist_bio import BioResult
@@ -757,25 +757,29 @@ async def test_discography_spotify_enrichment_and_token_backfill(
     fake_spotify: type[FakeSpotifyClient],
     catalogue: dict[str, Any],
 ) -> None:
+    """Owned albums get the lazy streaming icons; their Spotify URL goes to streaming_links."""
+    ds, wall, mine = (f"https://open.spotify.com/album/{c * 22}" for c in "dwm")
     await set_setting(db, "spotify_client_id", " cid ")
     await set_setting(db, "spotify_client_secret", "csecret")
-    keep = await add_token(
-        db, "Pink Floyd", "The Wall", 1980, spotify_url="https://open.spotify.com/album/mine"
-    )
+    keep = await add_token(db, "Pink Floyd", "The Wall", 1980, spotify_url=mine)
     other_artist = await add_token(db, "Roger Waters", "The Dark Side of the Moon", 2022)
     shouty = await add_token(db, "Pink Floyd", "THE WALL", 1979)  # case differs from the source
     await db.commit()
     fake_spotify.albums = [
-        {"title": "THE DARK SIDE OF THE MOON", "spotify_url": "https://open.spotify.com/album/ds"},
-        {"title": "The Wall", "spotify_url": "https://open.spotify.com/album/wall"},
+        {"title": "THE DARK SIDE OF THE MOON", "spotify_url": ds},
+        {"title": "The Wall", "spotify_url": wall},
         {"title": "Arnold Layne", "spotify_url": ""},
     ]
     stub_musicbrainz(fake_http)
 
     html = (await viewer.get("/artists/discography", params={"artist": "Pink Floyd"})).text
     assert "Source: MusicBrainz · Spotify (2)" in html
-    assert 'href="https://open.spotify.com/album/ds"' in html
-    assert 'href="https://open.spotify.com/album/wall"' in html
+    # Owned albums: the icon row loads lazily (all services), not the bare Spotify link.
+    assert (
+        'hx-get="/streaming/icons?artist=Pink%20Floyd&amp;album=The%20Dark%20Side%20of%20the%20Moon"'
+        in html
+    )
+    assert f'href="{ds}"' not in html
     (client,) = fake_spotify.instances
     assert client.credentials == ("cid", "csecret")
     assert client.calls == [("resolve_artist", "Pink Floyd"), ("fetch_artist_albums", "sp-pf")]
@@ -785,15 +789,22 @@ async def test_discography_spotify_enrichment_and_token_backfill(
         t.id: t.spotify_url
         for t in (await db.execute(select(Token).where(Token.title.isnot(None)))).scalars()
     }
-    assert spotify[catalogue["floyd1"].id] == "https://open.spotify.com/album/ds"
-    assert spotify[catalogue["floyd2"].id] == "https://open.spotify.com/album/wall"
-    assert spotify[keep.id] == "https://open.spotify.com/album/mine"  # never overwritten
-    assert spotify[shouty.id] == "https://open.spotify.com/album/wall"
+    assert spotify[catalogue["floyd1"].id] == ds
+    # The Wall already had a URL on one pressing: it wins and the album is kept in step.
+    assert spotify[catalogue["floyd2"].id] == mine
+    assert spotify[keep.id] == mine
+    assert spotify[shouty.id] == mine
     assert spotify[other_artist.id] is None
+    links = {
+        r.album_key: (r.url, r.status)
+        for r in (await db.execute(select(StreamingLink))).scalars()
+        if r.service == "spotify"
+    }
+    assert links == {"the dark side of the moon": (ds, "found"), "the wall": (mine, "found")}
     row = await bio_row(db, "Pink Floyd")
     assert row is not None
     assert row.disco_data is not None
-    assert row.disco_data[0]["spotify_url"] == "https://open.spotify.com/album/ds"
+    assert row.disco_data[0]["spotify_url"] == ds
 
 
 @pytest.mark.parametrize(

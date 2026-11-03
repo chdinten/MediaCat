@@ -1,3 +1,4 @@
+{% from "partials/streaming_slot.html" import streaming_slot %}
 {# Right panel of the catalogue browser: one pressing.  The header takes its
    colour from the cover (catalogue_browser.js); below 1100 px the panel is a
    drawer with a close button. #}
@@ -21,6 +22,7 @@
             {% if preview.year %}<span class="mc-tag">{{ preview.year }}</span>{% endif %}
             {% if preview.catno %}<span class="mc-tag mc-tag--id">{{ preview.catno }}</span>{% endif %}
         </div>
+        {{ streaming_slot(preview.artist, preview.album) }}
         <dl class="mc-preview-dl">
             {% if preview.label %}<dt>Label</dt><dd>{{ preview.label }}</dd>{% endif %}
             {% if preview.matrix_a %}<dt>Matrix A</dt><dd class="mc-mono">{{ preview.matrix_a }}</dd>{% endif %}

@@ -942,3 +942,47 @@ class DiscogsSalesImport(Base):
             f"<DiscogsSalesImport token={self.token_id}"
             f" rows={self.row_count} conf={self.valuation_confidence}>"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Streaming-service album links
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class StreamingLink(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """One album's page on one streaming service (or the fact that it has none).
+
+    Albums are derived from Token (artist + title), so the row is keyed by the
+    normalised ``artist_key`` / ``album_key`` (``ingestion.streaming``) and the
+    service.  ``status``: ``found`` (auto-matched), ``not_found`` (cached miss,
+    re-checked after 30 days) or ``manual`` (set by a user; ``url`` NULL means
+    "not on this service"; never overwritten by auto-matching).
+    """
+
+    __tablename__ = "streaming_links"
+    __table_args__ = (
+        UniqueConstraint("artist_key", "album_key", "service", name="uq_streaming_links_album"),
+    )
+
+    artist_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    album_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    service: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Artist / title as last looked up, for people reading the table.
+    artist_name: Mapped[str | None] = mapped_column(String(500))
+    album_title: Mapped[str | None] = mapped_column(String(500))
+    url: Mapped[str | None] = mapped_column(String(500))
+    external_id: Mapped[str | None] = mapped_column(String(100))
+    match_method: Mapped[str | None] = mapped_column(String(20))  # barcode | search | manual
+    match_score: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # found | not_found | manual
+    checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<StreamingLink {self.service} {self.artist_key!r}/{self.album_key!r} {self.status}>"
+        )

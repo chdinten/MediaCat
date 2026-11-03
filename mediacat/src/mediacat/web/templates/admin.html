@@ -17,6 +17,7 @@
     <a href="/admin?tab=debug"         class="admin-tab {% if tab == 'debug'        %}admin-tab--active{% endif %}">Debug</a>
     <a href="/admin?tab=layout"        class="admin-tab {% if tab == 'layout'       %}admin-tab--active{% endif %}">Layout</a>
     <a href="/admin?tab=api-tokens"   class="admin-tab {% if tab == 'api-tokens'   %}admin-tab--active{% endif %}">API Tokens</a>
+    <a href="/admin?tab=streaming"    class="admin-tab {% if tab == 'streaming'    %}admin-tab--active{% endif %}">Streaming</a>
 </nav>
 
 {# ══════════════════════════════════════════════════════
@@ -561,6 +562,81 @@
         <button type="submit" class="btn btn-ghost btn-sm">Restore the built-in background</button>
     </form>
     {% endif %}
+</div>
+
+{% elif tab == 'streaming' %}
+
+{# ══════════════════════════════════════════════════════
+   STREAMING TAB — album links to Spotify / Deezer / Apple Music (web/streaming.py)
+   ══════════════════════════════════════════════════════ #}
+{% from "partials/streaming_slot.html" import service_logo %}
+{% if request.query_params.get('st_msg') == 'saved' %}
+<div class="alert alert-success">Streaming settings saved.</div>
+{% endif %}
+{% if request.query_params.get('st_error') == 'country' %}
+<div class="alert alert-danger">The country must be a two-letter code such as CH.</div>
+{% elif request.query_params.get('st_error') == 'db' %}
+<div class="alert alert-danger">Failed to save — check server logs.</div>
+{% endif %}
+
+<div class="admin-section">
+    <h2>Streaming services</h2>
+    <p class="text-muted" style="margin-bottom:1rem">
+        Albums get a small icon per service that has them; a click opens the album in the
+        user's own app or web player. MediaCat stores no streaming logins. Deezer and
+        Apple Music need no account; Spotify shows only once its Client ID and Secret are
+        set under <a href="/admin?tab=api-tokens">API Tokens</a>.
+    </p>
+    <form method="post" action="/admin/streaming/settings">
+        <table class="data-table streaming-admin-table">
+            <thead>
+                <tr><th>Service</th><th>On</th><th>Account</th><th>Found</th><th>Not found</th><th>Set by hand</th></tr>
+            </thead>
+            <tbody>
+            {% for s in streaming.services %}
+            <tr>
+                <td>{{ service_logo(s.key) }} {{ s.label }}</td>
+                <td><input type="checkbox" name="service_{{ s.key }}" id="st-{{ s.key }}"{% if s.enabled %} checked{% endif %}
+                           aria-label="Show {{ s.label }} links"></td>
+                <td>{% if not s.needs_account %}<span class="text-muted">not needed</span>
+                    {% elif s.configured %}configured
+                    {% else %}<span class="text-danger">missing — icons hidden</span>{% endif %}</td>
+                <td>{{ s.counts.found }}</td>
+                <td>{{ s.counts.not_found }}</td>
+                <td>{{ s.counts.manual }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div style="display:flex;gap:0.75rem;align-items:end;margin-top:1rem;flex-wrap:wrap">
+            <div>
+                <label for="st-country" class="form-label">Country / storefront</label>
+                <input id="st-country" type="text" name="country" value="{{ streaming.country }}" class="filter-select"
+                       style="width:5rem;text-transform:uppercase" maxlength="2" pattern="[A-Za-z]{2}" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </div>
+        <p class="text-muted" style="margin-top:0.5rem;font-size:0.85em">
+            Used for Apple Music (<code>country=</code>) and Spotify (album must be available there).
+            Deezer has no country filter.
+        </p>
+    </form>
+</div>
+
+<div class="admin-section">
+    <h2>Match all albums</h2>
+    <p class="text-muted" style="margin-bottom:1rem">
+        Looks up every album that has no cached result yet, barcode first, then artist + title.
+        Albums otherwise get looked up when they are first shown. Apple Music allows about
+        20 lookups a minute, so a large catalogue takes a while; the job runs on the server
+        and can be left.
+    </p>
+    <form hx-post="/admin/streaming/match" hx-target="#streaming-job" hx-swap="outerHTML"
+          style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">
+        <label><input type="checkbox" name="recheck"> Also re-check albums marked "not found"</label>
+        <button type="submit" class="btn btn-primary btn-sm">Match all albums</button>
+    </form>
+    {% with job = streaming.job %}{% include "partials/streaming_job.html" %}{% endwith %}
 </div>
 
 {% elif tab == 'api-tokens' %}

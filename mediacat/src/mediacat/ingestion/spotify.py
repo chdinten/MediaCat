@@ -154,6 +154,19 @@ class SpotifyClient:
             return None, artists
         return max(exact, key=lambda a: a.get("popularity", 0)), artists
 
+    async def search_albums(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Raw album objects for a search *query* (``upc:…`` or ``album:… artist:…``).
+
+        No ``market`` parameter (see the note on :meth:`fetch_artist_albums`);
+        callers check ``available_markets`` themselves.
+        """
+        data = await self._get(
+            f"{_API_BASE}/search",
+            params={"q": query, "type": "album", "limit": limit},
+        )
+        items: list[dict[str, Any]] = data.get("albums", {}).get("items", []) or []
+        return [i for i in items if isinstance(i, dict)]
+
     async def fetch_artist_albums(
         self,
         artist_id: str,

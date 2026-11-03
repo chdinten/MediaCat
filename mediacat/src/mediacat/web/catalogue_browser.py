@@ -443,6 +443,7 @@ def _versions_view(
         )
     formats = Counter(r["format"] for r in rows)
     return {
+        "artist": artist,
         "title": album,
         "display": album or "Untitled",
         "rows": rows,
@@ -472,6 +473,7 @@ def _preview_view(token: Token) -> dict[str, Any]:
         "id": str(token.id),
         "artist": token.artist or "",
         "title": token.title or "Untitled",
+        "album": token.title or "",
         "name": pressing_label(token),
         "cover_url": _cover_url(token),
         "format": _format_label(token),

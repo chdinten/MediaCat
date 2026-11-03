@@ -1,0 +1,17 @@
+{# Streaming-service icons of one album, loaded when the slot scrolls into view
+   (web/streaming.py).  Import: {% from "partials/streaming_slot.html" import streaming_slot %}
+   An untitled album gets no slot. #}
+{% macro streaming_slot(artist, album, extra_class='') -%}
+{% if artist and album %}<span class="stream-links stream-links--slot {{ extra_class }}"
+      hx-get="/streaming/icons?artist={{ artist | urlencode }}&amp;album={{ album | urlencode }}"
+      hx-trigger="intersect once" hx-swap="outerHTML"></span>{% endif %}
+{%- endmacro %}
+
+{# One service logo, unaltered (static/streaming/).  Spotify's green icon is only
+   for black or white backgrounds, so the white / black icon follows the theme. #}
+{% macro service_logo(service) -%}
+{% if service == 'spotify' %}<img class="stream-logo stream-logo--on-dark" src="/static/streaming/spotify-white.svg" alt="" width="22" height="22"><img class="stream-logo stream-logo--on-light" src="/static/streaming/spotify-black.svg" alt="" width="22" height="22">
+{%- elif service == 'deezer' %}<img class="stream-logo" src="/static/streaming/deezer.png" alt="" width="22" height="22">
+{%- elif service == 'apple' %}<img class="stream-logo" src="/static/streaming/apple-music.svg" alt="" width="22" height="22">
+{%- endif %}
+{%- endmacro %}

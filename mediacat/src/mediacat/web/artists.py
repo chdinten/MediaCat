@@ -852,26 +852,26 @@ async def _backfill_token_spotify_urls(
     artist_name: str,
     discography: list[dict[str, Any]],
 ) -> None:
-    """Set tokens.spotify_url for owned pressings that match enriched album titles."""
+    """Record enriched Spotify URLs of owned albums in ``streaming_links``.
+
+    Only albums without a Spotify row yet: a barcode match or a user's
+    correction is never replaced by this title-only match.  The streaming
+    store keeps ``tokens.spotify_url`` in step.
+    """
+    from mediacat.web.streaming import seed_spotify
+
     url_by_title = {
         a["title"]: a["spotify_url"] for a in discography if a.get("spotify_url") and a.get("title")
     }
     if not url_by_title:
         return
 
+    in_db = await _in_db_titles(request, artist_name)
+    seeded = 0
     async with _sf(request)() as db:
         for title, spotify_url in url_by_title.items():
-            await db.execute(
-                update(Token)
-                .where(Token.artist == artist_name)
-                .where(func.lower(Token.title) == title.lower())
-                .where(Token.spotify_url.is_(None))
-                .values(spotify_url=spotify_url)
-            )
+            if title.lower() in in_db:
+                seeded += await seed_spotify(db, artist_name, title, spotify_url)
         await db.commit()
 
-    logger.info(
-        "Spotify: backfilled tokens.spotify_url for %d album(s) of %r",
-        len(url_by_title),
-        artist_name,
-    )
+    logger.info("Spotify: recorded %d album link(s) of %r", seeded, artist_name)

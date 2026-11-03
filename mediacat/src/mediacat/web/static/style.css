@@ -3689,7 +3689,7 @@ dialog, .modal { border-radius: 0; background: var(--bg-elevated); border: 1px s
     font-size: 0.75rem;
 }
 .disco-type { padding: 0.4rem 0.75rem; text-align: right; white-space: nowrap; font-size: 0.78rem; }
-.disco-spotify { padding: 0.4rem 0.5rem 0.4rem 0; width: 1.5rem; text-align: center; }
+.disco-spotify { padding: 0.4rem 0.5rem 0.4rem 0; white-space: nowrap; text-align: right; }
 .disco-meta { margin-bottom: 0.5rem; }
 
 /* ── Discography loading state ───────────────────────────── */
@@ -3706,20 +3706,99 @@ dialog, .modal { border-radius: 0; background: var(--bg-elevated); border: 1px s
     to { transform: rotate(360deg); }
 }
 
-/* ── Spotify links ───────────────────────────────────────── */
-.spotify-link {
+/* ── Streaming-service links (web/streaming.py) ─────────────
+   Official logos, unaltered (static/streaming/).  Spotify's icon is white on
+   the dark theme and black on the light one (its green version is only for
+   pure black / white backgrounds).  Spotify asks for >= 21 px. */
+.stream-links {
     display: inline-flex;
     align-items: center;
-    color: #1DB954;
+    gap: 0.45rem;
+    min-height: 22px;
+    vertical-align: middle;
+}
+.stream-links--slot:empty, .stream-links--none { min-width: 1px; }
+.stream-link {
+    display: inline-flex;
+    line-height: 0;
+    border-radius: 50%;
+    opacity: 0.85;
+    transition: opacity 0.15s, transform 0.15s;
+}
+.stream-link:hover, .stream-link:focus-visible { opacity: 1; transform: scale(1.08); }
+.stream-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stream-logo { width: 22px; height: 22px; display: block; }
+.stream-logo--on-light { display: none; }
+[data-theme="light"] .stream-logo--on-dark { display: none; }
+[data-theme="light"] .stream-logo--on-light { display: block; }
+.stream-edit {
+    color: var(--text-muted);
     text-decoration: none;
-    opacity: 0.75;
-    transition: opacity 0.15s;
+    font-size: 0.8rem;
+    line-height: 1;
+    padding: 0.15rem 0.2rem;
+    opacity: 0.6;
 }
-.spotify-link:hover { opacity: 1; }
-.spotify-link--detail {
-    font-size: 0.85rem;
-    gap: 0.25rem;
+.stream-edit:hover, .stream-edit:focus-visible { opacity: 1; color: var(--accent); }
+.stream-searching { font-size: 0.72rem; color: var(--text-muted); font-style: italic; }
+.stream-links--pending .stream-searching::before {
+    content: "";
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    margin-right: 0.3rem;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: disco-spin 0.9s linear infinite;
+    vertical-align: -1px;
 }
+@media (prefers-reduced-motion: reduce) {
+    .stream-links--pending .stream-searching::before { animation: none; }
+}
+
+/* Dashboard cards: the icon row sits under the card (cards are links themselves). */
+.recent-item {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.stream-links--card { padding: 0 2px; }
+.mc-preview-body > .stream-links { margin: 0.25rem 0 0.75rem; }
+
+/* Admin → Streaming */
+.streaming-admin-table td { vertical-align: middle; }
+.streaming-admin-table .stream-logo { display: inline-block; vertical-align: middle; margin-right: 0.35rem; }
+[data-theme="light"] .streaming-admin-table .stream-logo--on-dark { display: none; }
+.streaming-job-bar {
+    height: 6px;
+    background: var(--surface-high);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+.streaming-job-bar > span { display: block; height: 100%; background: var(--accent); transition: width 0.4s; }
+.streaming-job-status { margin: 0 0 0.25rem; }
+.streaming-job-counts { font-size: 0.85em; margin: 0 0 0.5rem; }
+
+/* "Edit links" page */
+.streaming-edit { max-width: 640px; }
+.streaming-edit-hint { font-size: 0.85em; }
+.streaming-edit-row {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin: 0 0 0.9rem;
+    display: grid;
+    gap: 0.4rem;
+}
+.streaming-edit-row legend { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; padding: 0 0.3rem; }
+.streaming-edit-row--error { border-color: var(--danger, #c0392b); }
+.streaming-edit-state { margin: 0; font-size: 0.85em; }
+.streaming-edit-url { width: 100%; }
+.streaming-edit-actions { display: flex; gap: 0.75rem; }
 
 /* ── Vinyl material row ──────────────────────────────────── */
 .vinyl-material-row {

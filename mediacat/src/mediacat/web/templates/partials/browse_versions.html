@@ -1,9 +1,11 @@
 {# Pressings of the open album.  Clicking a row, or ↑/↓, previews the pressing in
    the right panel and replaces the URL (no new Back step); Enter opens it.  The
    album route also empties the preview, out of band. #}
+{% from "partials/streaming_slot.html" import streaming_slot %}
 <div class="mc-section-head">
     <h3 class="mc-section-title">{{ versions.display }}</h3>
     {% if versions.summary %}<span class="mc-section-count">{{ versions.summary }}</span>{% endif %}
+    {{ streaming_slot(versions.artist, versions.title) }}
 </div>
 {% if versions.rows %}
 <table class="mc-table">

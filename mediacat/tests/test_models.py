@@ -22,6 +22,7 @@ EXPECTED_TABLES = {
     "review_items",
     "audit_log",
     "discogs_sales_imports",
+    "streaming_links",
 }
 
 

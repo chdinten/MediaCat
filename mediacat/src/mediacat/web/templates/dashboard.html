@@ -1,4 +1,5 @@
 {% extends layout_base %}
+{% from "partials/streaming_slot.html" import streaming_slot %}
 {% block title %}Dashboard — MediaCat{% endblock %}
 
 {% block body_class %}dash-page{% endblock %}
@@ -83,6 +84,7 @@
         {% for token in recent %}
         {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
         {% if not cover %}{% set cover = token.media_objects | selectattr('region') | selectattr('region.value', 'equalto', 'cover_front') | list | first %}{% endif %}
+        <div class="recent-item">
         <a href="/catalogue/{{ token.id }}" class="recent-card">
             <div class="recent-cover">
                 <!-- Vinyl disc — slides right on hover -->
@@ -116,6 +118,8 @@
                 <div class="recent-token-id">{{ token.id }}</div>
             </div>
         </a>
+        {{ streaming_slot(token.artist, token.title, 'stream-links--card') }}
+        </div>
         {% endfor %}
     </div>
 </section>
@@ -136,6 +140,7 @@
         {% for token in top_rated %}
         {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
         {% if not cover %}{% set cover = token.media_objects | list | first %}{% endif %}
+        <div class="recent-item">
         <a href="/catalogue/{{ token.id }}" class="recent-card">
             <div class="recent-cover">
                 <div class="vinyl-disc" aria-hidden="true">
@@ -165,6 +170,8 @@
                 </div>
             </div>
         </a>
+        {{ streaming_slot(token.artist, token.title, 'stream-links--card') }}
+        </div>
         {% endfor %}
     </div>
 </section>
@@ -182,6 +189,7 @@
         {% for token in gc.tokens %}
         {% set cover = token.media_objects | selectattr('is_primary_cover') | list | first %}
         {% if not cover %}{% set cover = token.media_objects | list | first %}{% endif %}
+        <div class="recent-item">
         <a href="/catalogue/{{ token.id }}" class="recent-card">
             <div class="recent-cover">
                 <div class="vinyl-disc" aria-hidden="true">
@@ -216,6 +224,8 @@
                 </div>
             </div>
         </a>
+        {{ streaming_slot(token.artist, token.title, 'stream-links--card') }}
+        </div>
         {% endfor %}
     </div>
 </section>

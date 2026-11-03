@@ -1,0 +1,44 @@
+{% extends layout_base %}
+{% block title %}Streaming links — {{ artist }} — {{ album }} — MediaCat{% endblock %}
+
+{% block content %}
+{% from "partials/streaming_slot.html" import service_logo %}
+<div class="auth-card streaming-edit">
+    <h1>Streaming links</h1>
+    <p class="text-muted">{{ artist }} — <strong>{{ album }}</strong></p>
+    <p class="text-muted streaming-edit-hint">
+        Paste the album's page from the service when the automatic match is wrong or missing,
+        or mark the album as not on that service. Your choice is never overwritten by automatic matching;
+        "Automatic" hands the album back to it.
+    </p>
+    {% if rows %}
+    <form method="post" action="/streaming/edit">
+        <input type="hidden" name="artist" value="{{ artist }}">
+        <input type="hidden" name="album" value="{{ album }}">
+        <input type="hidden" name="back" value="{{ back }}">
+        {% for row in rows %}
+        <fieldset class="streaming-edit-row{% if errors.get(row.service) %} streaming-edit-row--error{% endif %}">
+            <legend>{{ service_logo(row.service) }} {{ row.label }}</legend>
+            <p class="text-muted streaming-edit-state">{{ row.state }}{% if row.current %} ·
+                <a href="{{ row.current }}" target="_blank" rel="noopener noreferrer">open current link ↗</a>{% endif %}</p>
+            <label><input type="radio" name="mode_{{ row.service }}" value="auto"{% if row.mode == 'auto' %} checked{% endif %}> Automatic</label>
+            <label><input type="radio" name="mode_{{ row.service }}" value="url"{% if row.mode == 'url' %} checked{% endif %}> This link:</label>
+            <input type="url" name="url_{{ row.service }}" value="{{ row.url }}" class="filter-select streaming-edit-url"
+                   placeholder="{% if row.service == 'spotify' %}https://open.spotify.com/album/…{% elif row.service == 'deezer' %}https://www.deezer.com/album/…{% else %}https://music.apple.com/ch/album/…{% endif %}"
+                   aria-label="{{ row.label }} album link">
+            <label><input type="radio" name="mode_{{ row.service }}" value="none"{% if row.mode == 'none' %} checked{% endif %}> Not on {{ row.label }}</label>
+            {% if errors.get(row.service) %}<p class="alert alert-danger" role="alert">{{ errors[row.service] }}</p>{% endif %}
+        </fieldset>
+        {% endfor %}
+        <div class="streaming-edit-actions">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a href="{{ back }}" class="btn btn-ghost">Cancel</a>
+        </div>
+    </form>
+    {% else %}
+    <p>No streaming service is switched on. An admin can turn them on in Admin → Streaming.</p>
+    <a href="{{ back }}" class="btn btn-ghost">Back</a>
+    {% endif %}
+    {% if disabled and rows %}<p class="text-muted streaming-edit-hint">Not shown (switched off or not configured): {{ disabled | join(', ') }}.</p>{% endif %}
+</div>
+{% endblock %}

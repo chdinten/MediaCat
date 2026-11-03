@@ -78,6 +78,7 @@ async def admin_home(request: Request, tab: str = "users") -> HTMLResponse:
         "layout",
         "housekeeping",
         "api-tokens",
+        "streaming",
     ):
         tab = "users"
 
@@ -271,6 +272,12 @@ async def admin_home(request: Request, tab: str = "users") -> HTMLResponse:
 
         background = await admin_view(request)
 
+    streaming: dict[str, Any] = {}
+    if tab == "streaming":
+        from mediacat.web.streaming import admin_view as streaming_admin_view
+
+        streaming = await streaming_admin_view(request)
+
     context = _ctx(
         request,
         tab=tab,
@@ -283,6 +290,7 @@ async def admin_home(request: Request, tab: str = "users") -> HTMLResponse:
         discogs_import_count=discogs_import_count,
         api_credentials=api_credentials,
         background=background,
+        streaming=streaming,
     )
     return _tmpl().TemplateResponse(request=request, name="admin.html", context=context)
 
@@ -732,7 +740,8 @@ _API_CREDENTIALS_META: list[dict[str, str]] = [
     {
         "key": "spotify_client_id",
         "label": "Spotify Client ID",
-        "hint": "From developer.spotify.com → Dashboard → your app. Used for artist discography.",
+        "hint": "From developer.spotify.com → Dashboard → your app. "
+        "Used for artist discography and Spotify streaming links.",
         "url": "https://developer.spotify.com/dashboard",
         "secret": "false",  # "secret" is a yes/no display flag  # nosec B105
     },
@@ -1284,6 +1293,7 @@ _BACKUP_TABLES = [
     "token_price_history",
     "token_symbols",
     "review_items",
+    "streaming_links",
 ]
 
 _JSON_DEFAULT = str  # fallback serialiser for uuid / datetime / Decimal

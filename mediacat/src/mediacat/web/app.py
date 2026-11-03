@@ -356,4 +356,8 @@ def create_app() -> FastAPI:
 
     app.include_router(background_router)
 
+    from mediacat.web.streaming import streaming_router
+
+    app.include_router(streaming_router)
+
     return app

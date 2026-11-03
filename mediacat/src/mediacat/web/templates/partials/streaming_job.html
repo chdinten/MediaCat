@@ -1,0 +1,27 @@
+{# Progress of Admin → Streaming → "Match all albums" (web/streaming.py).
+   Polls itself every 2 s while the job runs. #}
+<div id="streaming-job" class="streaming-job"
+     {% if job.running %}hx-get="/admin/streaming/match/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+    {% if job.exists %}
+    <div class="streaming-job-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ job.pct }}"
+         aria-label="Match all albums progress"><span style="width:{{ job.pct }}%"></span></div>
+    <p class="streaming-job-status">
+        {% if job.running %}Running — {{ job.done }} of {{ job.total or '…' }} albums{% if job.current %} · <span class="text-muted">{{ job.current }}</span>{% endif %}
+        {% elif job.failed %}<span class="text-danger">Failed: {{ job.failed }}</span>
+        {% elif job.stopped %}Stopped after {{ job.done }} of {{ job.total }} albums ({{ job.finished_at }} UTC)
+        {% else %}Finished — {{ job.done }} albums ({{ job.finished_at }} UTC)
+        {% endif %}
+    </p>
+    <p class="text-muted streaming-job-counts">
+        {{ job.looked_up }} looked up
+        {% for s, label in job.labels.items() %} · {{ label }}: {{ job.found[s] }} found, {{ job.not_found[s] }} not found{% endfor %}
+        {% if job.errors %} · {{ job.errors }} errors (retried later){% endif %}
+    </p>
+    {% if job.running %}
+    <button type="button" class="btn btn-ghost btn-sm" hx-post="/admin/streaming/match/stop"
+            hx-target="#streaming-job" hx-swap="outerHTML">Stop</button>
+    {% endif %}
+    {% else %}
+    <p class="text-muted">Not run since the app started.</p>
+    {% endif %}
+</div>

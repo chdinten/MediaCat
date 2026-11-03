@@ -1,0 +1,21 @@
+{# Icons of one album (GET /streaming/icons).  While a lookup still runs the
+   row asks again after a few seconds.  Links open the user's own app / player
+   in one named window per service ("mediacat-spotify", …): the next album
+   replaces the previous one there instead of opening yet another window.
+   That needs the opener link, so no rel="noopener"; referrerpolicy keeps the
+   MediaCat URL from being sent. #}
+{% from "partials/streaming_slot.html" import service_logo %}
+{% if show %}
+<span class="stream-links{% if pending %} stream-links--pending{% endif %}"
+      {% if pending %}hx-get="{{ icons_url }}" hx-trigger="load delay:3s" hx-swap="outerHTML" aria-busy="true"{% endif %}>
+    {% for link in links %}
+    <a class="stream-link stream-link--{{ link.service }}" href="{{ link.url }}" target="mediacat-{{ link.service }}" referrerpolicy="no-referrer"
+       title="Open in {{ link.label }}" aria-label="Open in {{ link.label }}">{{ service_logo(link.service) }}</a>
+    {% endfor %}
+    {% if pending %}<span class="stream-searching" role="status">Looking up streaming links…</span>{% endif %}
+    <a class="stream-edit" href="{{ edit_url }}" title="Edit streaming links"
+       aria-label="Edit streaming links of {{ album }}">✎</a>
+</span>
+{% else %}
+<span class="stream-links stream-links--none"></span>
+{% endif %}

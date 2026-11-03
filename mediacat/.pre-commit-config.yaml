@@ -18,7 +18,9 @@ repos:
       - id: check-toml
       - id: check-json
       - id: end-of-file-fixer
+        exclude: ^mediacat/src/mediacat/web/static/streaming/  # official logos, byte-identical to the brand downloads
       - id: trailing-whitespace
+        exclude: ^mediacat/src/mediacat/web/static/streaming/  # official logos, byte-identical to the brand downloads
       - id: mixed-line-ending
         args: [--fix=lf]
         exclude: \.bat$  # cmd.exe needs CRLF (see /.gitattributes)
